@@ -27,6 +27,17 @@ type updateUserStatusRequest struct {
 	Status string `json:"status"`
 }
 
+type upsertUserGroupRequest struct {
+	RoleCode    string `json:"roleCode"`
+	RoleName    string `json:"roleName"`
+	Description string `json:"description"`
+}
+
+type updateUserGroupsRequest struct {
+	RoleIDs       []uint `json:"roleIds"`
+	PrimaryRoleID uint   `json:"primaryRoleId"`
+}
+
 func NewSystemHandler(authService *service.AuthService, userService *service.UserService) *SystemHandler {
 	return &SystemHandler{
 		authService: authService,
@@ -148,6 +159,176 @@ func (h *SystemHandler) UpdateUserStatus(c *gin.Context) {
 			response.Error(c, http.StatusNotFound, 40401, "user not found")
 		default:
 			response.Error(c, http.StatusInternalServerError, 50001, "failed to update user status")
+		}
+		return
+	}
+
+	response.Success(c, gin.H{"updated": true})
+}
+
+func (h *SystemHandler) ListUserGroups(c *gin.Context) {
+	result, err := h.userService.ListUserGroups(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, 50001, "failed to query user groups")
+		return
+	}
+	response.Success(c, gin.H{"items": result})
+}
+
+func (h *SystemHandler) CreateUserGroup(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		return
+	}
+
+	var req upsertUserGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, 40001, "invalid user group payload")
+		return
+	}
+
+	result, err := h.userService.CreateUserGroup(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		service.CreateUserGroupInput{
+			RoleCode:    strings.TrimSpace(req.RoleCode),
+			RoleName:    strings.TrimSpace(req.RoleName),
+			Description: strings.TrimSpace(req.Description),
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidRoleCode), errors.Is(err, service.ErrInvalidRoleName), errors.Is(err, service.ErrRoleCodeExists):
+			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, 50001, "failed to create user group")
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SystemHandler) UpdateUserGroup(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		return
+	}
+
+	roleID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, 40002, "invalid group id")
+		return
+	}
+
+	var req upsertUserGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, 40001, "invalid user group payload")
+		return
+	}
+
+	result, err := h.userService.UpdateUserGroup(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		roleID,
+		service.UpdateUserGroupInput{
+			RoleCode:    strings.TrimSpace(req.RoleCode),
+			RoleName:    strings.TrimSpace(req.RoleName),
+			Description: strings.TrimSpace(req.Description),
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrRoleNotFound):
+			response.Error(c, http.StatusNotFound, 40401, err.Error())
+		case errors.Is(err, service.ErrSystemRoleLocked):
+			response.Error(c, http.StatusBadRequest, 40003, err.Error())
+		case errors.Is(err, service.ErrInvalidRoleCode), errors.Is(err, service.ErrInvalidRoleName), errors.Is(err, service.ErrRoleCodeExists):
+			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, 50001, "failed to update user group")
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SystemHandler) DeleteUserGroup(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		return
+	}
+
+	roleID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, 40002, "invalid group id")
+		return
+	}
+
+	if err := h.userService.DeleteUserGroup(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		roleID,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	); err != nil {
+		switch {
+		case errors.Is(err, service.ErrRoleNotFound):
+			response.Error(c, http.StatusNotFound, 40401, err.Error())
+		case errors.Is(err, service.ErrSystemRoleLocked), errors.Is(err, service.ErrRoleInUse):
+			response.Error(c, http.StatusBadRequest, 40003, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, 50001, "failed to delete user group")
+		}
+		return
+	}
+
+	response.Success(c, gin.H{"deleted": true})
+}
+
+func (h *SystemHandler) UpdateUserGroups(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		return
+	}
+
+	userID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, 40002, "invalid user id")
+		return
+	}
+
+	var req updateUserGroupsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, 40001, "invalid user groups payload")
+		return
+	}
+
+	if err := h.userService.UpdateUserGroups(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		userID,
+		service.UpdateUserGroupsInput{
+			RoleIDs:       req.RoleIDs,
+			PrimaryRoleID: req.PrimaryRoleID,
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidRoleList), errors.Is(err, service.ErrCannotDemoteRoot):
+			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+		case repository.IsRecordNotFound(err):
+			response.Error(c, http.StatusNotFound, 40401, "user not found")
+		default:
+			response.Error(c, http.StatusInternalServerError, 50001, "failed to update user groups")
 		}
 		return
 	}

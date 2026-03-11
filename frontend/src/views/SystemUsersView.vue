@@ -4,7 +4,7 @@
       <template #header>
         <div class="header-row">
           <strong>用户管理</strong>
-          <el-button type="primary" :loading="loading" @click="loadUsers">
+          <el-button type="primary" :loading="loadingUsers" @click="handleRefresh">
             刷新
           </el-button>
         </div>
@@ -31,7 +31,7 @@
         <el-button type="primary" @click="handleSearch">查询</el-button>
       </div>
 
-      <el-table v-loading="loading" :data="rows" border>
+      <el-table v-loading="loadingUsers" :data="rows" border>
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="username" label="用户名" min-width="120" />
         <el-table-column prop="realName" label="姓名" min-width="140" />
@@ -40,9 +40,19 @@
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="主要角色" min-width="120">
+        <el-table-column label="用户组" min-width="220">
           <template #default="{ row }">
-            {{ row.primaryRole || "-" }}
+            <div v-if="displayRoleNames(row).length > 0" class="group-tags">
+              <el-tag
+                v-for="name in displayRoleNames(row)"
+                :key="`${row.id}-${name}`"
+                size="small"
+                effect="plain"
+              >
+                {{ name }}
+              </el-tag>
+            </div>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="强制改密" width="130">
@@ -57,14 +67,10 @@
             {{ formatTimestamp(row.lastLoginAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="320" fixed="right">
+        <el-table-column label="操作" min-width="420" fixed="right">
           <template #default="{ row }">
             <div class="action-row">
-              <el-button
-                size="small"
-                @click="handleResetPassword(row.id)"
-                :disabled="!canManageUsers"
-              >
+              <el-button size="small" :disabled="!canManageUsers" @click="handleResetPassword(row.id)">
                 重置密码
               </el-button>
               <el-select
@@ -78,6 +84,16 @@
                 <el-option label="停用" value="inactive" />
                 <el-option label="锁定" value="locked" />
               </el-select>
+              <el-button
+                v-if="isRoot"
+                size="small"
+                type="primary"
+                plain
+                :disabled="loadingGroups"
+                @click="openUserGroupDialog(row)"
+              >
+                编辑用户组
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -96,6 +112,120 @@
         />
       </div>
     </el-card>
+
+    <el-card v-if="isRoot">
+      <template #header>
+        <div class="header-row">
+          <strong>用户组管理</strong>
+          <div class="header-actions">
+            <el-button :loading="loadingGroups" @click="loadUserGroups">刷新</el-button>
+            <el-button type="primary" @click="openGroupForm()">新增用户组</el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-table v-loading="loadingGroups" :data="userGroups" border>
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="roleName" label="组名" min-width="160" />
+        <el-table-column prop="roleCode" label="编码" min-width="160" />
+        <el-table-column prop="description" label="描述" min-width="220">
+          <template #default="{ row }">
+            {{ row.description || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.isSystem ? 'info' : 'success'">
+              {{ row.isSystem ? "系统" : "自定义" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="200" fixed="right">
+          <template #default="{ row }">
+            <div class="action-row">
+              <el-button
+                size="small"
+                :disabled="row.isSystem"
+                @click="openGroupForm(row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :disabled="row.isSystem"
+                @click="handleDeleteGroup(row)"
+              >
+                删除
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-dialog
+      v-model="userGroupDialogVisible"
+      width="520px"
+      :title="`编辑用户组 - ${activeUser?.username ?? ''}`"
+      destroy-on-close
+    >
+      <div v-if="userGroups.length === 0" class="empty-tip">
+        暂无可选用户组。
+      </div>
+      <el-checkbox-group v-else v-model="selectedRoleIDs" class="role-checkbox-group">
+        <el-checkbox
+          v-for="group in userGroups"
+          :key="group.id"
+          :label="group.id"
+          border
+        >
+          {{ group.roleName }} ({{ group.roleCode }})
+        </el-checkbox>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="userGroupDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="updatingUserGroups" @click="handleSubmitUserGroups">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="groupFormVisible"
+      width="540px"
+      :title="editingGroupID ? '编辑用户组' : '新增用户组'"
+      destroy-on-close
+    >
+      <el-form label-width="88px">
+        <el-form-item label="组名" required>
+          <el-input v-model="groupForm.roleName" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="编码">
+          <el-input
+            v-model="groupForm.roleCode"
+            maxlength="50"
+            placeholder="留空自动生成，如：ops-team"
+          />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="groupForm.description"
+            type="textarea"
+            :rows="3"
+            maxlength="300"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="groupFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingGroup" @click="handleSaveGroup">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -104,13 +234,25 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { http } from "@/api/http";
 import { useAppStore } from "@/stores/app";
-import type { UserListItem, UserListResponse, UserStatus } from "@/types/system";
+import type {
+  UserGroupItem,
+  UserGroupListResponse,
+  UserListItem,
+  UserListResponse,
+  UserStatus,
+} from "@/types/system";
 
 const appStore = useAppStore();
 
-const loading = ref(false);
+const loadingUsers = ref(false);
+const loadingGroups = ref(false);
+const savingGroup = ref(false);
+const updatingUserGroups = ref(false);
+
 const rows = ref<UserListItem[]>([]);
 const total = ref(0);
+const userGroups = ref<UserGroupItem[]>([]);
+
 const query = reactive({
   page: 1,
   pageSize: 20,
@@ -119,9 +261,22 @@ const query = reactive({
 });
 
 const canManageUsers = computed(() => appStore.hasPermission("user:update"));
+const isRoot = computed(() => appStore.roles.includes("root") || appStore.primaryRole === "root");
+
+const userGroupDialogVisible = ref(false);
+const activeUser = ref<UserListItem | null>(null);
+const selectedRoleIDs = ref<number[]>([]);
+
+const groupFormVisible = ref(false);
+const editingGroupID = ref<number | null>(null);
+const groupForm = reactive({
+  roleName: "",
+  roleCode: "",
+  description: "",
+});
 
 async function loadUsers(): Promise<void> {
-  loading.value = true;
+  loadingUsers.value = true;
   try {
     const response = await http.get("/api/system/users", {
       params: {
@@ -137,7 +292,31 @@ async function loadUsers(): Promise<void> {
   } catch (_error) {
     ElMessage.error("用户列表加载失败。");
   } finally {
-    loading.value = false;
+    loadingUsers.value = false;
+  }
+}
+
+async function loadUserGroups(): Promise<void> {
+  if (!isRoot.value) {
+    userGroups.value = [];
+    return;
+  }
+  loadingGroups.value = true;
+  try {
+    const response = await http.get("/api/system/groups");
+    const data = response.data.data as UserGroupListResponse;
+    userGroups.value = data.items;
+  } catch (_error) {
+    ElMessage.error("用户组列表加载失败。");
+  } finally {
+    loadingGroups.value = false;
+  }
+}
+
+async function handleRefresh(): Promise<void> {
+  await loadUsers();
+  if (isRoot.value) {
+    await loadUserGroups();
   }
 }
 
@@ -210,6 +389,118 @@ async function handleStatusChange(userID: number, status: string): Promise<void>
   }
 }
 
+function displayRoleNames(row: UserListItem): string[] {
+  if (Array.isArray(row.roleNames) && row.roleNames.length > 0) {
+    return row.roleNames;
+  }
+  if (Array.isArray(row.roles) && row.roles.length > 0) {
+    return row.roles;
+  }
+  return [];
+}
+
+function openUserGroupDialog(row: UserListItem): void {
+  if (!isRoot.value) {
+    return;
+  }
+  activeUser.value = row;
+  const roleIDMap = new Map(userGroups.value.map((item) => [item.roleCode, item.id]));
+  selectedRoleIDs.value = row.roles.map((roleCode) => roleIDMap.get(roleCode)).filter(Boolean) as number[];
+  userGroupDialogVisible.value = true;
+}
+
+async function handleSubmitUserGroups(): Promise<void> {
+  if (!activeUser.value) {
+    return;
+  }
+  if (selectedRoleIDs.value.length === 0) {
+    ElMessage.warning("请至少选择一个用户组。");
+    return;
+  }
+  updatingUserGroups.value = true;
+  try {
+    await http.put(`/api/system/users/${activeUser.value.id}/groups`, {
+      roleIds: selectedRoleIDs.value,
+    });
+    ElMessage.success("用户组已更新。");
+    userGroupDialogVisible.value = false;
+    await loadUsers();
+  } catch (_error) {
+    ElMessage.error("用户组更新失败。");
+  } finally {
+    updatingUserGroups.value = false;
+  }
+}
+
+function openGroupForm(item?: UserGroupItem): void {
+  if (!isRoot.value) {
+    return;
+  }
+  if (item) {
+    editingGroupID.value = item.id;
+    groupForm.roleName = item.roleName;
+    groupForm.roleCode = item.roleCode;
+    groupForm.description = item.description || "";
+  } else {
+    editingGroupID.value = null;
+    groupForm.roleName = "";
+    groupForm.roleCode = "";
+    groupForm.description = "";
+  }
+  groupFormVisible.value = true;
+}
+
+async function handleSaveGroup(): Promise<void> {
+  const roleName = groupForm.roleName.trim();
+  if (!roleName) {
+    ElMessage.warning("请输入用户组名称。");
+    return;
+  }
+  savingGroup.value = true;
+  try {
+    const payload = {
+      roleName,
+      roleCode: groupForm.roleCode.trim() || undefined,
+      description: groupForm.description.trim() || undefined,
+    };
+    if (editingGroupID.value) {
+      await http.put(`/api/system/groups/${editingGroupID.value}`, payload);
+    } else {
+      await http.post("/api/system/groups", payload);
+    }
+    ElMessage.success("用户组已保存。");
+    groupFormVisible.value = false;
+    await loadUserGroups();
+    await loadUsers();
+  } catch (_error) {
+    ElMessage.error("用户组保存失败。");
+  } finally {
+    savingGroup.value = false;
+  }
+}
+
+async function handleDeleteGroup(item: UserGroupItem): Promise<void> {
+  if (item.isSystem) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认删除用户组“${item.roleName}”吗？`,
+      "删除用户组",
+      { type: "warning" },
+    );
+    await http.delete(`/api/system/groups/${item.id}`);
+    ElMessage.success("用户组已删除。");
+    await loadUserGroups();
+    await loadUsers();
+  } catch (error) {
+    if (String(error).includes("cancel")) {
+      return;
+    }
+    ElMessage.error("用户组删除失败。");
+  }
+}
+
 function formatTimestamp(timestamp?: number): string {
   if (!timestamp) {
     return "-";
@@ -245,6 +536,9 @@ function statusText(status: UserStatus): string {
 
 onMounted(async () => {
   await loadUsers();
+  if (isRoot.value) {
+    await loadUserGroups();
+  }
 });
 </script>
 
@@ -261,6 +555,12 @@ onMounted(async () => {
   align-items: center;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: 1fr 160px auto;
@@ -271,13 +571,30 @@ onMounted(async () => {
 .action-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.group-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .pager {
   margin-top: 14px;
   display: flex;
   justify-content: flex-end;
+}
+
+.role-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty-tip {
+  color: #909399;
 }
 
 @media (max-width: 900px) {

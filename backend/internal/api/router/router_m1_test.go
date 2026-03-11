@@ -3,6 +3,7 @@ package router
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -133,6 +134,135 @@ func TestM1ChangePasswordAndAudit(t *testing.T) {
 	}
 }
 
+func TestM1RootOnlyUserGroupEndpoints(t *testing.T) {
+	engine, db := setupTestServer(t)
+	createViewerUser(t, db, "viewer2", "Viewer Two")
+
+	viewerToken, _ := loginAndReadData(t, engine, "viewer2", testDefaultPassword)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	viewerListReq := httptest.NewRequest(http.MethodGet, "/api/system/groups", nil)
+	viewerListReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	viewerListResp := httptest.NewRecorder()
+	engine.ServeHTTP(viewerListResp, viewerListReq)
+	if viewerListResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer groups status=403, got=%d body=%s", viewerListResp.Code, viewerListResp.Body.String())
+	}
+
+	createBody, _ := json.Marshal(map[string]string{
+		"roleCode":    "ops-team",
+		"roleName":    "Operations Team",
+		"description": "ops users",
+	})
+	createReq := httptest.NewRequest(http.MethodPost, "/api/system/groups", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+rootToken)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	engine.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("expected create group status=200, got=%d body=%s", createResp.Code, createResp.Body.String())
+	}
+
+	var createEnvelope apiEnvelope
+	if err := json.Unmarshal(createResp.Body.Bytes(), &createEnvelope); err != nil {
+		t.Fatalf("failed to parse create group response: %v", err)
+	}
+	var createdGroup struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(createEnvelope.Data, &createdGroup); err != nil {
+		t.Fatalf("failed to parse created group payload: %v", err)
+	}
+	if createdGroup.ID == 0 {
+		t.Fatalf("expected created group id > 0")
+	}
+
+	targetUserID := mustUserIDByUsername(t, db, "viewer2")
+	updateGroupsBody, _ := json.Marshal(map[string]any{
+		"roleIds": []uint{createdGroup.ID},
+	})
+	updateGroupsReq := httptest.NewRequest(
+		http.MethodPut,
+		fmt.Sprintf("/api/system/users/%d/groups", targetUserID),
+		bytes.NewReader(updateGroupsBody),
+	)
+	updateGroupsReq.Header.Set("Authorization", "Bearer "+rootToken)
+	updateGroupsReq.Header.Set("Content-Type", "application/json")
+	updateGroupsResp := httptest.NewRecorder()
+	engine.ServeHTTP(updateGroupsResp, updateGroupsReq)
+	if updateGroupsResp.Code != http.StatusOK {
+		t.Fatalf("expected update user groups status=200, got=%d body=%s", updateGroupsResp.Code, updateGroupsResp.Body.String())
+	}
+
+	usersReq := httptest.NewRequest(http.MethodGet, "/api/system/users?page=1&pageSize=50", nil)
+	usersReq.Header.Set("Authorization", "Bearer "+rootToken)
+	usersResp := httptest.NewRecorder()
+	engine.ServeHTTP(usersResp, usersReq)
+	if usersResp.Code != http.StatusOK {
+		t.Fatalf("expected users status=200, got=%d body=%s", usersResp.Code, usersResp.Body.String())
+	}
+
+	var usersEnvelope apiEnvelope
+	if err := json.Unmarshal(usersResp.Body.Bytes(), &usersEnvelope); err != nil {
+		t.Fatalf("failed to parse users response: %v", err)
+	}
+	var usersPayload struct {
+		Items []struct {
+			Username  string   `json:"username"`
+			RoleNames []string `json:"roleNames"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(usersEnvelope.Data, &usersPayload); err != nil {
+		t.Fatalf("failed to parse users data payload: %v", err)
+	}
+	foundViewer := false
+	for _, item := range usersPayload.Items {
+		if item.Username != "viewer2" {
+			continue
+		}
+		foundViewer = true
+		if len(item.RoleNames) != 1 || item.RoleNames[0] != "Operations Team" {
+			t.Fatalf("expected viewer2 roleNames=[Operations Team], got=%v", item.RoleNames)
+		}
+	}
+	if !foundViewer {
+		t.Fatalf("expected to find viewer2 in users list")
+	}
+
+	deleteReqInUse := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/system/groups/%d", createdGroup.ID), nil)
+	deleteReqInUse.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteRespInUse := httptest.NewRecorder()
+	engine.ServeHTTP(deleteRespInUse, deleteReqInUse)
+	if deleteRespInUse.Code != http.StatusBadRequest {
+		t.Fatalf("expected delete in-use group status=400, got=%d body=%s", deleteRespInUse.Code, deleteRespInUse.Body.String())
+	}
+
+	viewerRoleID := mustRoleIDByCode(t, db, "viewer")
+	resetGroupsBody, _ := json.Marshal(map[string]any{
+		"roleIds": []uint{viewerRoleID},
+	})
+	resetGroupsReq := httptest.NewRequest(
+		http.MethodPut,
+		fmt.Sprintf("/api/system/users/%d/groups", targetUserID),
+		bytes.NewReader(resetGroupsBody),
+	)
+	resetGroupsReq.Header.Set("Authorization", "Bearer "+rootToken)
+	resetGroupsReq.Header.Set("Content-Type", "application/json")
+	resetGroupsResp := httptest.NewRecorder()
+	engine.ServeHTTP(resetGroupsResp, resetGroupsReq)
+	if resetGroupsResp.Code != http.StatusOK {
+		t.Fatalf("expected reset user groups status=200, got=%d body=%s", resetGroupsResp.Code, resetGroupsResp.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/system/groups/%d", createdGroup.ID), nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete group status=200, got=%d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+}
+
 func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 	t.Helper()
 
@@ -227,6 +357,24 @@ func loginAndReadData(t *testing.T, engine http.Handler, username, password stri
 
 	token := mustStringField(t, envelope.Data, "token")
 	return token, envelope.Data
+}
+
+func mustUserIDByUsername(t *testing.T, db *gorm.DB, username string) uint {
+	t.Helper()
+	var user model.User
+	if err := db.Where("username = ? AND deleted_at IS NULL", username).First(&user).Error; err != nil {
+		t.Fatalf("failed to query user by username=%s: %v", username, err)
+	}
+	return user.ID
+}
+
+func mustRoleIDByCode(t *testing.T, db *gorm.DB, roleCode string) uint {
+	t.Helper()
+	var role model.Role
+	if err := db.Where("role_code = ?", roleCode).First(&role).Error; err != nil {
+		t.Fatalf("failed to query role by role_code=%s: %v", roleCode, err)
+	}
+	return role.ID
 }
 
 func mustStringField(t *testing.T, data json.RawMessage, field string) string {

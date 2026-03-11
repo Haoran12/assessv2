@@ -62,3 +62,15 @@ func HasPermission(granted []string, required string) bool {
 	}
 	return false
 }
+
+func HasRole(granted []string, required string) bool {
+	if required == "" {
+		return true
+	}
+	for _, role := range granted {
+		if role == required {
+			return true
+		}
+	}
+	return false
+}

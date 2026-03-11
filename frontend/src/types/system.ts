@@ -11,6 +11,7 @@ export interface UserListItem {
   lastLoginAt?: number;
   lastLoginIp?: string;
   roles: string[];
+  roleNames: string[];
   primaryRole: string;
   organizations: OrgScope[];
   createdAt: number;
@@ -29,4 +30,18 @@ export interface UserListQuery {
   pageSize: number;
   keyword?: string;
   status?: UserStatus | "";
+}
+
+export interface UserGroupItem {
+  id: number;
+  roleCode: string;
+  roleName: string;
+  description: string;
+  isSystem: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface UserGroupListResponse {
+  items: UserGroupItem[];
 }

@@ -17,9 +17,11 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 	healthHandler := handler.NewHealthHandler()
 	moduleHandler := handler.NewModuleHandler()
 	userRepo := repository.NewUserRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+	userRoleRepo := repository.NewUserRoleRepository(db)
 	auditRepo := repository.NewAuditRepository(db)
 	authService := service.NewAuthService(userRepo, auditRepo, cfg.JWTSecret, cfg.EnforceMustChangePassword)
-	userService := service.NewUserService(userRepo, auditRepo, cfg.DefaultPassword)
+	userService := service.NewUserService(userRepo, roleRepo, userRoleRepo, auditRepo, cfg.DefaultPassword)
 
 	authHandler := handler.NewAuthHandler(authService)
 	systemHandler := handler.NewSystemHandler(authService, userService)
@@ -55,6 +57,11 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		system.GET("/users", middleware.RequirePermission("user:view"), systemHandler.ListUsers)
 		system.POST("/users/:id/reset-password", middleware.RequirePermission("user:update"), systemHandler.ResetPassword)
 		system.PUT("/users/:id/status", middleware.RequirePermission("user:update"), systemHandler.UpdateUserStatus)
+		system.GET("/groups", middleware.RequireRoot(), systemHandler.ListUserGroups)
+		system.POST("/groups", middleware.RequireRoot(), systemHandler.CreateUserGroup)
+		system.PUT("/groups/:id", middleware.RequireRoot(), systemHandler.UpdateUserGroup)
+		system.DELETE("/groups/:id", middleware.RequireRoot(), systemHandler.DeleteUserGroup)
+		system.PUT("/users/:id/groups", middleware.RequireRoot(), systemHandler.UpdateUserGroups)
 	}
 
 	return r
