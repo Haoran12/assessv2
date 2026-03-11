@@ -1,0 +1,10 @@
+server:
+  host: "127.0.0.1"
+  port: 8080
+
+database:
+  sqlite_path: "./data/assess.db"
+
+auth:
+  jwt_secret: "replace-with-production-secret"
+
