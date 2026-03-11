@@ -39,6 +39,7 @@
 import { reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import type { AxiosError } from "axios";
 import { useAppStore } from "@/stores/app";
 
 const route = useRoute();
@@ -65,8 +66,13 @@ async function handleLogin(): Promise<void> {
     const redirectRaw = typeof route.query.redirect === "string" ? route.query.redirect : "";
     const redirect = redirectRaw.startsWith("/") ? redirectRaw : "/dashboard";
     await router.push(redirect || "/dashboard");
-  } catch (_error) {
-    ElMessage.error("登录失败，请检查用户名或密码。");
+  } catch (error) {
+    const err = error as AxiosError;
+    if (!err.response) {
+      ElMessage.error("登录失败：后端服务不可用。");
+    } else {
+      ElMessage.error("登录失败，请检查用户名或密码。");
+    }
   } finally {
     loading.value = false;
   }

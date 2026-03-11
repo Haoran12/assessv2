@@ -18,7 +18,7 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 	moduleHandler := handler.NewModuleHandler()
 	userRepo := repository.NewUserRepository(db)
 	auditRepo := repository.NewAuditRepository(db)
-	authService := service.NewAuthService(userRepo, auditRepo, cfg.JWTSecret)
+	authService := service.NewAuthService(userRepo, auditRepo, cfg.JWTSecret, cfg.EnforceMustChangePassword)
 	userService := service.NewUserService(userRepo, auditRepo, cfg.DefaultPassword)
 
 	authHandler := handler.NewAuthHandler(authService)

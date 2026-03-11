@@ -29,10 +29,11 @@ type DatabaseConfig struct {
 }
 
 type Config struct {
-	Server          ServerConfig
-	Database        DatabaseConfig
-	JWTSecret       string
-	DefaultPassword string
+	Server                    ServerConfig
+	Database                  DatabaseConfig
+	JWTSecret                 string
+	DefaultPassword           string
+	EnforceMustChangePassword bool
 }
 
 func Load() Config {
@@ -53,8 +54,9 @@ func Load() Config {
 			MaxIdleConns:           getEnvAsInt("ASSESS_SQLITE_MAX_IDLE_CONNS", 1),
 			ConnMaxLifetimeSeconds: getEnvAsInt("ASSESS_SQLITE_CONN_MAX_LIFETIME_SECONDS", 0),
 		},
-		JWTSecret:       getEnv("ASSESS_JWT_SECRET", "assessv2-dev-secret"),
-		DefaultPassword: getEnv("ASSESS_DEFAULT_PASSWORD", "#2026@hdwl"),
+		JWTSecret:                 getEnv("ASSESS_JWT_SECRET", "assessv2-dev-secret"),
+		DefaultPassword:           getEnv("ASSESS_DEFAULT_PASSWORD", "#2026@hdwl"),
+		EnforceMustChangePassword: getEnvAsBool("ASSESS_ENFORCE_MUST_CHANGE_PASSWORD", false),
 	}
 }
 

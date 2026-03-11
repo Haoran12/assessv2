@@ -144,8 +144,9 @@ func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 		Database: config.DatabaseConfig{
 			Path: filepath.Join(t.TempDir(), "test.db"),
 		},
-		JWTSecret:       "test-secret",
-		DefaultPassword: testDefaultPassword,
+		JWTSecret:                 "test-secret",
+		DefaultPassword:           testDefaultPassword,
+		EnforceMustChangePassword: true,
 	}
 
 	db, err := database.NewSQLite(cfg.Database)

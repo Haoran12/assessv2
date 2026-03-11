@@ -18,10 +18,11 @@ import (
 const defaultTokenTTL = 24 * time.Hour
 
 type AuthService struct {
-	userRepo  *repository.UserRepository
-	auditRepo *repository.AuditRepository
-	jwtSecret string
-	tokenTTL  time.Duration
+	userRepo                  *repository.UserRepository
+	auditRepo                 *repository.AuditRepository
+	jwtSecret                 string
+	tokenTTL                  time.Duration
+	enforceMustChangePassword bool
 }
 
 type LoginResult struct {
@@ -46,12 +47,14 @@ func NewAuthService(
 	userRepo *repository.UserRepository,
 	auditRepo *repository.AuditRepository,
 	jwtSecret string,
+	enforceMustChangePassword bool,
 ) *AuthService {
 	return &AuthService{
-		userRepo:  userRepo,
-		auditRepo: auditRepo,
-		jwtSecret: jwtSecret,
-		tokenTTL:  defaultTokenTTL,
+		userRepo:                  userRepo,
+		auditRepo:                 auditRepo,
+		jwtSecret:                 jwtSecret,
+		tokenTTL:                  defaultTokenTTL,
+		enforceMustChangePassword: enforceMustChangePassword,
 	}
 }
 
@@ -106,7 +109,7 @@ func (s *AuthService) Login(ctx context.Context, username, password, ipAddress, 
 		Token:              token,
 		TokenType:          "Bearer",
 		ExpiresIn:          int64(s.tokenTTL.Seconds()),
-		MustChangePassword: user.MustChangePassword,
+		MustChangePassword: user.MustChangePassword && s.enforceMustChangePassword,
 		User: AuthenticatedUserDTO{
 			ID:            user.ID,
 			Username:      user.Username,
@@ -174,7 +177,7 @@ func (s *AuthService) GetProfile(ctx context.Context, userID uint) (*Authenticat
 		Roles:         roles,
 		Permissions:   permissions,
 		Organizations: orgScopes,
-	}, user.MustChangePassword, nil
+	}, user.MustChangePassword && s.enforceMustChangePassword, nil
 }
 
 func extractIdentity(user *model.User) (string, []string, []string, []auth.OrganizationScope, error) {

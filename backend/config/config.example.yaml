@@ -19,3 +19,4 @@ auth:
 
 system:
   default_password: "#2026@hdwl"
+  enforce_must_change_password: false

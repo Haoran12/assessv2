@@ -22,8 +22,8 @@
         </div>
         <div class="header-right">
           <el-dropdown trigger="click">
-            <span class="username-trigger">
-              {{ appStore.displayName || "未登录" }}
+            <span class="username-trigger" :class="{ 'is-root': appStore.primaryRole === 'root' }">
+              {{ appStore.username || "未登录" }}
               <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
             <template #dropdown>
@@ -159,6 +159,15 @@ function roleLabel(roleCode: string): string {
 
 .username-trigger:hover {
   background-color: #f5f7fa;
+}
+
+.username-trigger.is-root {
+  color: #f56c6c;
+  font-weight: 600;
+}
+
+.username-trigger.is-root:hover {
+  background-color: #fef0f0;
 }
 
 .role-tag {
