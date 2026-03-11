@@ -5,6 +5,7 @@ frontend/dist/
 # Backend
 backend/data/*.db
 backend/data/*.db-*
+backend/bin/
 
 # Tauri / Rust
 src-tauri/target/
