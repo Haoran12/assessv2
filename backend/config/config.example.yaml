@@ -4,7 +4,18 @@ server:
 
 database:
   sqlite_path: "./data/assess.db"
+  foreign_keys: true
+  journal_mode: "WAL"
+  synchronous: "NORMAL"
+  busy_timeout_ms: 5000
+  cache_size: -20000
+  temp_store: "MEMORY"
+  max_open_conns: 1
+  max_idle_conns: 1
+  conn_max_lifetime_seconds: 0
 
 auth:
   jwt_secret: "replace-with-production-secret"
 
+system:
+  default_password: "#2026@hdwl"

@@ -2,15 +2,17 @@ package handler
 
 import (
 	"errors"
-	"time"
+	"net/http"
+	"strings"
 
 	"assessv2/backend/internal/api/response"
+	"assessv2/backend/internal/middleware"
+	"assessv2/backend/internal/service"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type AuthHandler struct {
-	jwtSecret string
+	authService *service.AuthService
 }
 
 type loginRequest struct {
@@ -18,57 +20,102 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-func NewAuthHandler(jwtSecret string) *AuthHandler {
-	return &AuthHandler{
-		jwtSecret: jwtSecret,
-	}
+type changePasswordRequest struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
+
+func NewAuthHandler(authService *service.AuthService) *AuthHandler {
+	return &AuthHandler{authService: authService}
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, 400, 40001, "invalid login payload")
+		response.Error(c, http.StatusBadRequest, 40001, "invalid login payload")
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	req.Password = strings.TrimSpace(req.Password)
+	if req.Username == "" || req.Password == "" {
+		response.Error(c, http.StatusBadRequest, 40001, "username and password are required")
 		return
 	}
 
-	if err := h.validateLogin(req); err != nil {
-		response.Error(c, 401, 40101, err.Error())
-		return
-	}
-
-	token, err := h.signToken(req.Username)
+	result, err := h.authService.Login(c.Request.Context(), req.Username, req.Password, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
-		response.Error(c, 500, 50001, "failed to sign token")
+		switch {
+		case errors.Is(err, service.ErrInvalidCredentials):
+			response.Error(c, http.StatusUnauthorized, 40101, err.Error())
+		case errors.Is(err, service.ErrAccountInactive), errors.Is(err, service.ErrAccountLocked):
+			response.Error(c, http.StatusForbidden, 40301, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, 50001, "failed to login")
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
 		return
 	}
 
-	response.Success(c, gin.H{
-		"token":     token,
-		"tokenType": "Bearer",
-		"expiresIn": 86400,
-		"user": gin.H{
-			"username": req.Username,
-			"role":     "root",
-		},
-	})
-}
-
-func (h *AuthHandler) validateLogin(req loginRequest) error {
-	// Bootstrapping stage credential. Replace with DB-based user validation next.
-	if req.Username == "root" && req.Password == "#2026@hdwl" {
-		return nil
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, 40001, "invalid password payload")
+		return
 	}
-	return errors.New("invalid username or password")
-}
-
-func (h *AuthHandler) signToken(username string) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":  username,
-		"role": "root",
-		"exp":  time.Now().Add(24 * time.Hour).Unix(),
-		"iat":  time.Now().Unix(),
+	req.OldPassword = strings.TrimSpace(req.OldPassword)
+	req.NewPassword = strings.TrimSpace(req.NewPassword)
+	if req.OldPassword == "" || req.NewPassword == "" {
+		response.Error(c, http.StatusBadRequest, 40001, "oldPassword and newPassword are required")
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		response.Error(c, http.StatusBadRequest, 40002, "newPassword must be at least 8 characters")
+		return
+	}
+	if req.NewPassword == req.OldPassword {
+		response.Error(c, http.StatusBadRequest, 40002, "newPassword must be different from oldPassword")
+		return
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(h.jwtSecret))
+	if err := h.authService.ChangePassword(
+		c.Request.Context(),
+		claims.UserID,
+		req.OldPassword,
+		req.NewPassword,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidPassword):
+			response.Error(c, http.StatusBadRequest, 40003, "oldPassword is incorrect")
+		case errors.Is(err, service.ErrForbidden):
+			response.Error(c, http.StatusForbidden, 40301, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, 50001, "failed to change password")
+		}
+		return
+	}
+
+	response.Success(c, gin.H{"changed": true})
+}
+
+func (h *AuthHandler) Logout(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		return
+	}
+
+	if err := h.authService.Logout(c.Request.Context(), claims.UserID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		response.Error(c, http.StatusInternalServerError, 50001, "failed to logout")
+		return
+	}
+	response.Success(c, gin.H{"loggedOut": true})
 }

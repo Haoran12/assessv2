@@ -12,7 +12,6 @@ import (
 	"assessv2/backend/internal/api/router"
 	"assessv2/backend/internal/config"
 	"assessv2/backend/internal/database"
-	"assessv2/backend/internal/model"
 )
 
 func main() {
@@ -23,8 +22,8 @@ func main() {
 		log.Fatalf("failed to initialize database: %v", err)
 	}
 
-	if err := db.AutoMigrate(&model.SystemSetting{}); err != nil {
-		log.Fatalf("failed to run migration: %v", err)
+	if err := database.AutoMigrateAndSeed(db, cfg.DefaultPassword); err != nil {
+		log.Fatalf("failed to bootstrap database: %v", err)
 	}
 
 	engine := router.New(cfg, db)

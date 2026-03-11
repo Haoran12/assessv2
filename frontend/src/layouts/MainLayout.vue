@@ -1,26 +1,45 @@
 <template>
   <el-container class="app-shell">
-    <el-aside width="240px" class="app-sidebar">
-      <div class="brand">AssessV2</div>
+    <el-aside width="250px" class="app-sidebar">
+      <div class="brand">
+        <div class="brand-title">AssessV2</div>
+        <div class="brand-subtitle">M1 认证与权限</div>
+      </div>
       <el-menu :default-active="activePath" router>
-        <el-menu-item index="/dashboard">首页</el-menu-item>
-        <el-menu-item index="/org">组织架构</el-menu-item>
-        <el-menu-item index="/assessment">考核管理</el-menu-item>
-        <el-menu-item index="/rules">规则配置</el-menu-item>
-        <el-menu-item index="/scores">分数管理</el-menu-item>
-        <el-menu-item index="/votes">投票管理</el-menu-item>
-        <el-menu-item index="/calc">计算引擎</el-menu-item>
-        <el-menu-item index="/reports">报表中心</el-menu-item>
-        <el-menu-item index="/backup">备份审计</el-menu-item>
-        <el-menu-item index="/system">系统管理</el-menu-item>
+        <el-menu-item
+          v-for="item in visibleMenus"
+          :key="item.path"
+          :index="item.path"
+        >
+          {{ item.label }}
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
       <el-header class="app-header">
-        <span>集团企业考核系统</span>
-        <div class="header-actions">
-          <span>{{ appStore.username || "未登录" }}</span>
-          <el-button type="danger" link @click="handleLogout">退出</el-button>
+        <div class="header-left">
+          <strong>考核管理系统</strong>
+        </div>
+        <div class="header-right">
+          <el-dropdown trigger="click">
+            <span class="username-trigger">
+              {{ appStore.displayName || "未登录" }}
+              <el-icon class="el-icon--right"><arrow-down /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled>
+                  <span class="role-tag">{{ roleLabel(appStore.primaryRole) }}</span>
+                </el-dropdown-item>
+                <el-dropdown-item divided @click="goToChangePassword">
+                  修改密码
+                </el-dropdown-item>
+                <el-dropdown-item @click="handleLogout">
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
       <el-main class="app-main">
@@ -33,17 +52,59 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+import { ArrowDown } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
+
+interface NavItem {
+  path: string;
+  label: string;
+  permission?: string;
+}
+
+const navItems: NavItem[] = [
+  { path: "/dashboard", label: "首页" },
+  { path: "/org", label: "组织架构", permission: "org:*" },
+  { path: "/assessment", label: "考核管理", permission: "assessment:view" },
+  { path: "/rules", label: "规则配置", permission: "rule:*" },
+  { path: "/scores", label: "分数管理", permission: "score:view" },
+  { path: "/votes", label: "投票管理", permission: "score:*" },
+  { path: "/calc", label: "计算引擎", permission: "score:*" },
+  { path: "/reports", label: "报表中心", permission: "report:view" },
+  { path: "/backup", label: "备份审计", permission: "backup:*" },
+  { path: "/system/users", label: "用户管理", permission: "user:view" },
+];
 
 const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 
 const activePath = computed(() => route.path);
+const visibleMenus = computed(() =>
+  navItems.filter((item) => !item.permission || appStore.hasPermission(item.permission)),
+);
 
-function handleLogout(): void {
-  appStore.logout();
-  router.push("/login");
+async function handleLogout(): Promise<void> {
+  await appStore.logout();
+  ElMessage.success("已退出登录。");
+  await router.push("/login");
+}
+
+async function goToChangePassword(): Promise<void> {
+  await router.push("/change-password");
+}
+
+function roleLabel(roleCode: string): string {
+  switch (roleCode) {
+    case "root":
+      return "Root管理员";
+    case "viewer":
+      return "查看者";
+    case "":
+      return "未分配角色";
+    default:
+      return roleCode;
+  }
 }
 </script>
 
@@ -58,9 +119,19 @@ function handleLogout(): void {
 }
 
 .brand {
-  padding: 16px;
-  font-weight: 600;
+  padding: 18px 16px;
   border-bottom: 1px solid #ebeef5;
+}
+
+.brand-title {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.brand-subtitle {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .app-header {
@@ -71,14 +142,34 @@ function handleLogout(): void {
   background: #fff;
 }
 
-.header-actions {
+.header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+.username-trigger {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.username-trigger:hover {
+  background-color: #f5f7fa;
+}
+
+.role-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
 }
 
 .app-main {
   background: #f5f7fa;
 }
 </style>
-

@@ -1,7 +1,13 @@
 <template>
   <div class="dashboard">
-    <h2>项目基础框架已就绪</h2>
-    <p>当前版本完成了文档 00 对应的 M2 基础框架搭建，可按模块继续开发业务能力。</p>
+    <el-card>
+      <template #header>
+        <strong>M1 进度</strong>
+      </template>
+      <p>
+        认证与权限基线已接入真实后端接口，可在此基础上继续迭代业务功能。
+      </p>
+    </el-card>
 
     <el-row :gutter="16">
       <el-col v-for="item in cards" :key="item.name" :span="8">
@@ -18,12 +24,30 @@
 
 <script setup lang="ts">
 const cards = [
-  { name: "认证与权限", description: "已提供登录接口和 JWT 中间件骨架。" },
-  { name: "模块路由", description: "已创建 org/assessment/rules/scores 等 10 组 API 占位。" },
-  { name: "数据层", description: "已接入 SQLite + GORM，并预留 migration 目录。" },
-  { name: "前端框架", description: "已接入 Vue3 + TS + Pinia + Element Plus。" },
-  { name: "页面骨架", description: "已提供登录页、主布局和模块占位页。" },
-  { name: "Tauri 容器", description: "已创建 src-tauri 最小可编译工程。" },
+  {
+    name: "数据库认证",
+    description: "登录采用 bcrypt + JWT，并通过 /api/system/profile 拉取用户信息。",
+  },
+  {
+    name: "权限守卫",
+    description: "路由访问与菜单显示均按权限点校验。",
+  },
+  {
+    name: "强制改密",
+    description: "mustChangePassword=true 时仅允许进入修改密码页。",
+  },
+  {
+    name: "用户管理",
+    description: "已支持用户列表、重置密码与账号状态变更。",
+  },
+  {
+    name: "会话管理",
+    description: "刷新后自动恢复会话，令牌失效自动回到登录页。",
+  },
+  {
+    name: "审计就绪",
+    description: "后端已记录登录、登出与改密审计日志。",
+  },
 ];
 </script>
 
@@ -37,5 +61,10 @@ const cards = [
 .dashboard-card {
   min-height: 150px;
 }
-</style>
 
+@media (max-width: 1100px) {
+  .el-col {
+    margin-bottom: 16px;
+  }
+}
+</style>

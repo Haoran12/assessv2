@@ -4,25 +4,30 @@
       <template #header>
         <strong>AssessV2 登录</strong>
       </template>
+
       <el-alert
-        title="初始化账号：root / #2026@hdwl"
+        title="默认账号：root / #2026@hdwl"
         type="info"
         :closable="false"
         style="margin-bottom: 16px"
       />
+
       <el-form :model="form" label-position="top" @submit.prevent>
         <el-form-item label="用户名">
           <el-input v-model="form.username" placeholder="请输入用户名" />
         </el-form-item>
+
         <el-form-item label="密码">
           <el-input
             v-model="form.password"
             type="password"
             placeholder="请输入密码"
             show-password
+            @keyup.enter="handleLogin"
           />
         </el-form-item>
-        <el-button type="primary" :loading="loading" @click="handleLogin">
+
+        <el-button type="primary" :loading="loading" style="width: 100%" @click="handleLogin">
           登录
         </el-button>
       </el-form>
@@ -32,10 +37,11 @@
 
 <script setup lang="ts">
 import { reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useAppStore } from "@/stores/app";
 
+const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 
@@ -48,11 +54,19 @@ const form = reactive({
 async function handleLogin(): Promise<void> {
   loading.value = true;
   try {
-    await appStore.login(form);
-    ElMessage.success("登录成功");
-    await router.push("/dashboard");
+    const result = await appStore.login(form);
+    ElMessage.success("登录成功。");
+
+    if (result.mustChangePassword) {
+      await router.push("/change-password");
+      return;
+    }
+
+    const redirectRaw = typeof route.query.redirect === "string" ? route.query.redirect : "";
+    const redirect = redirectRaw.startsWith("/") ? redirectRaw : "/dashboard";
+    await router.push(redirect || "/dashboard");
   } catch (_error) {
-    ElMessage.error("登录失败，请检查用户名和密码");
+    ElMessage.error("登录失败，请检查用户名或密码。");
   } finally {
     loading.value = false;
   }
@@ -64,10 +78,10 @@ async function handleLogin(): Promise<void> {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: linear-gradient(160deg, #f5f7fa, #e4ecff);
+  background: linear-gradient(160deg, #f6f8fc, #dce8ff);
 }
 
 .login-card {
-  width: 360px;
+  width: 380px;
 }
 </style>

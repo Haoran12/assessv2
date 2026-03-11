@@ -1,24 +1,28 @@
 package router
 
 import (
-	"net/http"
-
 	"assessv2/backend/internal/api/handler"
 	"assessv2/backend/internal/config"
 	"assessv2/backend/internal/middleware"
+	"assessv2/backend/internal/repository"
+	"assessv2/backend/internal/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 func New(cfg config.Config, db *gorm.DB) *gin.Engine {
-	_ = db // DB will be injected into module handlers as features are implemented.
-
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
 	healthHandler := handler.NewHealthHandler()
-	authHandler := handler.NewAuthHandler(cfg.JWTSecret)
 	moduleHandler := handler.NewModuleHandler()
+	userRepo := repository.NewUserRepository(db)
+	auditRepo := repository.NewAuditRepository(db)
+	authService := service.NewAuthService(userRepo, auditRepo, cfg.JWTSecret)
+	userService := service.NewUserService(userRepo, auditRepo, cfg.DefaultPassword)
+
+	authHandler := handler.NewAuthHandler(authService)
+	systemHandler := handler.NewSystemHandler(authService, userService)
 
 	r.GET("/health", healthHandler.Health)
 
@@ -29,6 +33,9 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", authHandler.Login)
+			auth.Use(middleware.RequireJWT(cfg.JWTSecret))
+			auth.POST("/change-password", authHandler.ChangePassword)
+			auth.POST("/logout", authHandler.Logout)
 			auth.GET("/_ping", moduleHandler.ModulePing("auth"))
 		}
 
@@ -42,17 +49,12 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		registerModule(api, "backup", moduleHandler)
 
 		system := api.Group("/system")
-		system.Use(middleware.RequireJWT(cfg.JWTSecret))
+		system.Use(middleware.RequireJWT(cfg.JWTSecret), middleware.RequireOrgScope())
 		system.GET("/_ping", moduleHandler.ModulePing("system"))
-		system.GET("/profile", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
-				"code":    200,
-				"message": "success",
-				"data": gin.H{
-					"username": "admin",
-				},
-			})
-		})
+		system.GET("/profile", systemHandler.Profile)
+		system.GET("/users", middleware.RequirePermission("user:view"), systemHandler.ListUsers)
+		system.POST("/users/:id/reset-password", middleware.RequirePermission("user:update"), systemHandler.ResetPassword)
+		system.PUT("/users/:id/status", middleware.RequirePermission("user:update"), systemHandler.UpdateUserStatus)
 	}
 
 	return r

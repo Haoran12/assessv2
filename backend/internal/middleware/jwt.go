@@ -4,9 +4,11 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/api/response"
+	"assessv2/backend/internal/auth"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
+
+const claimsContextKey = "authClaims"
 
 func RequireJWT(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -24,16 +26,23 @@ func RequireJWT(secret string) gin.HandlerFunc {
 			return
 		}
 
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
-			return []byte(secret), nil
-		})
-		if err != nil || !token.Valid {
+		claims, err := auth.ParseToken(secret, tokenString)
+		if err != nil {
 			response.Error(c, 401, 40100, "invalid token")
 			c.Abort()
 			return
 		}
 
-		c.Set("jwtClaims", token.Claims)
+		c.Set(claimsContextKey, claims)
 		c.Next()
 	}
+}
+
+func ClaimsFromContext(c *gin.Context) (*auth.Claims, bool) {
+	value, ok := c.Get(claimsContextKey)
+	if !ok {
+		return nil, false
+	}
+	claims, ok := value.(*auth.Claims)
+	return claims, ok
 }
