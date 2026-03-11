@@ -23,7 +23,7 @@ func main() {
 		log.Fatalf("failed to initialize database: %v", err)
 	}
 
-	if err := db.AutoMigrate(&model.SystemConfig{}); err != nil {
+	if err := db.AutoMigrate(&model.SystemSetting{}); err != nil {
 		log.Fatalf("failed to run migration: %v", err)
 	}
 

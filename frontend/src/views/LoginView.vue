@@ -5,7 +5,7 @@
         <strong>AssessV2 登录</strong>
       </template>
       <el-alert
-        title="初始化账号：admin / admin123"
+        title="初始化账号：root / #2026@hdwl"
         type="info"
         :closable="false"
         style="margin-bottom: 16px"
@@ -41,8 +41,8 @@ const appStore = useAppStore();
 
 const loading = ref(false);
 const form = reactive({
-  username: "admin",
-  password: "admin123",
+  username: "root",
+  password: "#2026@hdwl",
 });
 
 async function handleLogin(): Promise<void> {
@@ -71,4 +71,3 @@ async function handleLogin(): Promise<void> {
   width: 360px;
 }
 </style>
-

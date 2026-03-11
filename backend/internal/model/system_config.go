@@ -1,13 +1,16 @@
 package model
 
-import "time"
-
-type SystemConfig struct {
-	Key       string    `gorm:"primaryKey;size:64" json:"key"`
-	Value     string    `gorm:"type:text;not null" json:"value"`
-	UpdatedAt time.Time `json:"updatedAt"`
+type SystemSetting struct {
+	ID           uint   `gorm:"primaryKey;autoIncrement" json:"id"`
+	SettingKey   string `gorm:"size:100;not null;uniqueIndex" json:"settingKey"`
+	SettingValue string `gorm:"type:text" json:"settingValue"`
+	SettingType  string `gorm:"size:20;not null" json:"settingType"`
+	Description  string `gorm:"type:text" json:"description"`
+	IsSystem     bool   `gorm:"not null;default:false" json:"isSystem"`
+	UpdatedBy    *uint  `json:"updatedBy"`
+	UpdatedAt    int64  `gorm:"not null" json:"updatedAt"`
 }
 
-func (SystemConfig) TableName() string {
-	return "system_config"
+func (SystemSetting) TableName() string {
+	return "system_settings"
 }

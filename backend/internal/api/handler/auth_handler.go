@@ -48,14 +48,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"expiresIn": 86400,
 		"user": gin.H{
 			"username": req.Username,
-			"role":     "SUPER_ADMIN",
+			"role":     "root",
 		},
 	})
 }
 
 func (h *AuthHandler) validateLogin(req loginRequest) error {
 	// Bootstrapping stage credential. Replace with DB-based user validation next.
-	if req.Username == "admin" && req.Password == "admin123" {
+	if req.Username == "root" && req.Password == "#2026@hdwl" {
 		return nil
 	}
 	return errors.New("invalid username or password")
@@ -64,7 +64,7 @@ func (h *AuthHandler) validateLogin(req loginRequest) error {
 func (h *AuthHandler) signToken(username string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub":  username,
-		"role": "SUPER_ADMIN",
+		"role": "root",
 		"exp":  time.Now().Add(24 * time.Hour).Unix(),
 		"iat":  time.Now().Unix(),
 	}
