@@ -49,6 +49,15 @@ type upsertEmployeeRequest struct {
 	Status          string `json:"status"`
 }
 
+type upsertPositionLevelRequest struct {
+	LevelCode       string `json:"levelCode"`
+	LevelName       string `json:"levelName"`
+	Description     string `json:"description"`
+	IsForAssessment *bool  `json:"isForAssessment"`
+	SortOrder       int    `json:"sortOrder"`
+	Status          string `json:"status"`
+}
+
 type transferEmployeeRequest struct {
 	ChangeType         string  `json:"changeType"`
 	NewOrganizationID  *uint   `json:"newOrganizationId"`
@@ -188,6 +197,78 @@ func (h *OrgHandler) ListPositionLevels(c *gin.Context) {
 	response.Success(c, gin.H{"items": result})
 }
 
+func (h *OrgHandler) CreatePositionLevel(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	var req upsertPositionLevelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid position level payload")
+		return
+	}
+	result, err := h.orgService.CreatePositionLevel(c.Request.Context(), operatorID, service.CreatePositionLevelInput{
+		LevelCode:       strings.TrimSpace(req.LevelCode),
+		LevelName:       strings.TrimSpace(req.LevelName),
+		Description:     strings.TrimSpace(req.Description),
+		IsForAssessment: req.IsForAssessment,
+		SortOrder:       req.SortOrder,
+		Status:          strings.TrimSpace(req.Status),
+	}, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		h.handleOrgError(c, err, "failed to create position level")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *OrgHandler) UpdatePositionLevel(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	positionLevelID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid position level id")
+		return
+	}
+	var req upsertPositionLevelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid position level payload")
+		return
+	}
+	result, err := h.orgService.UpdatePositionLevel(c.Request.Context(), operatorID, positionLevelID, service.UpdatePositionLevelInput{
+		LevelCode:       strings.TrimSpace(req.LevelCode),
+		LevelName:       strings.TrimSpace(req.LevelName),
+		Description:     strings.TrimSpace(req.Description),
+		IsForAssessment: req.IsForAssessment,
+		SortOrder:       req.SortOrder,
+		Status:          strings.TrimSpace(req.Status),
+	}, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		h.handleOrgError(c, err, "failed to update position level")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *OrgHandler) DeletePositionLevel(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	positionLevelID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid position level id")
+		return
+	}
+	if err := h.orgService.DeletePositionLevel(c.Request.Context(), operatorID, positionLevelID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		h.handleOrgError(c, err, "failed to delete position level")
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h *OrgHandler) ListEmployees(c *gin.Context) {
 	var organizationID *uint
 	if value := strings.TrimSpace(c.Query("organizationId")); value != "" {
@@ -316,10 +397,15 @@ func (h *OrgHandler) handleOrgError(c *gin.Context, err error, fallback string) 
 		errors.Is(err, service.ErrInvalidOrganizationType),
 		errors.Is(err, service.ErrInvalidOrganizationStatus),
 		errors.Is(err, service.ErrInvalidDepartmentStatus),
+		errors.Is(err, service.ErrInvalidPositionLevelStatus),
+		errors.Is(err, service.ErrPositionLevelCodeExists),
 		errors.Is(err, service.ErrInvalidEmployeeStatus),
 		errors.Is(err, service.ErrInvalidTransferType),
 		errors.Is(err, service.ErrInvalidEffectiveDate):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+	case errors.Is(err, service.ErrSystemPositionLevelLocked),
+		errors.Is(err, service.ErrPositionLevelInUse):
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrOrganizationNotFound),
 		errors.Is(err, service.ErrDepartmentNotFound),
 		errors.Is(err, service.ErrPositionLevelNotFound),

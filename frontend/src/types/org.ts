@@ -108,6 +108,15 @@ export interface UpsertEmployeePayload {
   status: EmployeeStatus;
 }
 
+export interface UpsertPositionLevelPayload {
+  levelCode: string;
+  levelName: string;
+  description?: string;
+  isForAssessment: boolean;
+  sortOrder: number;
+  status: OrgStatus;
+}
+
 export interface TransferEmployeePayload {
   changeType: TransferType;
   newOrganizationId?: number;

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
 )
+
+var positionLevelCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_:-]{1,49}$`)
 
 type OrgService struct {
 	db        *gorm.DB
@@ -362,6 +365,17 @@ type ListPositionLevelFilter struct {
 	Status string
 }
 
+type CreatePositionLevelInput struct {
+	LevelCode       string
+	LevelName       string
+	Description     string
+	IsForAssessment *bool
+	SortOrder       int
+	Status          string
+}
+
+type UpdatePositionLevelInput = CreatePositionLevelInput
+
 func (s *OrgService) ListPositionLevels(ctx context.Context, filter ListPositionLevelFilter) ([]model.PositionLevel, error) {
 	query := s.db.WithContext(ctx).Order("sort_order ASC, id ASC")
 	if strings.TrimSpace(filter.Status) != "" {
@@ -372,6 +386,162 @@ func (s *OrgService) ListPositionLevels(ctx context.Context, filter ListPosition
 		return nil, fmt.Errorf("failed to list position levels: %w", err)
 	}
 	return items, nil
+}
+
+func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, input CreatePositionLevelInput, ipAddress string, userAgent string) (*model.PositionLevel, error) {
+	levelCode, err := normalizePositionLevelCode(input.LevelCode)
+	if err != nil {
+		return nil, err
+	}
+	levelName := strings.TrimSpace(input.LevelName)
+	if levelName == "" {
+		return nil, ErrInvalidParam
+	}
+	status := normalizeStatus(input.Status, "active")
+	if !isValidPositionLevelStatus(status) {
+		return nil, ErrInvalidPositionLevelStatus
+	}
+
+	var duplicateCount int64
+	if err := s.db.WithContext(ctx).Model(&model.PositionLevel{}).Where("level_code = ?", levelCode).Count(&duplicateCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to verify position level uniqueness: %w", err)
+	}
+	if duplicateCount > 0 {
+		return nil, ErrPositionLevelCodeExists
+	}
+
+	isForAssessment := true
+	if input.IsForAssessment != nil {
+		isForAssessment = *input.IsForAssessment
+	}
+
+	operator := operatorID
+	record := model.PositionLevel{
+		LevelCode:       levelCode,
+		LevelName:       levelName,
+		Description:     strings.TrimSpace(input.Description),
+		IsSystem:        false,
+		IsForAssessment: isForAssessment,
+		SortOrder:       input.SortOrder,
+		Status:          status,
+		CreatedBy:       &operator,
+		UpdatedBy:       &operator,
+	}
+	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return nil, ErrPositionLevelCodeExists
+		}
+		return nil, fmt.Errorf("failed to create position level: %w", err)
+	}
+
+	targetID := record.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "position_levels", &targetID, map[string]any{
+		"event":           "create_position_level",
+		"levelCode":       record.LevelCode,
+		"isForAssessment": record.IsForAssessment,
+	}, ipAddress, userAgent))
+	return &record, nil
+}
+
+func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positionLevelID uint, input UpdatePositionLevelInput, ipAddress string, userAgent string) (*model.PositionLevel, error) {
+	levelCode, err := normalizePositionLevelCode(input.LevelCode)
+	if err != nil {
+		return nil, err
+	}
+	levelName := strings.TrimSpace(input.LevelName)
+	if levelName == "" {
+		return nil, ErrInvalidParam
+	}
+	status := normalizeStatus(input.Status, "active")
+	if !isValidPositionLevelStatus(status) {
+		return nil, ErrInvalidPositionLevelStatus
+	}
+
+	var existing model.PositionLevel
+	if err := s.db.WithContext(ctx).Where("id = ?", positionLevelID).First(&existing).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return nil, ErrPositionLevelNotFound
+		}
+		return nil, fmt.Errorf("failed to query position level: %w", err)
+	}
+	if existing.IsSystem && levelCode != existing.LevelCode {
+		return nil, ErrSystemPositionLevelLocked
+	}
+	if levelCode != existing.LevelCode {
+		var duplicateCount int64
+		if err := s.db.WithContext(ctx).Model(&model.PositionLevel{}).Where("level_code = ? AND id <> ?", levelCode, positionLevelID).Count(&duplicateCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to verify position level uniqueness: %w", err)
+		}
+		if duplicateCount > 0 {
+			return nil, ErrPositionLevelCodeExists
+		}
+	}
+
+	isForAssessment := existing.IsForAssessment
+	if input.IsForAssessment != nil {
+		isForAssessment = *input.IsForAssessment
+	}
+
+	operator := operatorID
+	updates := map[string]any{
+		"level_code":        levelCode,
+		"level_name":        levelName,
+		"description":       strings.TrimSpace(input.Description),
+		"is_for_assessment": isForAssessment,
+		"sort_order":        input.SortOrder,
+		"status":            status,
+		"updated_by":        &operator,
+		"updated_at":        time.Now().Unix(),
+	}
+	if err := s.db.WithContext(ctx).Model(&model.PositionLevel{}).Where("id = ?", positionLevelID).Updates(updates).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return nil, ErrPositionLevelCodeExists
+		}
+		return nil, fmt.Errorf("failed to update position level: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Where("id = ?", positionLevelID).First(&existing).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload position level: %w", err)
+	}
+
+	targetID := existing.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "position_levels", &targetID, map[string]any{
+		"event":           "update_position_level",
+		"levelCode":       existing.LevelCode,
+		"isForAssessment": existing.IsForAssessment,
+		"status":          existing.Status,
+	}, ipAddress, userAgent))
+	return &existing, nil
+}
+
+func (s *OrgService) DeletePositionLevel(ctx context.Context, operatorID, positionLevelID uint, ipAddress string, userAgent string) error {
+	var existing model.PositionLevel
+	if err := s.db.WithContext(ctx).Where("id = ?", positionLevelID).First(&existing).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return ErrPositionLevelNotFound
+		}
+		return fmt.Errorf("failed to query position level: %w", err)
+	}
+	if existing.IsSystem {
+		return ErrSystemPositionLevelLocked
+	}
+	if err := s.ensurePositionLevelNotInUse(ctx, positionLevelID); err != nil {
+		return err
+	}
+
+	if err := s.db.WithContext(ctx).Delete(&model.PositionLevel{}, positionLevelID).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed") {
+			return ErrPositionLevelInUse
+		}
+		return fmt.Errorf("failed to delete position level: %w", err)
+	}
+
+	operator := operatorID
+	targetID := existing.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "position_levels", &targetID, map[string]any{
+		"event":     "delete_position_level",
+		"levelCode": existing.LevelCode,
+	}, ipAddress, userAgent))
+	return nil
 }
 
 func (s *OrgService) ListEmployees(ctx context.Context, filter ListEmployeeFilter) ([]model.Employee, error) {
@@ -605,6 +775,25 @@ func (s *OrgService) requirePositionLevel(ctx context.Context, positionLevelID u
 	return nil
 }
 
+func (s *OrgService) ensurePositionLevelNotInUse(ctx context.Context, positionLevelID uint) error {
+	var employeeCount int64
+	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("position_level_id = ? AND deleted_at IS NULL", positionLevelID).Count(&employeeCount).Error; err != nil {
+		return fmt.Errorf("failed to verify employee position level usage: %w", err)
+	}
+	if employeeCount > 0 {
+		return ErrPositionLevelInUse
+	}
+
+	var historyCount int64
+	if err := s.db.WithContext(ctx).Model(&model.EmployeeHistory{}).Where("old_position_level_id = ? OR new_position_level_id = ?", positionLevelID, positionLevelID).Count(&historyCount).Error; err != nil {
+		return fmt.Errorf("failed to verify employee history position level usage: %w", err)
+	}
+	if historyCount > 0 {
+		return ErrPositionLevelInUse
+	}
+	return nil
+}
+
 func (s *OrgService) requireEmployee(ctx context.Context, employeeID uint) error {
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("id = ? AND deleted_at IS NULL", employeeID).Count(&count).Error; err != nil {
@@ -669,6 +858,15 @@ func isValidEmployeeStatus(status string) bool {
 	}
 }
 
+func isValidPositionLevelStatus(status string) bool {
+	switch status {
+	case "active", "inactive":
+		return true
+	default:
+		return false
+	}
+}
+
 func isValidTransferType(changeType string) bool {
 	switch changeType {
 	case "transfer", "promotion", "demotion", "position_change":
@@ -697,4 +895,12 @@ func isUniqueConstraintError(err error) bool {
 func uintPtr(value uint) *uint {
 	copyValue := value
 	return &copyValue
+}
+
+func normalizePositionLevelCode(code string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(code))
+	if !positionLevelCodePattern.MatchString(normalized) {
+		return "", ErrInvalidParam
+	}
+	return normalized, nil
 }

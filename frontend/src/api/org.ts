@@ -10,6 +10,7 @@ import type {
   UpsertDepartmentPayload,
   UpsertEmployeePayload,
   UpsertOrganizationPayload,
+  UpsertPositionLevelPayload,
 } from "@/types/org";
 
 interface ListQuery {
@@ -74,6 +75,23 @@ export async function listPositionLevels(status?: string): Promise<PositionLevel
     params: { status: status || undefined },
   });
   return (response.data?.data?.items ?? []) as PositionLevelItem[];
+}
+
+export async function createPositionLevel(payload: UpsertPositionLevelPayload): Promise<PositionLevelItem> {
+  const response = await http.post("/api/org/position-levels", payload);
+  return response.data?.data as PositionLevelItem;
+}
+
+export async function updatePositionLevel(
+  positionLevelId: number,
+  payload: UpsertPositionLevelPayload,
+): Promise<PositionLevelItem> {
+  const response = await http.put(`/api/org/position-levels/${positionLevelId}`, payload);
+  return response.data?.data as PositionLevelItem;
+}
+
+export async function deletePositionLevel(positionLevelId: number): Promise<void> {
+  await http.delete(`/api/org/position-levels/${positionLevelId}`);
 }
 
 export async function listEmployees(params: ListEmployeeQuery): Promise<EmployeeItem[]> {

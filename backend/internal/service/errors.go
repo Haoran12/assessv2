@@ -32,6 +32,7 @@ var (
 	ErrPositionLevelNotFound      = errors.New("position level not found")
 	ErrPositionLevelCodeExists    = errors.New("position level code already exists")
 	ErrSystemPositionLevelLocked  = errors.New("system position level code is immutable")
+	ErrPositionLevelInUse         = errors.New("position level is still assigned to employees")
 
 	ErrInvalidEmployeeStatus = errors.New("invalid employee status")
 	ErrEmployeeNotFound      = errors.New("employee not found")

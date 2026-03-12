@@ -246,6 +246,152 @@ func TestM2EmployeeTransferWritesHistory(t *testing.T) {
 	}
 }
 
+func TestM2RootCanCRUDPositionLevels(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"levelCode":       "custom_test_level",
+		"levelName":       "Custom Test Level",
+		"description":     "for api test",
+		"isForAssessment": true,
+		"sortOrder":       88,
+		"status":          "active",
+	})
+	createReq := httptest.NewRequest(http.MethodPost, "/api/org/position-levels", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+rootToken)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	engine.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("expected create position level status=200, got=%d body=%s", createResp.Code, createResp.Body.String())
+	}
+
+	var createEnvelope apiEnvelope
+	if err := json.Unmarshal(createResp.Body.Bytes(), &createEnvelope); err != nil {
+		t.Fatalf("failed to parse create position level response: %v", err)
+	}
+	var created struct {
+		ID        uint   `json:"id"`
+		LevelCode string `json:"levelCode"`
+		LevelName string `json:"levelName"`
+	}
+	if err := json.Unmarshal(createEnvelope.Data, &created); err != nil {
+		t.Fatalf("failed to parse create position level payload: %v", err)
+	}
+	if created.ID == 0 {
+		t.Fatalf("expected created position level id > 0")
+	}
+	if created.LevelCode != "custom_test_level" {
+		t.Fatalf("expected created level_code=custom_test_level, got=%s", created.LevelCode)
+	}
+
+	updateBody, _ := json.Marshal(map[string]any{
+		"levelCode":       "custom_test_level_v2",
+		"levelName":       "Custom Test Level V2",
+		"description":     "updated",
+		"isForAssessment": false,
+		"sortOrder":       99,
+		"status":          "inactive",
+	})
+	updateReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/org/position-levels/%d", created.ID), bytes.NewReader(updateBody))
+	updateReq.Header.Set("Authorization", "Bearer "+rootToken)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	engine.ServeHTTP(updateResp, updateReq)
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected update position level status=200, got=%d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	var updateEnvelope apiEnvelope
+	if err := json.Unmarshal(updateResp.Body.Bytes(), &updateEnvelope); err != nil {
+		t.Fatalf("failed to parse update position level response: %v", err)
+	}
+	var updated struct {
+		ID              uint   `json:"id"`
+		LevelCode       string `json:"levelCode"`
+		LevelName       string `json:"levelName"`
+		IsForAssessment bool   `json:"isForAssessment"`
+		Status          string `json:"status"`
+	}
+	if err := json.Unmarshal(updateEnvelope.Data, &updated); err != nil {
+		t.Fatalf("failed to parse update position level payload: %v", err)
+	}
+	if updated.ID != created.ID {
+		t.Fatalf("expected updated id=%d, got=%d", created.ID, updated.ID)
+	}
+	if updated.LevelCode != "custom_test_level_v2" {
+		t.Fatalf("expected updated level_code=custom_test_level_v2, got=%s", updated.LevelCode)
+	}
+	if updated.LevelName != "Custom Test Level V2" || updated.IsForAssessment || updated.Status != "inactive" {
+		t.Fatalf("unexpected update payload levelName=%s isForAssessment=%v status=%s", updated.LevelName, updated.IsForAssessment, updated.Status)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/position-levels/%d", created.ID), nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete position level status=200, got=%d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	var count int64
+	if err := db.Model(&model.PositionLevel{}).Where("id = ?", created.ID).Count(&count).Error; err != nil {
+		t.Fatalf("failed to verify deleted position level: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected deleted position level count=0, got=%d", count)
+	}
+}
+
+func TestM2PositionLevelMutationRequiresRoot(t *testing.T) {
+	engine, db := setupTestServer(t)
+	createViewerUser(t, db, "viewer_pl", "Viewer PositionLevel")
+
+	viewerToken, _ := loginAndReadData(t, engine, "viewer_pl", testDefaultPassword)
+	existingLevelID := mustPositionLevelIDByCode(t, db, "staff")
+
+	createBody, _ := json.Marshal(map[string]any{
+		"levelCode":       "viewer_should_fail",
+		"levelName":       "Viewer Should Fail",
+		"isForAssessment": true,
+		"sortOrder":       1,
+		"status":          "active",
+	})
+	createReq := httptest.NewRequest(http.MethodPost, "/api/org/position-levels", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	engine.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer create position level status=403, got=%d body=%s", createResp.Code, createResp.Body.String())
+	}
+
+	updateBody, _ := json.Marshal(map[string]any{
+		"levelCode":       "staff",
+		"levelName":       "Viewer Should Fail Update",
+		"isForAssessment": true,
+		"sortOrder":       1,
+		"status":          "active",
+	})
+	updateReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/org/position-levels/%d", existingLevelID), bytes.NewReader(updateBody))
+	updateReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	engine.ServeHTTP(updateResp, updateReq)
+	if updateResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer update position level status=403, got=%d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/position-levels/%d", existingLevelID), nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	deleteResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer delete position level status=403, got=%d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+}
+
 func mustPositionLevelIDByCode(t *testing.T, db *gorm.DB, levelCode string) uint {
 	t.Helper()
 	var level model.PositionLevel

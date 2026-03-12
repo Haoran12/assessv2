@@ -145,6 +145,63 @@
             </el-table>
           </el-tab-pane>
 
+          <el-tab-pane label="级别管理" name="positionLevels">
+            <div class="toolbar-grid">
+              <el-input
+                v-model="positionLevelQuery.keyword"
+                clearable
+                placeholder="按级别名称/编码搜索"
+              />
+              <el-select v-model="positionLevelQuery.status" clearable placeholder="状态">
+                <el-option label="启用" value="active" />
+                <el-option label="停用" value="inactive" />
+              </el-select>
+              <el-button :loading="loadingPositionLevels" @click="loadPositionLevels">查询</el-button>
+              <el-button
+                type="primary"
+                :disabled="!canManagePositionLevels"
+                @click="openPositionLevelDialog()"
+              >
+                新增级别
+              </el-button>
+            </div>
+
+            <el-table v-loading="loadingPositionLevels" :data="filteredPositionLevels" border>
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column prop="levelName" label="级别名称" min-width="160" />
+              <el-table-column prop="levelCode" label="级别编码" min-width="160" />
+              <el-table-column label="用于考核对象" width="130">
+                <template #default="{ row }">
+                  <el-tag :type="row.isForAssessment ? 'success' : 'info'">
+                    {{ row.isForAssessment ? "是" : "否" }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="sortOrder" label="排序" width="90" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+              <el-table-column label="操作" width="180" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" :disabled="!canManagePositionLevels" @click="openPositionLevelDialog(row)">
+                    编辑
+                  </el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    :disabled="!canManagePositionLevels || row.isSystem"
+                    @click="handleDeletePositionLevel(row)"
+                  >
+                    删除
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
           <el-tab-pane label="人员管理" name="employees">
             <div class="toolbar-grid toolbar-grid-employee">
               <el-select
@@ -316,6 +373,51 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="positionLevelDialogVisible"
+      width="560px"
+      :title="positionLevelForm.id ? '编辑级别' : '新增级别'"
+    >
+      <el-form label-width="110px">
+        <el-form-item label="级别编码" required>
+          <el-input
+            v-model="positionLevelForm.levelCode"
+            maxlength="50"
+            :disabled="positionLevelForm.isSystem"
+            placeholder="示例：manager_main"
+          />
+        </el-form-item>
+        <el-form-item label="级别名称" required>
+          <el-input v-model="positionLevelForm.levelName" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="用于考核对象">
+          <el-switch v-model="positionLevelForm.isForAssessment" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="positionLevelForm.sortOrder" :min="0" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="positionLevelForm.status" style="width: 100%">
+            <el-option label="启用" value="active" />
+            <el-option label="停用" value="inactive" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="positionLevelForm.description"
+            type="textarea"
+            :rows="3"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="positionLevelDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingPositionLevel" @click="submitPositionLevel">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="employeeDialogVisible" width="640px" :title="employeeForm.id ? '编辑人员' : '新增人员'">
       <el-form label-width="100px">
         <el-row :gutter="12">
@@ -358,7 +460,7 @@
             <el-form-item label="职级" required>
               <el-select v-model="employeeForm.positionLevelId" filterable style="width: 100%">
                 <el-option
-                  v-for="level in positionLevels"
+                  v-for="level in activePositionLevels"
                   :key="level.id"
                   :label="`${level.levelName} (${level.levelCode})`"
                   :value="level.id"
@@ -434,7 +536,7 @@
         <el-form-item label="新职级">
           <el-select v-model="transferForm.newPositionLevelId" clearable filterable style="width: 100%">
             <el-option
-              v-for="level in positionLevels"
+              v-for="level in activePositionLevels"
               :key="level.id"
               :label="`${level.levelName} (${level.levelCode})`"
               :value="level.id"
@@ -492,12 +594,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useAppStore } from "@/stores/app";
 import {
+  createPositionLevel,
   createDepartment,
   createEmployee,
   createOrganization,
+  deletePositionLevel,
   getOrgTree,
   listDepartments,
   listEmployeeHistory,
@@ -505,6 +609,7 @@ import {
   listOrganizations,
   listPositionLevels,
   transferEmployee,
+  updatePositionLevel,
   updateDepartment,
   updateEmployee,
   updateOrganization,
@@ -518,6 +623,7 @@ import type {
   OrganizationItem,
   PositionLevelItem,
   TransferType,
+  UpsertPositionLevelPayload,
 } from "@/types/org";
 
 interface TreeNodeUI extends OrgTreeNode {
@@ -528,6 +634,9 @@ interface TreeNodeUI extends OrgTreeNode {
 const treeRef = ref();
 const appStore = useAppStore();
 const canEdit = computed(() => appStore.hasPermission("org:update"));
+const canManagePositionLevels = computed(
+  () => appStore.primaryRole === "root" || appStore.roles.includes("root"),
+);
 
 const activeTab = ref("organizations");
 
@@ -560,7 +669,25 @@ const employeeQuery = reactive({
   status: "" as OrgStatus | "",
 });
 
+const loadingPositionLevels = ref(false);
 const positionLevels = ref<PositionLevelItem[]>([]);
+const positionLevelQuery = reactive({
+  keyword: "",
+  status: "" as OrgStatus | "",
+});
+
+const positionLevelDialogVisible = ref(false);
+const savingPositionLevel = ref(false);
+const positionLevelForm = reactive({
+  id: null as number | null,
+  levelCode: "",
+  levelName: "",
+  description: "",
+  isForAssessment: true,
+  sortOrder: 0,
+  status: "active" as OrgStatus,
+  isSystem: false,
+});
 
 const organizationDialogVisible = ref(false);
 const savingOrganization = ref(false);
@@ -696,6 +823,23 @@ function positionLevelName(levelId?: number): string {
   return positionLevels.value.find((item) => item.id === levelId)?.levelName ?? `#${levelId}`;
 }
 
+const filteredPositionLevels = computed(() => {
+  const keyword = positionLevelQuery.keyword.trim().toLowerCase();
+  const status = positionLevelQuery.status;
+  return positionLevels.value.filter((item) => {
+    if (status && item.status !== status) {
+      return false;
+    }
+    if (!keyword) {
+      return true;
+    }
+    const target = `${item.levelName} ${item.levelCode}`.toLowerCase();
+    return target.includes(keyword);
+  });
+});
+
+const activePositionLevels = computed(() => positionLevels.value.filter((item) => item.status === "active"));
+
 function departmentOptionsByOrg(organizationId?: number): DepartmentItem[] {
   if (!organizationId) {
     return departments.value;
@@ -795,10 +939,13 @@ async function loadEmployees(): Promise<void> {
 }
 
 async function loadPositionLevels(): Promise<void> {
+  loadingPositionLevels.value = true;
   try {
-    positionLevels.value = await listPositionLevels("active");
+    positionLevels.value = await listPositionLevels();
   } catch (_error) {
     ElMessage.error("职级列表加载失败");
+  } finally {
+    loadingPositionLevels.value = false;
   }
 }
 
@@ -920,6 +1067,98 @@ async function submitDepartment(): Promise<void> {
   }
 }
 
+function openPositionLevelDialog(item?: PositionLevelItem): void {
+  if (!canManagePositionLevels.value) {
+    return;
+  }
+  if (item) {
+    Object.assign(positionLevelForm, {
+      id: item.id,
+      levelCode: item.levelCode,
+      levelName: item.levelName,
+      description: item.description || "",
+      isForAssessment: item.isForAssessment,
+      sortOrder: item.sortOrder,
+      status: item.status,
+      isSystem: item.isSystem,
+    });
+  } else {
+    Object.assign(positionLevelForm, {
+      id: null,
+      levelCode: "",
+      levelName: "",
+      description: "",
+      isForAssessment: true,
+      sortOrder: 0,
+      status: "active",
+      isSystem: false,
+    });
+  }
+  positionLevelDialogVisible.value = true;
+}
+
+async function submitPositionLevel(): Promise<void> {
+  if (!canManagePositionLevels.value) {
+    return;
+  }
+  if (!positionLevelForm.levelCode.trim() || !positionLevelForm.levelName.trim()) {
+    ElMessage.warning("请填写级别编码和名称");
+    return;
+  }
+
+  const payload: UpsertPositionLevelPayload = {
+    levelCode: positionLevelForm.levelCode.trim(),
+    levelName: positionLevelForm.levelName.trim(),
+    description: positionLevelForm.description.trim() || undefined,
+    isForAssessment: positionLevelForm.isForAssessment,
+    sortOrder: positionLevelForm.sortOrder,
+    status: positionLevelForm.status,
+  };
+
+  savingPositionLevel.value = true;
+  try {
+    if (positionLevelForm.id) {
+      await updatePositionLevel(positionLevelForm.id, payload);
+    } else {
+      await createPositionLevel(payload);
+    }
+    ElMessage.success("级别已保存");
+    positionLevelDialogVisible.value = false;
+    await loadPositionLevels();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "级别保存失败";
+    ElMessage.error(message);
+  } finally {
+    savingPositionLevel.value = false;
+  }
+}
+
+async function handleDeletePositionLevel(item: PositionLevelItem): Promise<void> {
+  if (!canManagePositionLevels.value) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除级别「${item.levelName} (${item.levelCode})」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    await deletePositionLevel(item.id);
+    ElMessage.success("级别已删除");
+    await loadPositionLevels();
+  } catch (error) {
+    if (
+      error === "cancel" ||
+      error === "close" ||
+      (error instanceof Error && (error.message === "cancel" || error.message === "close"))
+    ) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "级别删除失败";
+    ElMessage.error(message);
+  }
+}
+
 function openEmployeeDialog(item?: EmployeeItem): void {
   if (!canEdit.value) {
     return;
@@ -941,7 +1180,7 @@ function openEmployeeDialog(item?: EmployeeItem): void {
       empName: "",
       organizationId: selectedTreeNode.value?.organizationId,
       departmentId: selectedTreeNode.value?.nodeType === "department" ? selectedTreeNode.value.id : undefined,
-      positionLevelId: positionLevels.value[0]?.id,
+      positionLevelId: activePositionLevels.value[0]?.id,
       positionTitle: "",
       hireDate: "",
       status: "active",
