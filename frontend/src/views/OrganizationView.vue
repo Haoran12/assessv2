@@ -204,34 +204,6 @@
 
           <el-tab-pane label="人员管理" name="employees">
             <div class="toolbar-grid toolbar-grid-employee">
-              <el-select
-                v-model="employeeQuery.organizationId"
-                clearable
-                filterable
-                placeholder="所属组织"
-                @change="handleEmployeeOrgChange"
-              >
-                <el-option
-                  v-for="org in organizations"
-                  :key="org.id"
-                  :label="org.orgName"
-                  :value="org.id"
-                />
-              </el-select>
-              <el-select
-                v-model="employeeQuery.departmentId"
-                clearable
-                filterable
-                placeholder="所属部门"
-                @change="loadEmployees"
-              >
-                <el-option
-                  v-for="dept in departmentOptionsByOrg(employeeQuery.organizationId)"
-                  :key="dept.id"
-                  :label="dept.deptName"
-                  :value="dept.id"
-                />
-              </el-select>
               <el-select v-model="employeeQuery.status" clearable placeholder="状态" @change="loadEmployees">
                 <el-option label="在岗" value="active" />
                 <el-option label="离岗" value="inactive" />
@@ -749,6 +721,15 @@ const treeProps = {
 
 watch(treeKeyword, (value) => {
   treeRef.value?.filter(value);
+});
+
+watch(activeTab, (value) => {
+  if (value === "departments") {
+    void loadDepartments();
+  }
+  if (value === "employees") {
+    void loadEmployees();
+  }
 });
 
 function filterTreeNode(value: string, data: TreeNodeUI): boolean {
@@ -1310,16 +1291,6 @@ async function openHistoryDialog(employee: EmployeeItem): Promise<void> {
   }
 }
 
-function handleEmployeeOrgChange(): void {
-  const belongs = departmentOptionsByOrg(employeeQuery.organizationId).some(
-    (item) => item.id === employeeQuery.departmentId,
-  );
-  if (!belongs) {
-    employeeQuery.departmentId = undefined;
-  }
-  void loadEmployees();
-}
-
 onMounted(async () => {
   await Promise.all([
     loadOrganizations(),
@@ -1387,7 +1358,7 @@ onMounted(async () => {
 }
 
 .toolbar-grid-employee {
-  grid-template-columns: 180px 180px 120px 1fr auto auto;
+  grid-template-columns: 120px 1fr auto auto;
 }
 
 @media (max-width: 1200px) {
