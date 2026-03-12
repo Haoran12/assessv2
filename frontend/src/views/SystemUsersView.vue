@@ -40,7 +40,7 @@
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="用户组" min-width="220">
+        <el-table-column label="用户组" min-width="260">
           <template #default="{ row }">
             <div v-if="displayRoleNames(row).length > 0" class="group-tags">
               <el-tag
@@ -55,14 +55,19 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="强制改密" width="130">
+        <el-table-column label="主角色" width="150">
+          <template #default="{ row }">
+            <el-tag>{{ roleDisplayName(row.primaryRole, row) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="强制改密" width="110">
           <template #default="{ row }">
             <el-tag :type="row.mustChangePassword ? 'warning' : 'success'">
               {{ row.mustChangePassword ? "是" : "否" }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="最近登录" min-width="180">
+        <el-table-column label="最近登录" min-width="170">
           <template #default="{ row }">
             {{ formatTimestamp(row.lastLoginAt) }}
           </template>
@@ -167,23 +172,40 @@
 
     <el-dialog
       v-model="userGroupDialogVisible"
-      width="520px"
+      width="560px"
       :title="`编辑用户组 - ${activeUser?.username ?? ''}`"
       destroy-on-close
     >
       <div v-if="userGroups.length === 0" class="empty-tip">
-        暂无可选用户组。
+        暂无可选用户组
       </div>
-      <el-checkbox-group v-else v-model="selectedRoleIDs" class="role-checkbox-group">
-        <el-checkbox
-          v-for="group in userGroups"
-          :key="group.id"
-          :label="group.id"
-          border
-        >
-          {{ group.roleName }} ({{ group.roleCode }})
-        </el-checkbox>
-      </el-checkbox-group>
+      <template v-else>
+        <el-form label-width="86px">
+          <el-form-item label="用户组" required>
+            <el-checkbox-group v-model="selectedRoleIDs" class="role-checkbox-group">
+              <el-checkbox
+                v-for="group in userGroups"
+                :key="group.id"
+                :label="group.id"
+                border
+              >
+                {{ group.roleName }} ({{ group.roleCode }})
+              </el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+          <el-form-item label="主角色" required>
+            <el-radio-group v-model="primaryRoleID">
+              <el-radio
+                v-for="roleId in selectedRoleIDs"
+                :key="`primary-${roleId}`"
+                :label="roleId"
+              >
+                {{ userGroupName(roleId) }}
+              </el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-form>
+      </template>
       <template #footer>
         <el-button @click="userGroupDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="updatingUserGroups" @click="handleSubmitUserGroups">
@@ -206,7 +228,7 @@
           <el-input
             v-model="groupForm.roleCode"
             maxlength="50"
-            placeholder="留空自动生成，如：ops-team"
+            placeholder="留空自动生成，例如 ops-team"
           />
         </el-form-item>
         <el-form-item label="描述">
@@ -230,7 +252,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { http } from "@/api/http";
 import { useAppStore } from "@/stores/app";
@@ -266,6 +288,7 @@ const isRoot = computed(() => appStore.roles.includes("root") || appStore.primar
 const userGroupDialogVisible = ref(false);
 const activeUser = ref<UserListItem | null>(null);
 const selectedRoleIDs = ref<number[]>([]);
+const primaryRoleID = ref<number | null>(null);
 
 const groupFormVisible = ref(false);
 const editingGroupID = ref<number | null>(null);
@@ -273,6 +296,16 @@ const groupForm = reactive({
   roleName: "",
   roleCode: "",
   description: "",
+});
+
+watch(selectedRoleIDs, (roleIds) => {
+  if (roleIds.length === 0) {
+    primaryRoleID.value = null;
+    return;
+  }
+  if (!primaryRoleID.value || !roleIds.includes(primaryRoleID.value)) {
+    primaryRoleID.value = roleIds[0];
+  }
 });
 
 async function loadUsers(): Promise<void> {
@@ -290,7 +323,7 @@ async function loadUsers(): Promise<void> {
     rows.value = data.items;
     total.value = data.total;
   } catch (_error) {
-    ElMessage.error("用户列表加载失败。");
+    ElMessage.error("用户列表加载失败");
   } finally {
     loadingUsers.value = false;
   }
@@ -307,7 +340,7 @@ async function loadUserGroups(): Promise<void> {
     const data = response.data.data as UserGroupListResponse;
     userGroups.value = data.items;
   } catch (_error) {
-    ElMessage.error("用户组列表加载失败。");
+    ElMessage.error("用户组列表加载失败");
   } finally {
     loadingGroups.value = false;
   }
@@ -342,7 +375,7 @@ async function handleResetPassword(userID: number): Promise<void> {
   }
   try {
     const { value } = await ElMessageBox.prompt(
-      "请输入新密码，留空则使用系统默认密码。",
+      "请输入新密码，留空则使用系统默认密码",
       "重置密码",
       {
         confirmButtonText: "确认",
@@ -355,13 +388,13 @@ async function handleResetPassword(userID: number): Promise<void> {
     await http.post(`/api/system/users/${userID}/reset-password`, {
       newPassword: value?.trim() ? value.trim() : undefined,
     });
-    ElMessage.success("密码已重置。");
+    ElMessage.success("密码已重置");
     await loadUsers();
   } catch (error) {
     if (String(error).includes("cancel")) {
       return;
     }
-    ElMessage.error("密码重置失败。");
+    ElMessage.error("密码重置失败");
   }
 }
 
@@ -372,19 +405,19 @@ async function handleStatusChange(userID: number, status: string): Promise<void>
   const nextStatus = status as UserStatus;
   try {
     await ElMessageBox.confirm(
-      `确认将用户 #${userID} 状态设为“${statusText(nextStatus)}”？`,
+      `确认将用户 #${userID} 状态设为「${statusText(nextStatus)}」？`,
       "更新状态",
       { type: "warning" },
     );
     await http.put(`/api/system/users/${userID}/status`, { status: nextStatus });
-    ElMessage.success("状态已更新。");
+    ElMessage.success("状态已更新");
     await loadUsers();
   } catch (error) {
     if (String(error).includes("cancel")) {
       await loadUsers();
       return;
     }
-    ElMessage.error("状态更新失败。");
+    ElMessage.error("状态更新失败");
     await loadUsers();
   }
 }
@@ -399,14 +432,34 @@ function displayRoleNames(row: UserListItem): string[] {
   return [];
 }
 
+function roleDisplayName(roleCode: string, row: UserListItem): string {
+  if (!roleCode) {
+    return "-";
+  }
+  const codeIndex = row.roles.findIndex((item) => item === roleCode);
+  if (codeIndex >= 0 && row.roleNames[codeIndex]) {
+    return row.roleNames[codeIndex];
+  }
+  return roleCode;
+}
+
 function openUserGroupDialog(row: UserListItem): void {
   if (!isRoot.value) {
     return;
   }
   activeUser.value = row;
   const roleIDMap = new Map(userGroups.value.map((item) => [item.roleCode, item.id]));
-  selectedRoleIDs.value = row.roles.map((roleCode) => roleIDMap.get(roleCode)).filter(Boolean) as number[];
+  selectedRoleIDs.value = row.roles
+    .map((roleCode) => roleIDMap.get(roleCode))
+    .filter((value): value is number => typeof value === "number");
+  const primary = roleIDMap.get(row.primaryRole || "");
+  primaryRoleID.value = primary || selectedRoleIDs.value[0] || null;
   userGroupDialogVisible.value = true;
+}
+
+function userGroupName(roleId: number): string {
+  const item = userGroups.value.find((group) => group.id === roleId);
+  return item ? `${item.roleName} (${item.roleCode})` : `#${roleId}`;
 }
 
 async function handleSubmitUserGroups(): Promise<void> {
@@ -414,19 +467,28 @@ async function handleSubmitUserGroups(): Promise<void> {
     return;
   }
   if (selectedRoleIDs.value.length === 0) {
-    ElMessage.warning("请至少选择一个用户组。");
+    ElMessage.warning("请至少选择一个用户组");
     return;
   }
+  const primary = primaryRoleID.value && selectedRoleIDs.value.includes(primaryRoleID.value)
+    ? primaryRoleID.value
+    : selectedRoleIDs.value[0];
+  if (!primary) {
+    ElMessage.warning("请选择主角色");
+    return;
+  }
+
   updatingUserGroups.value = true;
   try {
     await http.put(`/api/system/users/${activeUser.value.id}/groups`, {
       roleIds: selectedRoleIDs.value,
+      primaryRoleId: primary,
     });
-    ElMessage.success("用户组已更新。");
+    ElMessage.success("用户组已更新");
     userGroupDialogVisible.value = false;
     await loadUsers();
   } catch (_error) {
-    ElMessage.error("用户组更新失败。");
+    ElMessage.error("用户组更新失败");
   } finally {
     updatingUserGroups.value = false;
   }
@@ -453,7 +515,7 @@ function openGroupForm(item?: UserGroupItem): void {
 async function handleSaveGroup(): Promise<void> {
   const roleName = groupForm.roleName.trim();
   if (!roleName) {
-    ElMessage.warning("请输入用户组名称。");
+    ElMessage.warning("请输入用户组名称");
     return;
   }
   savingGroup.value = true;
@@ -468,12 +530,12 @@ async function handleSaveGroup(): Promise<void> {
     } else {
       await http.post("/api/system/groups", payload);
     }
-    ElMessage.success("用户组已保存。");
+    ElMessage.success("用户组已保存");
     groupFormVisible.value = false;
     await loadUserGroups();
     await loadUsers();
   } catch (_error) {
-    ElMessage.error("用户组保存失败。");
+    ElMessage.error("用户组保存失败");
   } finally {
     savingGroup.value = false;
   }
@@ -485,19 +547,19 @@ async function handleDeleteGroup(item: UserGroupItem): Promise<void> {
   }
   try {
     await ElMessageBox.confirm(
-      `确认删除用户组“${item.roleName}”吗？`,
+      `确认删除用户组「${item.roleName}」吗？`,
       "删除用户组",
       { type: "warning" },
     );
     await http.delete(`/api/system/groups/${item.id}`);
-    ElMessage.success("用户组已删除。");
+    ElMessage.success("用户组已删除");
     await loadUserGroups();
     await loadUsers();
   } catch (error) {
     if (String(error).includes("cancel")) {
       return;
     }
-    ElMessage.error("用户组删除失败。");
+    ElMessage.error("用户组删除失败");
   }
 }
 

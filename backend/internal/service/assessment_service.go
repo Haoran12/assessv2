@@ -1,0 +1,471 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"assessv2/backend/internal/model"
+	"assessv2/backend/internal/repository"
+	"gorm.io/gorm"
+)
+
+type AssessmentService struct {
+	db        *gorm.DB
+	auditRepo *repository.AuditRepository
+}
+
+type CreateAssessmentYearInput struct {
+	Year           int
+	YearName       string
+	Description    string
+	StartDate      *time.Time
+	EndDate        *time.Time
+	CopyFromYearID *uint
+}
+
+type CreateAssessmentYearResult struct {
+	Year         model.AssessmentYear     `json:"year"`
+	Periods      []model.AssessmentPeriod `json:"periods"`
+	ObjectsCount int                      `json:"objectsCount"`
+}
+
+func NewAssessmentService(db *gorm.DB, auditRepo *repository.AuditRepository) *AssessmentService {
+	return &AssessmentService{db: db, auditRepo: auditRepo}
+}
+
+func (s *AssessmentService) ListYears(ctx context.Context) ([]model.AssessmentYear, error) {
+	var items []model.AssessmentYear
+	if err := s.db.WithContext(ctx).Order("year DESC, id DESC").Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to list assessment years: %w", err)
+	}
+	return items, nil
+}
+
+func (s *AssessmentService) CreateYear(ctx context.Context, operatorID uint, input CreateAssessmentYearInput, ipAddress string, userAgent string) (*CreateAssessmentYearResult, error) {
+	if input.Year < 2000 || input.Year > 9999 {
+		return nil, ErrInvalidParam
+	}
+	if input.StartDate != nil && input.EndDate != nil && input.StartDate.After(*input.EndDate) {
+		return nil, ErrInvalidParam
+	}
+	name := strings.TrimSpace(input.YearName)
+	if name == "" {
+		name = fmt.Sprintf("%d年度考核", input.Year)
+	}
+
+	var existingCount int64
+	if err := s.db.WithContext(ctx).Model(&model.AssessmentYear{}).Where("year = ?", input.Year).Count(&existingCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to verify assessment year uniqueness: %w", err)
+	}
+	if existingCount > 0 {
+		return nil, ErrYearAlreadyExists
+	}
+
+	operator := operatorID
+	result := &CreateAssessmentYearResult{}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		year := model.AssessmentYear{
+			Year:        input.Year,
+			YearName:    name,
+			Status:      "preparing",
+			StartDate:   input.StartDate,
+			EndDate:     input.EndDate,
+			Description: strings.TrimSpace(input.Description),
+			CreatedBy:   &operator,
+			UpdatedBy:   &operator,
+		}
+		if err := tx.Create(&year).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return ErrYearAlreadyExists
+			}
+			return fmt.Errorf("failed to create assessment year: %w", err)
+		}
+
+		periods := defaultPeriods(year.ID, &operator)
+		if err := tx.Create(&periods).Error; err != nil {
+			return fmt.Errorf("failed to create assessment periods: %w", err)
+		}
+
+		objectsCount := 0
+		if input.CopyFromYearID != nil && *input.CopyFromYearID > 0 {
+			copied, err := s.copyAssessmentObjects(tx, *input.CopyFromYearID, year.ID, &operator)
+			if err != nil {
+				return err
+			}
+			objectsCount = copied
+		} else {
+			generated, err := s.generateAssessmentObjects(tx, year.ID, &operator)
+			if err != nil {
+				return err
+			}
+			objectsCount = generated
+		}
+
+		result.Year = year
+		result.Periods = periods
+		result.ObjectsCount = objectsCount
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	targetID := result.Year.ID
+	copyFrom := uint(0)
+	if input.CopyFromYearID != nil {
+		copyFrom = *input.CopyFromYearID
+	}
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "assessment_years", &targetID, map[string]any{
+		"event":        "create_assessment_year",
+		"year":         result.Year.Year,
+		"copyFromYear": copyFrom,
+		"objectsCount": result.ObjectsCount,
+	}, ipAddress, userAgent))
+
+	return result, nil
+}
+
+func (s *AssessmentService) UpdateYearStatus(ctx context.Context, operatorID, yearID uint, status string, ipAddress string, userAgent string) (*model.AssessmentYear, error) {
+	next := strings.TrimSpace(status)
+	if !isValidYearStatus(next) {
+		return nil, ErrInvalidYearStatus
+	}
+
+	var year model.AssessmentYear
+	if err := s.db.WithContext(ctx).Where("id = ?", yearID).First(&year).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return nil, ErrYearNotFound
+		}
+		return nil, fmt.Errorf("failed to query assessment year: %w", err)
+	}
+	if year.Status == "ended" && next != "ended" {
+		return nil, ErrYearAlreadyEnded
+	}
+	if year.Status != next && !canTransitionYearStatus(year.Status, next) {
+		return nil, ErrInvalidYearTransition
+	}
+	if year.Status == next {
+		return &year, nil
+	}
+
+	operator := operatorID
+	if err := s.db.WithContext(ctx).Model(&model.AssessmentYear{}).Where("id = ?", yearID).Updates(map[string]any{"status": next, "updated_by": &operator, "updated_at": time.Now().Unix()}).Error; err != nil {
+		return nil, fmt.Errorf("failed to update assessment year status: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Where("id = ?", yearID).First(&year).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload assessment year: %w", err)
+	}
+
+	targetID := year.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "assessment_years", &targetID, map[string]any{"event": "update_assessment_year_status", "status": next}, ipAddress, userAgent))
+	return &year, nil
+}
+
+func (s *AssessmentService) ListPeriods(ctx context.Context, yearID uint) ([]model.AssessmentPeriod, error) {
+	if yearID == 0 {
+		return nil, ErrInvalidParam
+	}
+	var items []model.AssessmentPeriod
+	if err := s.db.WithContext(ctx).Where("year_id = ?", yearID).Order("id ASC").Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to list periods: %w", err)
+	}
+	return items, nil
+}
+
+func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, operatorID, periodID uint, status string, ipAddress string, userAgent string) (*model.AssessmentPeriod, error) {
+	next := strings.TrimSpace(status)
+	if !isValidPeriodStatus(next) {
+		return nil, ErrInvalidPeriodStatus
+	}
+
+	var period model.AssessmentPeriod
+	if err := s.db.WithContext(ctx).Where("id = ?", periodID).First(&period).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return nil, ErrPeriodNotFound
+		}
+		return nil, fmt.Errorf("failed to query assessment period: %w", err)
+	}
+	if period.Status == "locked" && next != "locked" {
+		return nil, ErrPeriodLocked
+	}
+	if period.Status != next && !canTransitionPeriodStatus(period.Status, next) {
+		return nil, ErrInvalidPeriodTransition
+	}
+	if period.Status == next {
+		return &period, nil
+	}
+
+	operator := operatorID
+	if err := s.db.WithContext(ctx).Model(&model.AssessmentPeriod{}).Where("id = ?", periodID).Updates(map[string]any{"status": next, "updated_by": &operator, "updated_at": time.Now().Unix()}).Error; err != nil {
+		return nil, fmt.Errorf("failed to update assessment period status: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Where("id = ?", periodID).First(&period).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload assessment period: %w", err)
+	}
+
+	targetID := period.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "assessment_periods", &targetID, map[string]any{"event": "update_assessment_period_status", "status": next}, ipAddress, userAgent))
+	return &period, nil
+}
+
+func (s *AssessmentService) ListObjects(ctx context.Context, yearID uint) ([]model.AssessmentObject, error) {
+	var items []model.AssessmentObject
+	if err := s.db.WithContext(ctx).Where("year_id = ?", yearID).Order("id ASC").Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to list assessment objects: %w", err)
+	}
+	return items, nil
+}
+
+func defaultPeriods(yearID uint, operatorID *uint) []model.AssessmentPeriod {
+	base := []struct {
+		Code string
+		Name string
+	}{
+		{Code: "Q1", Name: "第一季度"},
+		{Code: "Q2", Name: "第二季度"},
+		{Code: "Q3", Name: "第三季度"},
+		{Code: "Q4", Name: "第四季度"},
+		{Code: "YEAR_END", Name: "年终考核"},
+	}
+	items := make([]model.AssessmentPeriod, 0, len(base))
+	for _, item := range base {
+		items = append(items, model.AssessmentPeriod{YearID: yearID, PeriodCode: item.Code, PeriodName: item.Name, Status: "not_started", CreatedBy: operatorID, UpdatedBy: operatorID})
+	}
+	return items
+}
+
+func (s *AssessmentService) copyAssessmentObjects(tx *gorm.DB, sourceYearID, targetYearID uint, operatorID *uint) (int, error) {
+	var years []model.AssessmentYear
+	if err := tx.Where("id IN ?", []uint{sourceYearID, targetYearID}).Find(&years).Error; err != nil {
+		return 0, fmt.Errorf("failed to verify year records: %w", err)
+	}
+	if len(years) < 2 {
+		return 0, ErrYearNotFound
+	}
+
+	var source []model.AssessmentObject
+	if err := tx.Where("year_id = ? AND is_active = 1", sourceYearID).Order("id ASC").Find(&source).Error; err != nil {
+		return 0, fmt.Errorf("failed to query source assessment objects: %w", err)
+	}
+	if len(source) == 0 {
+		return 0, nil
+	}
+
+	idMap := map[uint]uint{}
+	parentMap := map[uint]*uint{}
+	count := 0
+	for _, item := range source {
+		active, err := s.isTargetActive(tx, item.TargetType, item.TargetID)
+		if err != nil {
+			return 0, err
+		}
+		if !active {
+			continue
+		}
+
+		record := model.AssessmentObject{YearID: targetYearID, ObjectType: item.ObjectType, ObjectCategory: item.ObjectCategory, TargetID: item.TargetID, TargetType: item.TargetType, ObjectName: item.ObjectName, ParentObjectID: nil, IsActive: item.IsActive, CreatedBy: operatorID, UpdatedBy: operatorID}
+		if err := tx.Create(&record).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				continue
+			}
+			return 0, fmt.Errorf("failed to copy assessment object target=%s:%d: %w", item.TargetType, item.TargetID, err)
+		}
+		idMap[item.ID] = record.ID
+		parentMap[record.ID] = item.ParentObjectID
+		count++
+	}
+
+	for recordID, oldParentID := range parentMap {
+		if oldParentID == nil {
+			continue
+		}
+		newParentID, ok := idMap[*oldParentID]
+		if !ok {
+			continue
+		}
+		if err := tx.Model(&model.AssessmentObject{}).Where("id = ?", recordID).Update("parent_object_id", newParentID).Error; err != nil {
+			return 0, fmt.Errorf("failed to update copied object parent: %w", err)
+		}
+	}
+
+	return count, nil
+}
+
+func (s *AssessmentService) generateAssessmentObjects(tx *gorm.DB, yearID uint, operatorID *uint) (int, error) {
+	count := 0
+	teamKeyToObjectID := map[string]uint{}
+
+	var companies []model.Organization
+	if err := tx.Where("org_type = ? AND status = ? AND deleted_at IS NULL", "company", "active").Order("id ASC").Find(&companies).Error; err != nil {
+		return 0, fmt.Errorf("failed to query active companies: %w", err)
+	}
+	for _, item := range companies {
+		record := model.AssessmentObject{YearID: yearID, ObjectType: "team", ObjectCategory: "company", TargetID: item.ID, TargetType: "organization", ObjectName: item.OrgName, IsActive: true, CreatedBy: operatorID, UpdatedBy: operatorID}
+		if err := tx.Create(&record).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				continue
+			}
+			return 0, fmt.Errorf("failed to generate company object: %w", err)
+		}
+		teamKeyToObjectID[teamKey("organization", item.ID)] = record.ID
+		count++
+	}
+
+	var departments []struct {
+		ID             uint
+		DeptName       string
+		OrganizationID uint
+		OrgType        string
+	}
+	if err := tx.Table("departments d").
+		Select("d.id, d.dept_name, d.organization_id, o.org_type").
+		Joins("JOIN organizations o ON o.id = d.organization_id").
+		Where("d.deleted_at IS NULL AND d.status = ? AND o.deleted_at IS NULL AND o.status = ?", "active", "active").
+		Order("d.id ASC").
+		Scan(&departments).Error; err != nil {
+		return 0, fmt.Errorf("failed to query active departments: %w", err)
+	}
+	for _, item := range departments {
+		category := "company_dept"
+		if item.OrgType == "group" {
+			category = "group_dept"
+		}
+		record := model.AssessmentObject{YearID: yearID, ObjectType: "team", ObjectCategory: category, TargetID: item.ID, TargetType: "department", ObjectName: item.DeptName, IsActive: true, CreatedBy: operatorID, UpdatedBy: operatorID}
+		if err := tx.Create(&record).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				continue
+			}
+			return 0, fmt.Errorf("failed to generate department object: %w", err)
+		}
+		teamKeyToObjectID[teamKey("department", item.ID)] = record.ID
+		count++
+	}
+
+	var employees []struct {
+		ID             uint
+		EmpName        string
+		OrganizationID uint
+		DepartmentID   *uint
+		OrgType        string
+		LevelCode      string
+	}
+	if err := tx.Table("employees e").
+		Select("e.id, e.emp_name, e.organization_id, e.department_id, o.org_type, p.level_code").
+		Joins("JOIN organizations o ON o.id = e.organization_id").
+		Joins("JOIN position_levels p ON p.id = e.position_level_id").
+		Joins("LEFT JOIN departments d ON d.id = e.department_id").
+		Where("e.deleted_at IS NULL AND e.status = ? AND o.deleted_at IS NULL AND o.status = ?", "active", "active").
+		Where("e.department_id IS NULL OR (d.deleted_at IS NULL AND d.status = 'active')").
+		Order("e.id ASC").
+		Scan(&employees).Error; err != nil {
+		return 0, fmt.Errorf("failed to query active employees: %w", err)
+	}
+	for _, item := range employees {
+		category := normalizeEmployeeCategory(item.LevelCode)
+		var parentObjectID *uint
+		if item.DepartmentID != nil {
+			if objectID, ok := teamKeyToObjectID[teamKey("department", *item.DepartmentID)]; ok {
+				parentObjectID = uintPtr(objectID)
+			}
+		}
+		if parentObjectID == nil && item.OrgType == "company" {
+			if objectID, ok := teamKeyToObjectID[teamKey("organization", item.OrganizationID)]; ok {
+				parentObjectID = uintPtr(objectID)
+			}
+		}
+		record := model.AssessmentObject{YearID: yearID, ObjectType: "individual", ObjectCategory: category, TargetID: item.ID, TargetType: "employee", ObjectName: item.EmpName, ParentObjectID: parentObjectID, IsActive: true, CreatedBy: operatorID, UpdatedBy: operatorID}
+		if err := tx.Create(&record).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				continue
+			}
+			return 0, fmt.Errorf("failed to generate employee object: %w", err)
+		}
+		count++
+	}
+
+	return count, nil
+}
+
+func (s *AssessmentService) isTargetActive(tx *gorm.DB, targetType string, targetID uint) (bool, error) {
+	var count int64
+	switch targetType {
+	case "organization":
+		if err := tx.Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL AND status = ?", targetID, "active").Count(&count).Error; err != nil {
+			return false, fmt.Errorf("failed to verify active organization target: %w", err)
+		}
+	case "department":
+		if err := tx.Table("departments d").Joins("JOIN organizations o ON o.id = d.organization_id").Where("d.id = ? AND d.deleted_at IS NULL AND d.status = 'active' AND o.deleted_at IS NULL AND o.status = 'active'", targetID).Count(&count).Error; err != nil {
+			return false, fmt.Errorf("failed to verify active department target: %w", err)
+		}
+	case "employee":
+		if err := tx.Table("employees e").Joins("JOIN organizations o ON o.id = e.organization_id").Joins("LEFT JOIN departments d ON d.id = e.department_id").Where("e.id = ? AND e.deleted_at IS NULL AND e.status = 'active' AND o.deleted_at IS NULL AND o.status = 'active'", targetID).Where("e.department_id IS NULL OR (d.deleted_at IS NULL AND d.status = 'active')").Count(&count).Error; err != nil {
+			return false, fmt.Errorf("failed to verify active employee target: %w", err)
+		}
+	default:
+		return false, nil
+	}
+	return count > 0, nil
+}
+
+func teamKey(targetType string, targetID uint) string {
+	return fmt.Sprintf("%s:%d", targetType, targetID)
+}
+
+func normalizeEmployeeCategory(levelCode string) string {
+	switch strings.TrimSpace(levelCode) {
+	case "group_leader", "company_leader", "manager_main", "manager_deputy", "staff":
+		return strings.TrimSpace(levelCode)
+	default:
+		return "staff"
+	}
+}
+
+func isValidYearStatus(status string) bool {
+	switch status {
+	case "preparing", "active", "ended":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidPeriodStatus(status string) bool {
+	switch status {
+	case "not_started", "active", "ended", "locked":
+		return true
+	default:
+		return false
+	}
+}
+
+func canTransitionYearStatus(current, next string) bool {
+	if current == next {
+		return true
+	}
+	switch current {
+	case "preparing":
+		return next == "active"
+	case "active":
+		return next == "ended"
+	default:
+		return false
+	}
+}
+
+func canTransitionPeriodStatus(current, next string) bool {
+	if current == next {
+		return true
+	}
+	switch current {
+	case "not_started":
+		return next == "active" || next == "locked"
+	case "active":
+		return next == "ended" || next == "locked"
+	case "ended":
+		return next == "locked"
+	default:
+		return false
+	}
+}

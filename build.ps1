@@ -66,6 +66,12 @@ if (-not $SkipFrontend) {
             }
         }
 
+        if (-not $SkipTests) {
+            Invoke-Step "Frontend unit tests" {
+                npm run test:unit
+            }
+        }
+
         Invoke-Step "Frontend build" {
             npm run build
             Write-Host "Output: frontend/dist"

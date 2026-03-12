@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 
 	"assessv2/backend/internal/api/response"
@@ -14,21 +15,21 @@ func RequireJWT(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			response.Error(c, 401, 40100, "missing authorization header")
+			response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing authorization header")
 			c.Abort()
 			return
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
-			response.Error(c, 401, 40100, "invalid authorization header format")
+			response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "invalid authorization header format")
 			c.Abort()
 			return
 		}
 
 		claims, err := auth.ParseToken(secret, tokenString)
 		if err != nil {
-			response.Error(c, 401, 40100, "invalid token")
+			response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "invalid token")
 			c.Abort()
 			return
 		}

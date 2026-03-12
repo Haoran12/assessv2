@@ -7,62 +7,128 @@ import PlaceholderView from "@/views/PlaceholderView.vue";
 import ChangePasswordView from "@/views/ChangePasswordView.vue";
 import SystemUsersView from "@/views/SystemUsersView.vue";
 import ForbiddenView from "@/views/ForbiddenView.vue";
+import RulesView from "@/views/RulesView.vue";
+import OrganizationView from "@/views/OrganizationView.vue";
+import AssessmentView from "@/views/AssessmentView.vue";
+import ScoreDirectView from "@/views/ScoreDirectView.vue";
+import ScoreExtraView from "@/views/ScoreExtraView.vue";
+import VoteTaskView from "@/views/VoteTaskView.vue";
+import VoteExecuteView from "@/views/VoteExecuteView.vue";
+import VoteStatisticsView from "@/views/VoteStatisticsView.vue";
 
 const moduleRoutes: RouteRecordRaw[] = [
   {
     path: "org",
     name: "org",
-    component: PlaceholderView,
-    props: { title: "组织架构", apiGroup: "/api/org" },
-    meta: { requiresAuth: true, permission: "org:*" },
+    component: OrganizationView,
+    meta: { requiresAuth: true, permission: "org:view" },
   },
   {
     path: "assessment",
     name: "assessment",
-    component: PlaceholderView,
-    props: { title: "考核管理", apiGroup: "/api/assessment" },
+    component: AssessmentView,
     meta: { requiresAuth: true, permission: "assessment:view" },
   },
   {
     path: "rules",
     name: "rules",
-    component: PlaceholderView,
-    props: { title: "规则配置", apiGroup: "/api/rules" },
-    meta: { requiresAuth: true, permission: "rule:*" },
+    component: RulesView,
+    meta: { requiresAuth: true, permission: "rule:view" },
   },
   {
     path: "scores",
     name: "scores",
-    component: PlaceholderView,
-    props: { title: "分数管理", apiGroup: "/api/scores" },
-    meta: { requiresAuth: true, permission: "score:view" },
+    redirect: "/scores/direct",
+  },
+  {
+    path: "score",
+    name: "score-legacy",
+    redirect: "/scores/direct",
+  },
+  {
+    path: "score/direct",
+    name: "score-legacy-direct",
+    redirect: "/scores/direct",
+  },
+  {
+    path: "score/extra",
+    name: "score-legacy-extra",
+    redirect: "/scores/extra",
+  },
+  {
+    path: "scores/direct",
+    name: "scores-direct",
+    component: ScoreDirectView,
+    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
+  },
+  {
+    path: "scores/extra",
+    name: "scores-extra",
+    component: ScoreExtraView,
+    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
   },
   {
     path: "votes",
     name: "votes",
-    component: PlaceholderView,
-    props: { title: "投票管理", apiGroup: "/api/votes" },
-    meta: { requiresAuth: true, permission: "score:*" },
+    redirect: "/votes/task",
+  },
+  {
+    path: "vote",
+    name: "vote-legacy",
+    redirect: "/votes/task",
+  },
+  {
+    path: "vote/task",
+    name: "vote-legacy-task",
+    redirect: "/votes/task",
+  },
+  {
+    path: "vote/execute",
+    name: "vote-legacy-execute",
+    redirect: "/votes/execute",
+  },
+  {
+    path: "vote/statistics",
+    name: "vote-legacy-statistics",
+    redirect: "/votes/statistics",
+  },
+  {
+    path: "votes/task",
+    name: "votes-task",
+    component: VoteTaskView,
+    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
+  },
+  {
+    path: "votes/execute",
+    name: "votes-execute",
+    component: VoteExecuteView,
+    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
+  },
+  {
+    path: "votes/statistics",
+    name: "votes-statistics",
+    component: VoteStatisticsView,
+    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
   },
   {
     path: "calc",
     name: "calc",
     component: PlaceholderView,
-    props: { title: "计算引擎", apiGroup: "/api/calc" },
+    props: { title: "Calc", apiGroup: "/api/calc" },
     meta: { requiresAuth: true, permission: "score:*" },
   },
   {
     path: "reports",
     name: "reports",
     component: PlaceholderView,
-    props: { title: "报表中心", apiGroup: "/api/reports" },
+    props: { title: "Reports", apiGroup: "/api/reports" },
     meta: { requiresAuth: true, permission: "report:view" },
   },
   {
     path: "backup",
     name: "backup",
     component: PlaceholderView,
-    props: { title: "备份审计", apiGroup: "/api/backup" },
+    props: { title: "Backup", apiGroup: "/api/backup" },
     meta: { requiresAuth: true, permission: "backup:*" },
   },
   {

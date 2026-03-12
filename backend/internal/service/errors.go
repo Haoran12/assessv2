@@ -3,6 +3,7 @@ package service
 import "errors"
 
 var (
+	ErrInvalidParam       = errors.New("invalid parameter")
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrAccountInactive    = errors.New("account is inactive")
 	ErrAccountLocked      = errors.New("account is locked")
@@ -18,4 +19,64 @@ var (
 	ErrRoleInUse          = errors.New("role is still assigned to users")
 	ErrInvalidRoleList    = errors.New("invalid role list")
 	ErrCannotDemoteRoot   = errors.New("root user must keep root role")
+
+	ErrInvalidOrganizationType   = errors.New("invalid organization type")
+	ErrInvalidOrganizationStatus = errors.New("invalid organization status")
+	ErrOrganizationNotFound      = errors.New("organization not found")
+	ErrOrganizationInactive      = errors.New("organization is inactive")
+
+	ErrInvalidDepartmentStatus = errors.New("invalid department status")
+	ErrDepartmentNotFound      = errors.New("department not found")
+
+	ErrInvalidPositionLevelStatus = errors.New("invalid position level status")
+	ErrPositionLevelNotFound      = errors.New("position level not found")
+	ErrPositionLevelCodeExists    = errors.New("position level code already exists")
+	ErrSystemPositionLevelLocked  = errors.New("system position level code is immutable")
+
+	ErrInvalidEmployeeStatus = errors.New("invalid employee status")
+	ErrEmployeeNotFound      = errors.New("employee not found")
+
+	ErrInvalidTransferType   = errors.New("invalid transfer type")
+	ErrInvalidEffectiveDate  = errors.New("effective date is required")
+	ErrInvalidYearStatus     = errors.New("invalid year status")
+	ErrYearNotFound          = errors.New("assessment year not found")
+	ErrYearAlreadyExists     = errors.New("assessment year already exists")
+	ErrInvalidYearTransition = errors.New("invalid year status transition")
+	ErrYearAlreadyEnded      = errors.New("assessment year already ended")
+
+	ErrInvalidPeriodStatus     = errors.New("invalid period status")
+	ErrPeriodNotFound          = errors.New("assessment period not found")
+	ErrInvalidPeriodTransition = errors.New("invalid period status transition")
+	ErrPeriodLocked            = errors.New("assessment period is locked")
+
+	ErrRuleNotFound              = errors.New("assessment rule not found")
+	ErrRuleAlreadyExists         = errors.New("assessment rule already exists for the same dimension")
+	ErrInvalidRulePeriodCode     = errors.New("invalid rule period code")
+	ErrInvalidRuleObjectType     = errors.New("invalid rule object type")
+	ErrInvalidRuleObjectCategory = errors.New("invalid rule object category")
+	ErrInvalidRuleName           = errors.New("invalid rule name")
+	ErrInvalidRuleModules        = errors.New("invalid rule modules")
+	ErrRuleWeightSumInvalid      = errors.New("weighted module sum must be exactly 1.0000")
+	ErrVoteGroupWeightInvalid    = errors.New("vote group weight sum must be exactly 1.0000")
+	ErrInvalidModuleCode         = errors.New("invalid module code")
+	ErrInvalidExpression         = errors.New("invalid custom expression")
+	ErrRuleTemplateNotFound      = errors.New("rule template not found")
+	ErrRuleTemplateNameInvalid   = errors.New("invalid template name")
+
+	ErrDirectScoreNotFound      = errors.New("direct score not found")
+	ErrDirectScoreExists        = errors.New("direct score already exists")
+	ErrInvalidScoreValue        = errors.New("score is out of range")
+	ErrInvalidScoreModule       = errors.New("invalid score module for direct input")
+	ErrAssessmentObjectNotFound = errors.New("assessment object not found")
+	ErrInvalidExtraPointType    = errors.New("invalid extra point type")
+	ErrInvalidExtraPointValue   = errors.New("extra points must be in range -20 to +20")
+	ErrExtraPointReasonEmpty    = errors.New("extra point reason is required")
+	ErrExtraPointNotFound       = errors.New("extra point record not found")
+
+	ErrInvalidVoteModule      = errors.New("invalid score module for vote task")
+	ErrInvalidVoteTaskStatus  = errors.New("invalid vote task status")
+	ErrVoteTaskNotFound       = errors.New("vote task not found")
+	ErrVoteTaskLocked         = errors.New("vote task is already completed")
+	ErrVoteTaskForbidden      = errors.New("vote task does not belong to current user")
+	ErrInvalidVoteGradeOption = errors.New("invalid vote grade option")
 )

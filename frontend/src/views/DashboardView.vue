@@ -2,10 +2,10 @@
   <div class="dashboard">
     <el-card>
       <template #header>
-        <strong>M1 进度</strong>
+        <strong>M1-M3 交付概览</strong>
       </template>
       <p>
-        认证与权限基线已接入真实后端接口，可在此基础上继续迭代业务功能。
+        当前前端已接入真实登录、权限守卫、组织架构、年度周期与规则配置核心交互，可直接联调后端接口。
       </p>
     </el-card>
 
@@ -25,28 +25,28 @@
 <script setup lang="ts">
 const cards = [
   {
-    name: "数据库认证",
-    description: "登录采用 bcrypt + JWT，并通过 /api/system/profile 拉取用户信息。",
+    name: "M1 认证与权限",
+    description: "支持真实登录、首次改密、会话恢复、会话过期跳转与用户权限菜单。",
   },
   {
-    name: "权限守卫",
-    description: "路由访问与菜单显示均按权限点校验。",
+    name: "M2 组织架构",
+    description: "支持组织树、组织/部门/人员 CRUD、人员调动与历史追踪。",
   },
   {
-    name: "强制改密",
-    description: "mustChangePassword=true 时仅允许进入修改密码页。",
+    name: "M2 年度周期",
+    description: "支持年度创建复制、5 周期查看、状态流转与锁定约束操作。",
   },
   {
-    name: "用户管理",
-    description: "已支持用户列表、重置密码与账号状态变更。",
+    name: "M3 规则配置",
+    description: "支持规则模块配置、权重校验、模板保存和跨年度应用。",
   },
   {
-    name: "会话管理",
-    description: "刷新后自动恢复会话，令牌失效自动回到登录页。",
+    name: "模板与复用",
+    description: "支持按对象类型筛选模板并应用到新年度/周期规则。",
   },
   {
-    name: "审计就绪",
-    description: "后端已记录登录、登出与改密审计日志。",
+    name: "联调准备",
+    description: "页面已按后端接口契约实现，可直接开展接口联调和冒烟测试。",
   },
 ];
 </script>

@@ -11,6 +11,19 @@ backend/bin/
 src-tauri/target/
 src-tauri/gen/
 
+# Logs / runtime outputs
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Test / coverage artifacts
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+backend/coverage.out
+
 # IDE / OS
 .DS_Store
 Thumbs.db

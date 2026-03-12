@@ -9,7 +9,7 @@
         v-if="appStore.mustChangePassword"
         type="warning"
         :closable="false"
-        title="首次登录需先修改密码。"
+        title="首次登录请先修改密码"
         style="margin-bottom: 16px"
       />
 
@@ -78,19 +78,19 @@ const form = reactive({
 
 async function handleChangePassword(): Promise<void> {
   if (!form.oldPassword || !form.newPassword) {
-    ElMessage.warning("请填写完整信息。");
+    ElMessage.warning("请填写完整信息");
     return;
   }
   if (form.newPassword.length < 8) {
-    ElMessage.warning("新密码长度不能少于 8 位。");
+    ElMessage.warning("新密码长度不能少于 8 位");
     return;
   }
   if (form.newPassword !== form.confirmPassword) {
-    ElMessage.warning("两次输入的新密码不一致。");
+    ElMessage.warning("两次输入的新密码不一致");
     return;
   }
   if (form.oldPassword === form.newPassword) {
-    ElMessage.warning("新密码不能与当前密码相同。");
+    ElMessage.warning("新密码不能与当前密码相同");
     return;
   }
 
@@ -100,10 +100,10 @@ async function handleChangePassword(): Promise<void> {
       oldPassword: form.oldPassword,
       newPassword: form.newPassword,
     });
-    ElMessage.success("密码修改成功。");
+    ElMessage.success("密码修改成功");
     await router.push("/dashboard");
   } catch (_error) {
-    ElMessage.error("密码修改失败，请核对当前密码。");
+    ElMessage.error("密码修改失败，请核对当前密码");
   } finally {
     loading.value = false;
   }

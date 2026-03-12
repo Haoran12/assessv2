@@ -48,17 +48,17 @@ func NewSystemHandler(authService *service.AuthService, userService *service.Use
 func (h *SystemHandler) Profile(c *gin.Context) {
 	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	profile, mustChangePassword, err := h.authService.GetProfile(c.Request.Context(), claims.UserID)
 	if err != nil {
 		if repository.IsRecordNotFound(err) {
-			response.Error(c, http.StatusNotFound, 40401, "user not found")
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, 50001, "failed to load profile")
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to load profile")
 		return
 	}
 	response.Success(c, gin.H{
@@ -79,7 +79,7 @@ func (h *SystemHandler) ListUsers(c *gin.Context) {
 
 	result, err := h.userService.ListUsers(c.Request.Context(), input)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, 50001, "failed to query users")
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to query users")
 		return
 	}
 	response.Success(c, result)
@@ -88,19 +88,19 @@ func (h *SystemHandler) ListUsers(c *gin.Context) {
 func (h *SystemHandler) ResetPassword(c *gin.Context) {
 	operatorClaims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	userID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, 40002, "invalid user id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
 		return
 	}
 
 	var req resetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
-		response.Error(c, http.StatusBadRequest, 40001, "invalid reset password payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid reset password payload")
 		return
 	}
 
@@ -113,10 +113,10 @@ func (h *SystemHandler) ResetPassword(c *gin.Context) {
 		c.GetHeader("User-Agent"),
 	); err != nil {
 		if repository.IsRecordNotFound(err) {
-			response.Error(c, http.StatusNotFound, 40401, "user not found")
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, 50001, "failed to reset password")
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to reset password")
 		return
 	}
 	response.Success(c, gin.H{"reset": true})
@@ -125,19 +125,19 @@ func (h *SystemHandler) ResetPassword(c *gin.Context) {
 func (h *SystemHandler) UpdateUserStatus(c *gin.Context) {
 	operatorClaims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	userID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, 40002, "invalid user id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
 		return
 	}
 
 	var req updateUserStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, 40001, "invalid status payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid status payload")
 		return
 	}
 
@@ -152,13 +152,13 @@ func (h *SystemHandler) UpdateUserStatus(c *gin.Context) {
 	); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidUserStatus):
-			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 		case errors.Is(err, service.ErrCannotDisableSelf):
-			response.Error(c, http.StatusBadRequest, 40003, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 		case repository.IsRecordNotFound(err):
-			response.Error(c, http.StatusNotFound, 40401, "user not found")
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
 		default:
-			response.Error(c, http.StatusInternalServerError, 50001, "failed to update user status")
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to update user status")
 		}
 		return
 	}
@@ -169,7 +169,7 @@ func (h *SystemHandler) UpdateUserStatus(c *gin.Context) {
 func (h *SystemHandler) ListUserGroups(c *gin.Context) {
 	result, err := h.userService.ListUserGroups(c.Request.Context())
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, 50001, "failed to query user groups")
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to query user groups")
 		return
 	}
 	response.Success(c, gin.H{"items": result})
@@ -178,13 +178,13 @@ func (h *SystemHandler) ListUserGroups(c *gin.Context) {
 func (h *SystemHandler) CreateUserGroup(c *gin.Context) {
 	operatorClaims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	var req upsertUserGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, 40001, "invalid user group payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid user group payload")
 		return
 	}
 
@@ -202,9 +202,9 @@ func (h *SystemHandler) CreateUserGroup(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidRoleCode), errors.Is(err, service.ErrInvalidRoleName), errors.Is(err, service.ErrRoleCodeExists):
-			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 		default:
-			response.Error(c, http.StatusInternalServerError, 50001, "failed to create user group")
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to create user group")
 		}
 		return
 	}
@@ -214,19 +214,19 @@ func (h *SystemHandler) CreateUserGroup(c *gin.Context) {
 func (h *SystemHandler) UpdateUserGroup(c *gin.Context) {
 	operatorClaims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	roleID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, 40002, "invalid group id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid group id")
 		return
 	}
 
 	var req upsertUserGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, 40001, "invalid user group payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid user group payload")
 		return
 	}
 
@@ -245,13 +245,13 @@ func (h *SystemHandler) UpdateUserGroup(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrRoleNotFound):
-			response.Error(c, http.StatusNotFound, 40401, err.Error())
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())
 		case errors.Is(err, service.ErrSystemRoleLocked):
-			response.Error(c, http.StatusBadRequest, 40003, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 		case errors.Is(err, service.ErrInvalidRoleCode), errors.Is(err, service.ErrInvalidRoleName), errors.Is(err, service.ErrRoleCodeExists):
-			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 		default:
-			response.Error(c, http.StatusInternalServerError, 50001, "failed to update user group")
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to update user group")
 		}
 		return
 	}
@@ -261,13 +261,13 @@ func (h *SystemHandler) UpdateUserGroup(c *gin.Context) {
 func (h *SystemHandler) DeleteUserGroup(c *gin.Context) {
 	operatorClaims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	roleID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, 40002, "invalid group id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid group id")
 		return
 	}
 
@@ -280,11 +280,11 @@ func (h *SystemHandler) DeleteUserGroup(c *gin.Context) {
 	); err != nil {
 		switch {
 		case errors.Is(err, service.ErrRoleNotFound):
-			response.Error(c, http.StatusNotFound, 40401, err.Error())
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())
 		case errors.Is(err, service.ErrSystemRoleLocked), errors.Is(err, service.ErrRoleInUse):
-			response.Error(c, http.StatusBadRequest, 40003, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 		default:
-			response.Error(c, http.StatusInternalServerError, 50001, "failed to delete user group")
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to delete user group")
 		}
 		return
 	}
@@ -295,19 +295,19 @@ func (h *SystemHandler) DeleteUserGroup(c *gin.Context) {
 func (h *SystemHandler) UpdateUserGroups(c *gin.Context) {
 	operatorClaims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		response.Error(c, http.StatusUnauthorized, 40100, "missing auth context")
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 
 	userID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, 40002, "invalid user id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
 		return
 	}
 
 	var req updateUserGroupsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, 40001, "invalid user groups payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid user groups payload")
 		return
 	}
 
@@ -324,11 +324,11 @@ func (h *SystemHandler) UpdateUserGroups(c *gin.Context) {
 	); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidRoleList), errors.Is(err, service.ErrCannotDemoteRoot):
-			response.Error(c, http.StatusBadRequest, 40002, err.Error())
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 		case repository.IsRecordNotFound(err):
-			response.Error(c, http.StatusNotFound, 40401, "user not found")
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
 		default:
-			response.Error(c, http.StatusInternalServerError, 50001, "failed to update user groups")
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to update user groups")
 		}
 		return
 	}

@@ -31,6 +31,7 @@ type DatabaseConfig struct {
 type Config struct {
 	Server                    ServerConfig
 	Database                  DatabaseConfig
+	MigrationsDir             string
 	JWTSecret                 string
 	DefaultPassword           string
 	EnforceMustChangePassword bool
@@ -54,6 +55,7 @@ func Load() Config {
 			MaxIdleConns:           getEnvAsInt("ASSESS_SQLITE_MAX_IDLE_CONNS", 1),
 			ConnMaxLifetimeSeconds: getEnvAsInt("ASSESS_SQLITE_CONN_MAX_LIFETIME_SECONDS", 0),
 		},
+		MigrationsDir:             getEnv("ASSESS_MIGRATIONS_DIR", "migrations"),
 		JWTSecret:                 getEnv("ASSESS_JWT_SECRET", "assessv2-dev-secret"),
 		DefaultPassword:           getEnv("ASSESS_DEFAULT_PASSWORD", "#2026@hdwl"),
 		EnforceMustChangePassword: getEnvAsBool("ASSESS_ENFORCE_MUST_CHANGE_PASSWORD", false),

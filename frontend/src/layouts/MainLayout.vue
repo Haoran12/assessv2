@@ -3,7 +3,7 @@
     <el-aside width="250px" class="app-sidebar">
       <div class="brand">
         <div class="brand-title">AssessV2</div>
-        <div class="brand-subtitle">M1 认证与权限</div>
+        <div class="brand-subtitle">M1-M3 前端交互版</div>
       </div>
       <el-menu :default-active="activePath" router>
         <el-menu-item
@@ -18,9 +18,28 @@
     <el-container>
       <el-header class="app-header">
         <div class="header-left">
-          <strong>考核管理系统</strong>
+          <strong>集团考核管理系统</strong>
         </div>
         <div class="header-right">
+          <div v-if="showGlobalContext" class="global-context">
+            <el-select
+              v-model="contextYearId"
+              class="context-select"
+              placeholder="年度"
+              :loading="contextStore.loadingYears"
+              clearable
+            >
+              <el-option
+                v-for="item in contextStore.years"
+                :key="item.id"
+                :label="`${item.year} - ${item.yearName}`"
+                :value="item.id"
+              />
+            </el-select>
+            <el-select v-model="contextPeriodCode" class="context-select" placeholder="周期">
+              <el-option v-for="item in periodOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </div>
           <el-dropdown trigger="click">
             <span class="username-trigger" :class="{ 'is-root': appStore.primaryRole === 'root' }">
               {{ appStore.username || "未登录" }}
@@ -50,11 +69,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
+import { useContextStore } from "@/stores/context";
+import { PERIOD_OPTIONS } from "@/utils/assessment";
 
 interface NavItem {
   path: string;
@@ -64,11 +85,14 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { path: "/dashboard", label: "首页" },
-  { path: "/org", label: "组织架构", permission: "org:*" },
-  { path: "/assessment", label: "考核管理", permission: "assessment:view" },
-  { path: "/rules", label: "规则配置", permission: "rule:*" },
-  { path: "/scores", label: "分数管理", permission: "score:view" },
-  { path: "/votes", label: "投票管理", permission: "score:*" },
+  { path: "/org", label: "组织架构", permission: "org:view" },
+  { path: "/assessment", label: "年度周期", permission: "assessment:view" },
+  { path: "/rules", label: "规则配置", permission: "rule:view" },
+  { path: "/scores/direct", label: "直接录入", permission: "score:view" },
+  { path: "/scores/extra", label: "加减分", permission: "score:view" },
+  { path: "/votes/task", label: "投票任务", permission: "score:view" },
+  { path: "/votes/execute", label: "执行投票", permission: "score:view" },
+  { path: "/votes/statistics", label: "投票统计", permission: "score:view" },
   { path: "/calc", label: "计算引擎", permission: "score:*" },
   { path: "/reports", label: "报表中心", permission: "report:view" },
   { path: "/backup", label: "备份审计", permission: "backup:*" },
@@ -78,15 +102,41 @@ const navItems: NavItem[] = [
 const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
+const contextStore = useContextStore();
+const periodOptions = PERIOD_OPTIONS;
 
 const activePath = computed(() => route.path);
 const visibleMenus = computed(() =>
   navItems.filter((item) => !item.permission || appStore.hasPermission(item.permission)),
 );
+const showGlobalContext = computed(() => route.matched.some((record) => record.meta.useGlobalContext));
+const contextYearId = computed({
+  get: () => contextStore.yearId,
+  set: (value) => contextStore.setYear(value),
+});
+const contextPeriodCode = computed({
+  get: () => contextStore.periodCode,
+  set: (value) => contextStore.setPeriodCode(value),
+});
+
+watch(
+  () => [showGlobalContext.value, appStore.isAuthed],
+  async ([visible, authed]) => {
+    if (!visible || !authed) {
+      return;
+    }
+    try {
+      await contextStore.ensureInitialized();
+    } catch (_error) {
+      ElMessage.error("全局上下文加载失败");
+    }
+  },
+  { immediate: true },
+);
 
 async function handleLogout(): Promise<void> {
   await appStore.logout();
-  ElMessage.success("已退出登录。");
+  ElMessage.success("已退出登录");
   await router.push("/login");
 }
 
@@ -97,7 +147,7 @@ async function goToChangePassword(): Promise<void> {
 function roleLabel(roleCode: string): string {
   switch (roleCode) {
     case "root":
-      return "Root管理员";
+      return "Root 管理员";
     case "viewer":
       return "查看者";
     case "":
@@ -148,6 +198,16 @@ function roleLabel(roleCode: string): string {
   gap: 10px;
 }
 
+.global-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-select {
+  width: 180px;
+}
+
 .username-trigger {
   display: flex;
   align-items: center;
@@ -180,5 +240,16 @@ function roleLabel(roleCode: string): string {
 
 .app-main {
   background: #f5f7fa;
+}
+
+@media (max-width: 1100px) {
+  .header-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .context-select {
+    width: 150px;
+  }
 }
 </style>

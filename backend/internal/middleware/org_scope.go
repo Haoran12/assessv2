@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strconv"
 
 	"assessv2/backend/internal/api/response"
@@ -14,7 +15,7 @@ func RequireOrgScope() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := ClaimsFromContext(c)
 		if !ok {
-			response.Error(c, 401, 40100, "missing auth context")
+			response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 			c.Abort()
 			return
 		}
@@ -34,12 +35,12 @@ func RequireOrgScope() gin.HandlerFunc {
 
 		orgID, err := strconv.ParseUint(orgIDRaw, 10, 64)
 		if err != nil {
-			response.Error(c, 400, 40002, "invalid organizationId")
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid organizationId")
 			c.Abort()
 			return
 		}
 		if !containsOrgScope(claims.OrgScopes, orgType, uint(orgID)) {
-			response.Error(c, 403, 40302, "organization scope denied")
+			response.Error(c, http.StatusForbidden, response.CodeForbiddenOrgScope, "organization scope denied")
 			c.Abort()
 			return
 		}

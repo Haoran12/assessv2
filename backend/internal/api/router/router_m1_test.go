@@ -11,6 +11,7 @@ import (
 
 	"assessv2/backend/internal/config"
 	"assessv2/backend/internal/database"
+	"assessv2/backend/internal/migration"
 	"assessv2/backend/internal/model"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -274,6 +275,7 @@ func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 		Database: config.DatabaseConfig{
 			Path: filepath.Join(t.TempDir(), "test.db"),
 		},
+		MigrationsDir:             "migrations",
 		JWTSecret:                 "test-secret",
 		DefaultPassword:           testDefaultPassword,
 		EnforceMustChangePassword: true,
@@ -283,8 +285,15 @@ func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 	if err != nil {
 		t.Fatalf("failed to init sqlite: %v", err)
 	}
-	if err := database.AutoMigrateAndSeed(db, cfg.DefaultPassword); err != nil {
-		t.Fatalf("failed to init schema: %v", err)
+	manager, err := migration.NewManager(db, cfg.MigrationsDir)
+	if err != nil {
+		t.Fatalf("failed to init migration manager: %v", err)
+	}
+	if _, err := manager.Up(t.Context()); err != nil {
+		t.Fatalf("failed to apply schema migrations: %v", err)
+	}
+	if err := database.SeedBaselineData(db, cfg.DefaultPassword); err != nil {
+		t.Fatalf("failed to init seed data: %v", err)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {

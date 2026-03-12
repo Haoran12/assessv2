@@ -5,6 +5,7 @@ const baseURL = import.meta.env.VITE_API_BASE_URL || "";
 const TOKEN_KEY = "assessv2_token";
 const USER_KEY = "assessv2_user";
 const MUST_CHANGE_KEY = "assessv2_must_change_password";
+const SESSION_EXPIRED_KEY = "assessv2_session_expired";
 
 export const http = axios.create({
   baseURL,
@@ -31,6 +32,7 @@ http.interceptors.response.use(
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem(MUST_CHANGE_KEY);
+      sessionStorage.setItem(SESSION_EXPIRED_KEY, "1");
       if (window.location.pathname !== "/login") {
         const redirectPath = encodeURIComponent(window.location.pathname + window.location.search);
         window.location.href = `/login?redirect=${redirectPath}`;

@@ -6,5 +6,6 @@ declare module "vue-router" {
     publicOnly?: boolean;
     allowWhenMustChange?: boolean;
     permission?: string | string[];
+    useGlobalContext?: boolean;
   }
 }
