@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "AssessV2",
+  "outputfilename": "assessv2-desktop",
+  "frontend:dir": "../../frontend",
+  "frontend:install": "npm ci",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run build -- --watch",
+  "author": {
+    "name": "AssessV2 Team",
+    "email": ""
+  },
+  "info": {
+    "companyName": "AssessV2",
+    "productName": "AssessV2",
+    "productVersion": "0.1.0",
+    "comments": "AssessV2 desktop application shell"
+  }
+}

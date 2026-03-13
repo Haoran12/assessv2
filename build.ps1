@@ -4,6 +4,7 @@ param(
     [switch]$SkipTests,
     [switch]$SkipBackend,
     [switch]$SkipFrontend,
+    [switch]$SkipDesktop,
     [switch]$SkipTauri
 )
 
@@ -31,8 +32,54 @@ function Invoke-Step {
     & $Action
 }
 
+$SkipDesktopEffective = $SkipDesktop -or $SkipTauri
+
+function Resolve-WailsCommand {
+    $wailsCmd = Get-Command "wails" -ErrorAction SilentlyContinue
+    if ($wailsCmd) {
+        return $wailsCmd.Source
+    }
+
+    $goCmd = Get-Command "go" -ErrorAction SilentlyContinue
+    if ($goCmd) {
+        $goPath = (& go env GOPATH).Trim()
+        if ($goPath) {
+            $candidate = Join-Path $goPath "bin/wails.exe"
+            if (Test-Path $candidate) {
+                return $candidate
+            }
+        }
+    }
+
+    throw "Missing required command: wails (or `%GOPATH%\\bin\\wails.exe`)"
+}
+
+function Sync-DesktopRuntimeAssets {
+    param(
+        [string]$DesktopDir
+    )
+
+    $desktopBinDir = Join-Path $DesktopDir "build/bin"
+    New-Item -ItemType Directory -Path $desktopBinDir -Force | Out-Null
+
+    $migrationsSource = Resolve-Path (Join-Path $DesktopDir "../migrations")
+    $migrationsTarget = Join-Path $desktopBinDir "migrations"
+    New-Item -ItemType Directory -Path $migrationsTarget -Force | Out-Null
+    Copy-Item -Path (Join-Path $migrationsSource "*.sql") -Destination $migrationsTarget -Force
+    Write-Host "Output: backend/desktop/build/bin/migrations"
+
+    $frontendDistDir = Resolve-Path (Join-Path $DesktopDir "../../frontend/dist")
+    $frontendTargetDir = Join-Path $desktopBinDir "frontend/dist"
+    New-Item -ItemType Directory -Path $frontendTargetDir -Force | Out-Null
+    Copy-Item -Path (Join-Path $frontendDistDir "*") -Destination $frontendTargetDir -Recurse -Force
+    Write-Host "Output: backend/desktop/build/bin/frontend/dist"
+}
+
 Invoke-Step "Build mode: $Mode" {
-    Write-Host "SkipTests=$SkipTests SkipBackend=$SkipBackend SkipFrontend=$SkipFrontend SkipTauri=$SkipTauri"
+    Write-Host "SkipTests=$SkipTests SkipBackend=$SkipBackend SkipFrontend=$SkipFrontend SkipDesktop=$SkipDesktopEffective"
+    if ($SkipTauri) {
+        Write-Host "SkipTauri is deprecated and mapped to SkipDesktop." -ForegroundColor Yellow
+    }
 }
 
 if (-not $SkipBackend) {
@@ -81,19 +128,26 @@ if (-not $SkipFrontend) {
     }
 }
 
-if (-not $SkipTauri) {
-    Require-Command "cargo"
-    Push-Location "src-tauri"
+if (-not $SkipDesktopEffective) {
+    Require-Command "go"
+    Push-Location "backend/desktop"
     try {
         if ($Mode -eq "release") {
-            Invoke-Step "Tauri release build (cargo build --release)" {
-                cargo build --release
-                Write-Host "Output: src-tauri/target/release"
+            $wailsCommand = Resolve-WailsCommand
+            Invoke-Step "Desktop release build (wails build -clean -s)" {
+                & $wailsCommand build -clean -s
+                Write-Host "Output: backend/desktop/build/bin"
             }
         } else {
-            Invoke-Step "Tauri compile check" {
-                cargo check
+            Invoke-Step "Desktop compile check (go build)" {
+                New-Item -ItemType Directory -Path "build/bin" -Force | Out-Null
+                go build -o "build/bin/assessv2-desktop-dev.exe" .
+                Write-Host "Output: backend/desktop/build/bin/assessv2-desktop-dev.exe"
             }
+        }
+
+        Invoke-Step "Sync desktop runtime assets (frontend dist + migrations)" {
+            Sync-DesktopRuntimeAssets -DesktopDir (Get-Location).Path
         }
     } finally {
         Pop-Location

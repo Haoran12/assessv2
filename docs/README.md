@@ -12,7 +12,7 @@
 
 ### 核心特性
 
-- ✅ **本地部署** - Tauri 桌面应用，数据安全可控
+- ✅ **本地部署** - Wails 桌面应用，数据安全可控
 - ✅ **多用户协作** - 支持多角色权限管理
 - ✅ **灵活配置** - 可视化规则配置，支持复杂表达式计算
 - ✅ **分组投票** - 支持多组投票，不同权重
@@ -23,7 +23,7 @@
 
 **前端**: Vue 3 + TypeScript + Element Plus + Pinia + vxe-table + ECharts  
 **后端**: Go + Gin + GORM + SQLite  
-**桌面**: Tauri 2.0  
+**桌面**: Wails 2.x  
 **平台**: Windows 10+ / macOS 12+
 
 ---
@@ -94,7 +94,7 @@ RESTful API 接口规范，包括：
 
 - Go 1.22+
 - Node.js 20+
-- Tauri CLI 2.0+
+- Wails CLI 2.x
 - SQLite 3.45+
 
 ### 项目结构
@@ -131,10 +131,10 @@ assessv2/
 │   │   └── types/        # TypeScript 类型
 │   ├── public/
 │   └── package.json
-├── src-tauri/              # Tauri 配置
-│   ├── src/
-│   ├── icons/
-│   └── tauri.conf.json
+├── backend/desktop/         # Wails 配置与入口
+│   ├── main.go
+│   ├── app.go
+│   └── wails.json
 └── README.md
 ```
 

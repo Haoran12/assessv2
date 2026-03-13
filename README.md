@@ -4,7 +4,7 @@
 
 - 前端：Vue 3 + TypeScript + Element Plus + Pinia + Vue Router
 - 后端：Go + Gin + GORM + SQLite
-- 桌面：Tauri 2.0（容器层骨架）
+- 桌面：Wails 2.x（容器层骨架）
 
 ## 目录结构
 
@@ -13,7 +13,7 @@ assessv2/
 ├── docs/              # 需求与设计文档
 ├── backend/           # Go 后端
 ├── frontend/          # Vue 前端
-├── src-tauri/         # Tauri 桌面容器
+├── backend/desktop/   # Wails 桌面容器
 └── README.md
 ```
 
@@ -27,7 +27,7 @@ assessv2/
 - 10 组 API 模块占位接口（`/_ping`）
 - 前端登录页、主布局、模块占位页
 - 前后端联调基础（Axios + 路由守卫）
-- Tauri 最小项目结构和配置文件
+- Wails 最小项目结构和配置文件
 
 ## 启动方式
 
@@ -53,16 +53,16 @@ npm run dev
 
 初始化登录账户（临时）：`admin / admin123`
 
-### 3. Tauri（可选）
+### 3. Wails（可选）
 
 ```bash
-cd src-tauri
-cargo tauri dev
+cd backend/desktop
+wails dev
 ```
 
 ## 已对齐的文档要点
 
-- 技术选型：与 `docs/00` 中前后端与 Tauri 选型一致
+- 技术选型：与 `docs/00` 中前后端与 Wails 选型一致
 - 架构分层：UI/API/Service/Repository/DB 分层落位
 - 模块边界：`auth/org/assessment/rules/scores/votes/calc/reports/backup/system`
 - 响应规范：统一 JSON 响应结构
@@ -74,4 +74,3 @@ cargo tauri dev
 3. 实现规则配置与分数模块定义
 4. 接入计算引擎（表达式 + DAG 依赖处理）
 5. 实现投票、报表与备份能力
-

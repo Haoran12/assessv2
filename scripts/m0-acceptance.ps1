@@ -1,5 +1,6 @@
 param(
-    [switch]$RunE2E
+    [switch]$RunE2E,
+    [switch]$SkipDesktop
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,16 @@ try {
     }
 } finally {
     Pop-Location
+}
+
+if (-not $SkipDesktop) {
+    Step "Run desktop compile check (Wails shell)"
+    Push-Location "backend/desktop"
+    try {
+        go build ./...
+    } finally {
+        Pop-Location
+    }
 }
 
 Step "M0 acceptance checks passed"

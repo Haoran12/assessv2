@@ -7,9 +7,15 @@ backend/data/*.db
 backend/data/*.db-*
 backend/bin/
 
-# Tauri / Rust
+# Desktop packaging
 src-tauri/target/
 src-tauri/gen/
+backend/desktop/build/bin/
+backend/desktop/*.exe
+backend/desktop/build/windows/info.json
+backend/desktop/build/windows/wails.exe.manifest
+frontend/src/wailsjs/
+frontend/wailsjs/
 
 # Logs / runtime outputs
 logs/

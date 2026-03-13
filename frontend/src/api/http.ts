@@ -1,7 +1,8 @@
 import axios, { type AxiosError } from "axios";
 import type { ApiResponse } from "@/types/api";
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || "";
+const isWailsRuntime = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("wails");
+const baseURL = isWailsRuntime ? "" : import.meta.env.VITE_API_BASE_URL || "";
 const TOKEN_KEY = "assessv2_token";
 const USER_KEY = "assessv2_user";
 const MUST_CHANGE_KEY = "assessv2_must_change_password";
