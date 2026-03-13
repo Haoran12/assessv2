@@ -50,6 +50,16 @@ export interface PositionLevelItem {
   status: OrgStatus;
 }
 
+export interface AssessmentCategoryItem {
+  id: number;
+  categoryCode: string;
+  categoryName: string;
+  objectType: "team" | "individual";
+  sortOrder: number;
+  isSystem: boolean;
+  status: OrgStatus;
+}
+
 export interface EmployeeItem {
   id: number;
   empName: string;

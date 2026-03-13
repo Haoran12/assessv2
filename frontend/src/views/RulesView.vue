@@ -31,7 +31,7 @@
             <el-option
               v-for="item in objectCategoryOptions(filters.objectType)"
               :key="item"
-              :label="item"
+              :label="assessmentCategoryLabel(item)"
               :value="item"
             />
           </el-select>
@@ -47,7 +47,11 @@
         <el-table-column prop="yearId" label="年度ID" width="100" />
         <el-table-column prop="periodCode" label="周期" width="110" />
         <el-table-column prop="objectType" label="对象类型" width="120" />
-        <el-table-column prop="objectCategory" label="对象分类" min-width="150" />
+        <el-table-column label="对象分类" min-width="150">
+          <template #default="{ row }">
+            {{ assessmentCategoryLabel(row.objectCategory) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="ruleName" label="规则名称" min-width="180" />
         <el-table-column prop="moduleCount" label="模块数" width="90" />
         <el-table-column prop="isActive" label="启用" width="80">
@@ -76,7 +80,11 @@
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="templateName" label="模板名称" min-width="180" />
         <el-table-column prop="objectType" label="对象类型" width="120" />
-        <el-table-column prop="objectCategory" label="对象分类" min-width="150" />
+        <el-table-column label="对象分类" min-width="150">
+          <template #default="{ row }">
+            {{ assessmentCategoryLabel(row.objectCategory) }}
+          </template>
+        </el-table-column>
         <el-table-column label="模块数" width="90">
           <template #default="{ row }">
             {{ row.config?.modules?.length ?? 0 }}
@@ -147,7 +155,7 @@
                   <el-option
                     v-for="item in objectCategoryOptions(ruleForm.objectType)"
                     :key="item"
-                    :label="item"
+                    :label="assessmentCategoryLabel(item)"
                     :value="item"
                   />
                 </el-select>
@@ -172,7 +180,7 @@
           <div>
             <strong>模块配置</strong>
             <el-tag class="weight-tag" :type="weightSumTagType">
-              权重和（不含extra）: {{ weightedSum.toFixed(4) }}
+              权重和（不含 extra）：{{ weightedSum.toFixed(4) }}
             </el-tag>
           </div>
           <div>
@@ -306,7 +314,7 @@
                 <div>
                   <strong>投票分组</strong>
                   <el-tag class="weight-tag" :type="voteGroupWeightTagType(module)">
-                    分组权重和: {{ voteGroupWeightSum(module).toFixed(4) }}
+                    分组权重和：{{ voteGroupWeightSum(module).toFixed(4) }}
                   </el-tag>
                 </div>
                 <el-button size="small" @click="addVoteGroup(module)">新增分组</el-button>
@@ -378,7 +386,7 @@
             <el-option
               v-for="item in objectCategoryOptions(applyForm.objectType)"
               :key="item"
-              :label="item"
+              :label="assessmentCategoryLabel(item)"
               :value="item"
             />
           </el-select>
@@ -404,6 +412,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useContextStore } from "@/stores/context";
+import { assessmentCategoriesByObjectType, assessmentCategoryLabel } from "@/constants/assessmentCategories";
 import {
   applyRuleTemplate,
   createRule,
@@ -479,16 +489,13 @@ interface ApplyFormState {
 }
 
 const periodOptions: AssessmentPeriodCode[] = ["Q1", "Q2", "Q3", "Q4", "YEAR_END"];
-const categoryMap: Record<RuleObjectType, string[]> = {
-  team: ["group_dept", "company", "company_dept"],
-  individual: ["group_leader", "company_leader", "manager_main", "manager_deputy", "staff"],
-};
+const contextStore = useContextStore();
 
 const filters = reactive({
   yearId: null as number | null,
   periodCode: "" as AssessmentPeriodCode | "",
   objectType: "team" as RuleObjectType,
-  objectCategory: "company",
+  objectCategory: "subsidiary_company",
 });
 
 const rulesLoading = ref(false);
@@ -601,7 +608,7 @@ function createVoteGroup(sortOrder: number): EditableVoteGroup {
 }
 
 function objectCategoryOptions(objectType: RuleObjectType): string[] {
-  return categoryMap[objectType];
+  return assessmentCategoriesByObjectType(objectType);
 }
 
 function onFilterObjectTypeChange(): void {
@@ -1053,7 +1060,25 @@ function stringifyJSONText(value: unknown): string {
   }
 }
 
+async function syncFiltersFromActiveContext(): Promise<void> {
+  await contextStore.ensureInitialized();
+  if (contextStore.yearId) {
+    filters.yearId = contextStore.yearId;
+  }
+  const activePeriod = contextStore.periods.find((item) => item.status === "active");
+  if (activePeriod) {
+    filters.periodCode = activePeriod.periodCode;
+    return;
+  }
+  if (contextStore.currentPeriod) {
+    filters.periodCode = contextStore.currentPeriod.periodCode;
+    return;
+  }
+  filters.periodCode = contextStore.periodCode;
+}
+
 onMounted(async () => {
+  await syncFiltersFromActiveContext();
   await Promise.all([loadRules(), loadTemplates()]);
 });
 </script>

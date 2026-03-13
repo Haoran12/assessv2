@@ -1,4 +1,4 @@
-﻿
+
 <template>
   <div class="org-view">
     <el-row :gutter="16" class="layout-row">
@@ -80,10 +80,13 @@
                   <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="120" fixed="right">
+              <el-table-column label="操作" width="180" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" :disabled="!canEdit" @click="openOrganizationDialog(row)">
                     编辑
+                  </el-button>
+                  <el-button v-if="isRoot" link type="danger" @click="handleDeleteOrganization(row)">
+                    删除
                   </el-button>
                 </template>
               </el-table-column>
@@ -135,22 +138,25 @@
                   <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="120" fixed="right">
+              <el-table-column label="操作" width="180" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" :disabled="!canEdit" @click="openDepartmentDialog(row)">
                     编辑
+                  </el-button>
+                  <el-button v-if="isRoot" link type="danger" @click="handleDeleteDepartment(row)">
+                    删除
                   </el-button>
                 </template>
               </el-table-column>
             </el-table>
           </el-tab-pane>
 
-          <el-tab-pane label="级别管理" name="positionLevels">
+          <el-tab-pane label="分类管理" name="positionLevels">
             <div class="toolbar-grid">
               <el-input
                 v-model="positionLevelQuery.keyword"
                 clearable
-                placeholder="按级别名称/编码搜索"
+                placeholder="按分类名称/编码搜索"
               />
               <el-select v-model="positionLevelQuery.status" clearable placeholder="状态">
                 <el-option label="启用" value="active" />
@@ -162,14 +168,14 @@
                 :disabled="!canManagePositionLevels"
                 @click="openPositionLevelDialog()"
               >
-                新增级别
+                新增分类
               </el-button>
             </div>
 
             <el-table v-loading="loadingPositionLevels" :data="filteredPositionLevels" border>
               <el-table-column prop="id" label="ID" width="70" />
-              <el-table-column prop="levelName" label="级别名称" min-width="160" />
-              <el-table-column prop="levelCode" label="级别编码" min-width="160" />
+              <el-table-column prop="levelName" label="分类名称" min-width="160" />
+              <el-table-column prop="levelCode" label="分类编码" min-width="160" />
               <el-table-column label="用于考核对象" width="130">
                 <template #default="{ row }">
                   <el-tag :type="row.isForAssessment ? 'success' : 'info'">
@@ -192,7 +198,7 @@
                   <el-button
                     link
                     type="danger"
-                    :disabled="!canManagePositionLevels || row.isSystem"
+                    :disabled="!canManagePositionLevels"
                     @click="handleDeletePositionLevel(row)"
                   >
                     删除
@@ -232,7 +238,7 @@
                   {{ row.departmentId ? departmentName(row.departmentId) : "-" }}
                 </template>
               </el-table-column>
-              <el-table-column label="职级" min-width="130">
+              <el-table-column label="分类" min-width="130">
                 <template #default="{ row }">
                   {{ positionLevelName(row.positionLevelId) }}
                 </template>
@@ -248,13 +254,16 @@
                   <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" min-width="220" fixed="right">
+              <el-table-column label="操作" min-width="280" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" :disabled="!canEdit" @click="openEmployeeDialog(row)">
                     编辑
                   </el-button>
                   <el-button link type="warning" :disabled="!canEdit" @click="openTransferDialog(row)">
                     调动
+                  </el-button>
+                  <el-button v-if="isRoot" link type="danger" @click="handleDeleteEmployee(row)">
+                    删除
                   </el-button>
                   <el-button link type="success" @click="openHistoryDialog(row)">
                     历史
@@ -348,18 +357,18 @@
     <el-dialog
       v-model="positionLevelDialogVisible"
       width="560px"
-      :title="positionLevelForm.id ? '编辑级别' : '新增级别'"
+      :title="positionLevelForm.id ? '编辑分类' : '新增分类'"
     >
       <el-form label-width="110px">
-        <el-form-item label="级别编码" required>
+        <el-form-item label="分类编码" required>
           <el-input
             v-model="positionLevelForm.levelCode"
             maxlength="50"
             :disabled="positionLevelForm.isSystem"
-            placeholder="示例：manager_main"
+            placeholder="示例：department_main"
           />
         </el-form-item>
-        <el-form-item label="级别名称" required>
+        <el-form-item label="分类名称" required>
           <el-input v-model="positionLevelForm.levelName" maxlength="100" />
         </el-form-item>
         <el-form-item label="用于考核对象">
@@ -429,7 +438,7 @@
 
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item label="职级" required>
+            <el-form-item label="分类" required>
               <el-select v-model="employeeForm.positionLevelId" filterable style="width: 100%">
                 <el-option
                   v-for="level in activePositionLevels"
@@ -505,7 +514,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="新职级">
+        <el-form-item label="新分类">
           <el-select v-model="transferForm.newPositionLevelId" clearable filterable style="width: 100%">
             <el-option
               v-for="level in activePositionLevels"
@@ -550,7 +559,7 @@
             {{ departmentName(row.oldDepartmentId) }} -> {{ departmentName(row.newDepartmentId) }}
           </template>
         </el-table-column>
-        <el-table-column label="职级变化" min-width="220">
+        <el-table-column label="分类变化" min-width="220">
           <template #default="{ row }">
             {{ positionLevelName(row.oldPositionLevelId) }} -> {{ positionLevelName(row.newPositionLevelId) }}
           </template>
@@ -573,6 +582,9 @@ import {
   createDepartment,
   createEmployee,
   createOrganization,
+  deleteDepartment,
+  deleteEmployee,
+  deleteOrganization,
   deletePositionLevel,
   getOrgTree,
   listDepartments,
@@ -606,9 +618,8 @@ interface TreeNodeUI extends OrgTreeNode {
 const treeRef = ref();
 const appStore = useAppStore();
 const canEdit = computed(() => appStore.hasPermission("org:update"));
-const canManagePositionLevels = computed(
-  () => appStore.primaryRole === "root" || appStore.roles.includes("root"),
-);
+const isRoot = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
+const canManagePositionLevels = computed(() => isRoot.value);
 
 const activeTab = ref("organizations");
 
@@ -924,7 +935,7 @@ async function loadPositionLevels(): Promise<void> {
   try {
     positionLevels.value = await listPositionLevels();
   } catch (_error) {
-    ElMessage.error("职级列表加载失败");
+    ElMessage.error("分类列表加载失败");
   } finally {
     loadingPositionLevels.value = false;
   }
@@ -984,6 +995,32 @@ async function submitOrganization(): Promise<void> {
     ElMessage.error(message);
   } finally {
     savingOrganization.value = false;
+  }
+}
+
+async function handleDeleteOrganization(item: OrganizationItem): Promise<void> {
+  if (!isRoot.value) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除组织「${item.orgName}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    await deleteOrganization(item.id);
+    ElMessage.success("组织已删除");
+    await Promise.all([loadOrganizations(), loadDepartments(), loadEmployees(), loadTree()]);
+  } catch (error) {
+    if (
+      error === "cancel" ||
+      error === "close" ||
+      (error instanceof Error && (error.message === "cancel" || error.message === "close"))
+    ) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "组织删除失败";
+    ElMessage.error(message);
   }
 }
 
@@ -1048,6 +1085,32 @@ async function submitDepartment(): Promise<void> {
   }
 }
 
+async function handleDeleteDepartment(item: DepartmentItem): Promise<void> {
+  if (!isRoot.value) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除部门「${item.deptName}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    await deleteDepartment(item.id);
+    ElMessage.success("部门已删除");
+    await Promise.all([loadDepartments(), loadEmployees(), loadTree()]);
+  } catch (error) {
+    if (
+      error === "cancel" ||
+      error === "close" ||
+      (error instanceof Error && (error.message === "cancel" || error.message === "close"))
+    ) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "部门删除失败";
+    ElMessage.error(message);
+  }
+}
+
 function openPositionLevelDialog(item?: PositionLevelItem): void {
   if (!canManagePositionLevels.value) {
     return;
@@ -1083,7 +1146,7 @@ async function submitPositionLevel(): Promise<void> {
     return;
   }
   if (!positionLevelForm.levelCode.trim() || !positionLevelForm.levelName.trim()) {
-    ElMessage.warning("请填写级别编码和名称");
+    ElMessage.warning("请填写分类编码和名称");
     return;
   }
 
@@ -1103,11 +1166,11 @@ async function submitPositionLevel(): Promise<void> {
     } else {
       await createPositionLevel(payload);
     }
-    ElMessage.success("级别已保存");
+    ElMessage.success("分类已保存");
     positionLevelDialogVisible.value = false;
     await loadPositionLevels();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "级别保存失败";
+    const message = error instanceof Error ? error.message : "分类保存失败";
     ElMessage.error(message);
   } finally {
     savingPositionLevel.value = false;
@@ -1119,13 +1182,13 @@ async function handleDeletePositionLevel(item: PositionLevelItem): Promise<void>
     return;
   }
   try {
-    await ElMessageBox.confirm(`确认删除级别「${item.levelName} (${item.levelCode})」吗？`, "删除确认", {
+    await ElMessageBox.confirm(`确认删除分类「${item.levelName} (${item.levelCode})」吗？`, "删除确认", {
       type: "warning",
       confirmButtonText: "删除",
       cancelButtonText: "取消",
     });
     await deletePositionLevel(item.id);
-    ElMessage.success("级别已删除");
+    ElMessage.success("分类已删除");
     await loadPositionLevels();
   } catch (error) {
     if (
@@ -1135,7 +1198,7 @@ async function handleDeletePositionLevel(item: PositionLevelItem): Promise<void>
     ) {
       return;
     }
-    const message = error instanceof Error ? error.message : "级别删除失败";
+    const message = error instanceof Error ? error.message : "分类删除失败";
     ElMessage.error(message);
   }
 }
@@ -1189,7 +1252,7 @@ async function submitEmployee(): Promise<void> {
     return;
   }
   if (!employeeForm.organizationId || !employeeForm.positionLevelId) {
-    ElMessage.warning("请选择所属组织和职级");
+    ElMessage.warning("请选择所属组织和分类");
     return;
   }
 
@@ -1217,6 +1280,32 @@ async function submitEmployee(): Promise<void> {
     ElMessage.error(message);
   } finally {
     savingEmployee.value = false;
+  }
+}
+
+async function handleDeleteEmployee(item: EmployeeItem): Promise<void> {
+  if (!isRoot.value) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除人员「${item.empName}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    await deleteEmployee(item.id);
+    ElMessage.success("人员已删除");
+    await Promise.all([loadEmployees(), loadTree()]);
+  } catch (error) {
+    if (
+      error === "cancel" ||
+      error === "close" ||
+      (error instanceof Error && (error.message === "cancel" || error.message === "close"))
+    ) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "人员删除失败";
+    ElMessage.error(message);
   }
 }
 
@@ -1376,3 +1465,5 @@ onMounted(async () => {
   }
 }
 </style>
+
+

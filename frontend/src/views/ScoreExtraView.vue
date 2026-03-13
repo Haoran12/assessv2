@@ -16,7 +16,7 @@
           <el-option
             v-for="item in contextStore.years"
             :key="item.id"
-            :label="`${item.year} - ${item.yearName}`"
+            :label="formatAssessmentYearLabel(item)"
             :value="item.id"
           />
         </el-select>
@@ -150,7 +150,13 @@ import { listAssessmentObjects } from "@/api/assessment";
 import { approveExtraPoint, createExtraPoint, deleteExtraPoint, listExtraPoints, updateExtraPoint } from "@/api/score";
 import type { AssessmentObjectItem } from "@/types/assessment";
 import type { ExtraPointItem, ExtraPointType, ScorePeriodCode } from "@/types/score";
-import { PERIOD_OPTIONS, formatFloat, formatTimestamp, toObjectNameMap } from "@/utils/assessment";
+import {
+  PERIOD_OPTIONS,
+  formatAssessmentYearLabel,
+  formatFloat,
+  formatTimestamp,
+  toObjectNameMap,
+} from "@/utils/assessment";
 
 const appStore = useAppStore();
 const contextStore = useContextStore();
@@ -178,7 +184,7 @@ const contextPeriodCode = computed({
 const objectNameMap = computed(() => toObjectNameMap(objects.value));
 const currentYearLabel = computed(() => {
   const hit = contextStore.currentYear;
-  return hit ? `${hit.year} - ${hit.yearName}` : "-";
+  return hit ? formatAssessmentYearLabel(hit) : "-";
 });
 
 const dialogVisible = ref(false);

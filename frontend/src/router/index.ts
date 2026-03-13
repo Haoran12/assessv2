@@ -2,21 +2,34 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 import { useAppStore } from "@/stores/app";
 import MainLayout from "@/layouts/MainLayout.vue";
 import LoginView from "@/views/LoginView.vue";
-import DashboardView from "@/views/DashboardView.vue";
 import PlaceholderView from "@/views/PlaceholderView.vue";
 import ChangePasswordView from "@/views/ChangePasswordView.vue";
 import SystemUsersView from "@/views/SystemUsersView.vue";
 import ForbiddenView from "@/views/ForbiddenView.vue";
 import RulesView from "@/views/RulesView.vue";
 import OrganizationView from "@/views/OrganizationView.vue";
-import AssessmentView from "@/views/AssessmentView.vue";
 import ScoreDirectView from "@/views/ScoreDirectView.vue";
 import ScoreExtraView from "@/views/ScoreExtraView.vue";
 import VoteTaskView from "@/views/VoteTaskView.vue";
 import VoteExecuteView from "@/views/VoteExecuteView.vue";
 import VoteStatisticsView from "@/views/VoteStatisticsView.vue";
+import ResultOverviewView from "@/views/ResultOverviewView.vue";
+import SystemOverviewView from "@/views/SystemOverviewView.vue";
+import ModuleRulesView from "@/views/ModuleRulesView.vue";
+import GradeRulesPlaceholderView from "@/views/GradeRulesPlaceholderView.vue";
 
 const moduleRoutes: RouteRecordRaw[] = [
+  {
+    path: "overview",
+    name: "overview",
+    component: SystemOverviewView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: "dashboard",
+    name: "dashboard",
+    redirect: "/overview",
+  },
   {
     path: "org",
     name: "org",
@@ -26,13 +39,29 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: "assessment",
     name: "assessment",
-    component: AssessmentView,
-    meta: { requiresAuth: true, permission: "assessment:view" },
+    redirect: "/overview",
   },
   {
     path: "rules",
     name: "rules",
+    redirect: "/rules/total",
+  },
+  {
+    path: "rules/total",
+    name: "rules-total",
     component: RulesView,
+    meta: { requiresAuth: true, permission: "rule:view" },
+  },
+  {
+    path: "rules/module",
+    name: "rules-module",
+    component: ModuleRulesView,
+    meta: { requiresAuth: true, permission: "rule:view" },
+  },
+  {
+    path: "rules/grade",
+    name: "rules-grade",
+    component: GradeRulesPlaceholderView,
     meta: { requiresAuth: true, permission: "rule:view" },
   },
   {
@@ -111,11 +140,25 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
   },
   {
+    path: "results",
+    name: "results",
+    redirect: "/results/overview",
+  },
+  {
+    path: "result",
+    name: "result-legacy",
+    redirect: "/results/overview",
+  },
+  {
+    path: "results/overview",
+    name: "results-overview",
+    component: ResultOverviewView,
+    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
+  },
+  {
     path: "calc",
     name: "calc",
-    component: PlaceholderView,
-    props: { title: "Calc", apiGroup: "/api/calc" },
-    meta: { requiresAuth: true, permission: "score:*" },
+    redirect: "/rules/module",
   },
   {
     path: "reports",
@@ -169,13 +212,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: "",
-        redirect: "/dashboard",
-      },
-      {
-        path: "dashboard",
-        name: "dashboard",
-        component: DashboardView,
-        meta: { requiresAuth: true },
+        redirect: "/overview",
       },
       ...moduleRoutes,
     ],

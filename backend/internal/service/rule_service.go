@@ -138,19 +138,14 @@ var (
 	rulePeriodCodeSet = map[string]struct{}{
 		"Q1": {}, "Q2": {}, "Q3": {}, "Q4": {}, "YEAR_END": {},
 	}
-	ruleObjectTypeSet = map[string]map[string]struct{}{
-		"team": {
-			"group_dept": {}, "company": {}, "company_dept": {},
-		},
-		"individual": {
-			"group_leader": {}, "company_leader": {}, "manager_main": {}, "manager_deputy": {}, "staff": {},
-		},
-	}
+	ruleObjectTypeSet = categorySetByObjectType
 	moduleCodeSet = map[string]struct{}{
 		"direct": {}, "vote": {}, "custom": {}, "extra": {},
 	}
 	voterTypeSet = map[string]struct{}{
-		"group_leader": {}, "company_leader": {}, "dept_leader": {}, "peer": {}, "subordinate": {}, "custom": {},
+		"leadership_main": {}, "leadership_deputy": {},
+		"group_leader": {}, "company_leader": {}, // legacy compatibility
+		"dept_leader": {}, "peer": {}, "subordinate": {}, "custom": {},
 	}
 	expressionFuncSet = map[string]struct{}{
 		"abs": {}, "round": {}, "ceil": {}, "floor": {}, "max": {}, "min": {}, "if": {}, "avg": {}, "sum": {},
@@ -177,10 +172,15 @@ func (s *RuleService) ListRules(ctx context.Context, filter ListRuleFilter) ([]R
 		query = query.Where("period_code = ?", periodCode)
 	}
 	if objectType := strings.TrimSpace(filter.ObjectType); objectType != "" {
-		query = query.Where("object_type = ?", objectType)
+		normalizedType, ok := normalizeObjectType(objectType)
+		if ok {
+			query = query.Where("object_type = ?", normalizedType)
+		} else {
+			query = query.Where("1 = 0")
+		}
 	}
 	if objectCategory := strings.TrimSpace(filter.ObjectCategory); objectCategory != "" {
-		query = query.Where("object_category = ?", objectCategory)
+		query = query.Where("object_category = ?", normalizeObjectCategory(objectCategory))
 	}
 
 	var rules []model.AssessmentRule
@@ -366,10 +366,15 @@ func (s *RuleService) UpdateRule(
 func (s *RuleService) ListTemplates(ctx context.Context, filter ListRuleTemplateFilter) ([]RuleTemplateSummary, error) {
 	query := s.db.WithContext(ctx).Model(&model.RuleTemplate{})
 	if objectType := strings.TrimSpace(filter.ObjectType); objectType != "" {
-		query = query.Where("object_type = ?", objectType)
+		normalizedType, ok := normalizeObjectType(objectType)
+		if ok {
+			query = query.Where("object_type = ?", normalizedType)
+		} else {
+			query = query.Where("1 = 0")
+		}
 	}
 	if objectCategory := strings.TrimSpace(filter.ObjectCategory); objectCategory != "" {
-		query = query.Where("object_category = ?", objectCategory)
+		query = query.Where("object_category = ?", normalizeObjectCategory(objectCategory))
 	}
 
 	var templates []model.RuleTemplate
@@ -402,12 +407,12 @@ func (s *RuleService) CreateTemplate(
 	if templateName == "" {
 		return nil, ErrRuleTemplateNameInvalid
 	}
-	objectType := strings.TrimSpace(input.ObjectType)
-	objectCategory := strings.TrimSpace(input.ObjectCategory)
-	if _, ok := ruleObjectTypeSet[objectType]; !ok {
+	objectType, ok := normalizeObjectType(input.ObjectType)
+	if !ok {
 		return nil, ErrInvalidRuleObjectType
 	}
-	if _, ok := ruleObjectTypeSet[objectType][objectCategory]; !ok {
+	objectCategory := normalizeObjectCategory(input.ObjectCategory)
+	if !isSupportedCategoryForObjectType(objectType, objectCategory) {
 		return nil, ErrInvalidRuleObjectCategory
 	}
 
@@ -760,20 +765,19 @@ func normalizeRuleDimension(yearID uint, periodCode, objectType, objectCategory 
 	if _, ok := rulePeriodCodeSet[periodCode]; !ok {
 		return ruleDimension{}, ErrInvalidRulePeriodCode
 	}
-	objectType = strings.TrimSpace(objectType)
-	categories, ok := ruleObjectTypeSet[objectType]
+	normalizedType, ok := normalizeObjectType(objectType)
 	if !ok {
 		return ruleDimension{}, ErrInvalidRuleObjectType
 	}
-	objectCategory = strings.TrimSpace(objectCategory)
-	if _, ok := categories[objectCategory]; !ok {
+	normalizedCategory := normalizeObjectCategory(objectCategory)
+	if !isSupportedCategoryForObjectType(normalizedType, normalizedCategory) {
 		return ruleDimension{}, ErrInvalidRuleObjectCategory
 	}
 	return ruleDimension{
 		YearID:         yearID,
 		PeriodCode:     periodCode,
-		ObjectType:     objectType,
-		ObjectCategory: objectCategory,
+		ObjectType:     normalizedType,
+		ObjectCategory: normalizedCategory,
 	}, nil
 }
 

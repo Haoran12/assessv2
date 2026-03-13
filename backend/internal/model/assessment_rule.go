@@ -9,6 +9,7 @@ type AssessmentRule struct {
 	RuleName       string `gorm:"size:200;not null" json:"ruleName"`
 	Description    string `gorm:"type:text" json:"description"`
 	IsActive       bool   `gorm:"not null;default:true;index" json:"isActive"`
+	PermissionMode uint16 `gorm:"not null;default:420" json:"permissionMode"` // 0644: Owner(RW), Group(R), Others(R)
 	CreatedBy      *uint  `json:"createdBy,omitempty"`
 	CreatedAt      int64  `gorm:"not null;autoCreateTime" json:"createdAt"`
 	UpdatedBy      *uint  `json:"updatedBy,omitempty"`

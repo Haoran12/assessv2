@@ -126,7 +126,7 @@
           <el-option label="个人" value="individual" />
         </el-select>
         <el-select v-model="objectFilter.objectCategory" clearable placeholder="对象分类">
-          <el-option v-for="item in objectCategoryOptions" :key="item" :label="item" :value="item" />
+          <el-option v-for="item in objectCategoryOptions" :key="item" :label="assessmentCategoryLabel(item)" :value="item" />
         </el-select>
         <el-input v-model="objectFilter.keyword" clearable placeholder="按对象名称搜索" />
       </div>
@@ -136,7 +136,9 @@
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="objectName" label="对象名称" min-width="180" />
         <el-table-column prop="objectType" label="对象类型" width="110" />
-        <el-table-column prop="objectCategory" label="对象分类" min-width="140" />
+        <el-table-column label="对象分类" min-width="140">
+          <template #default="{ row }">{{ assessmentCategoryLabel(row.objectCategory) }}</template>
+        </el-table-column>
         <el-table-column prop="targetType" label="目标类型" width="110" />
         <el-table-column prop="targetId" label="目标ID" width="100" />
         <el-table-column prop="parentObjectId" label="上级对象ID" width="110">
@@ -179,7 +181,7 @@
             <el-option
               v-for="year in years.filter((item) => item.id !== selectedYear?.id)"
               :key="year.id"
-              :label="`${year.year} - ${year.yearName}`"
+              :label="formatAssessmentYearLabel(year)"
               :value="year.id"
             />
           </el-select>
@@ -221,6 +223,8 @@ import type {
   AssessmentYearItem,
   AssessmentYearStatus,
 } from "@/types/assessment";
+import { formatAssessmentYearLabel } from "@/utils/assessment";
+import { assessmentCategoryLabel } from "@/constants/assessmentCategories";
 
 const appStore = useAppStore();
 const canEdit = computed(() => appStore.hasPermission("assessment:update"));

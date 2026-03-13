@@ -17,7 +17,7 @@ func TestM2CreateYearAutoPeriodsAndExcludeInactiveTargets(t *testing.T) {
 	engine, db := setupTestServer(t)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
 
-	staffLevelID := mustPositionLevelIDByCode(t, db, "staff")
+	staffLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
 
 	activeCompany := createOrganization(t, db, "Company A", "company", "active", nil)
 	inactiveCompany := createOrganization(t, db, "Company X", "company", "inactive", nil)
@@ -194,7 +194,7 @@ func TestM2EmployeeTransferWritesHistory(t *testing.T) {
 	engine, db := setupTestServer(t)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
 
-	staffLevelID := mustPositionLevelIDByCode(t, db, "staff")
+	staffLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
 	company := createOrganization(t, db, "Company B", "company", "active", nil)
 	fromDept := createDepartment(t, db, "Dept B1", company.ID, "active")
 	toDept := createDepartment(t, db, "Dept B2", company.ID, "active")
@@ -243,6 +243,99 @@ func TestM2EmployeeTransferWritesHistory(t *testing.T) {
 	}
 	if historyData.Items[0].NewDepartmentID == nil || *historyData.Items[0].NewDepartmentID != toDept.ID {
 		t.Fatalf("expected latest history newDepartmentId=%d, got=%v", toDept.ID, historyData.Items[0].NewDepartmentID)
+	}
+}
+
+func TestM2RootCanDeleteOrganizationDepartmentEmployee(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	staffLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
+	company := createOrganization(t, db, "Delete Co", "company", "active", nil)
+	dept := createDepartment(t, db, "Delete Dept", company.ID, "active")
+	employee := createEmployee(t, db, "Delete Bob", company.ID, &dept.ID, staffLevelID, "active")
+
+	deleteEmployeeReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/employees/%d", employee.ID), nil)
+	deleteEmployeeReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteEmployeeResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteEmployeeResp, deleteEmployeeReq)
+	if deleteEmployeeResp.Code != http.StatusOK {
+		t.Fatalf("expected delete employee status=200, got=%d body=%s", deleteEmployeeResp.Code, deleteEmployeeResp.Body.String())
+	}
+
+	var activeEmployeeCount int64
+	if err := db.Model(&model.Employee{}).Where("id = ? AND deleted_at IS NULL", employee.ID).Count(&activeEmployeeCount).Error; err != nil {
+		t.Fatalf("failed to verify employee soft deletion: %v", err)
+	}
+	if activeEmployeeCount != 0 {
+		t.Fatalf("expected employee deleted_at to be set, active count=%d", activeEmployeeCount)
+	}
+
+	deleteDepartmentReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/departments/%d", dept.ID), nil)
+	deleteDepartmentReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteDepartmentResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteDepartmentResp, deleteDepartmentReq)
+	if deleteDepartmentResp.Code != http.StatusOK {
+		t.Fatalf("expected delete department status=200, got=%d body=%s", deleteDepartmentResp.Code, deleteDepartmentResp.Body.String())
+	}
+
+	var activeDepartmentCount int64
+	if err := db.Model(&model.Department{}).Where("id = ? AND deleted_at IS NULL", dept.ID).Count(&activeDepartmentCount).Error; err != nil {
+		t.Fatalf("failed to verify department soft deletion: %v", err)
+	}
+	if activeDepartmentCount != 0 {
+		t.Fatalf("expected department deleted_at to be set, active count=%d", activeDepartmentCount)
+	}
+
+	deleteOrganizationReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/organizations/%d", company.ID), nil)
+	deleteOrganizationReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteOrganizationResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteOrganizationResp, deleteOrganizationReq)
+	if deleteOrganizationResp.Code != http.StatusOK {
+		t.Fatalf("expected delete organization status=200, got=%d body=%s", deleteOrganizationResp.Code, deleteOrganizationResp.Body.String())
+	}
+
+	var activeOrganizationCount int64
+	if err := db.Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL", company.ID).Count(&activeOrganizationCount).Error; err != nil {
+		t.Fatalf("failed to verify organization soft deletion: %v", err)
+	}
+	if activeOrganizationCount != 0 {
+		t.Fatalf("expected organization deleted_at to be set, active count=%d", activeOrganizationCount)
+	}
+}
+
+func TestM2DeleteOrganizationDepartmentEmployeeRequiresRoot(t *testing.T) {
+	engine, db := setupTestServer(t)
+	createViewerUser(t, db, "viewer_org_delete", "Viewer OrgDelete")
+	viewerToken, _ := loginAndReadData(t, engine, "viewer_org_delete", testDefaultPassword)
+
+	staffLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
+	company := createOrganization(t, db, "Protected Co", "company", "active", nil)
+	dept := createDepartment(t, db, "Protected Dept", company.ID, "active")
+	employee := createEmployee(t, db, "Protected Bob", company.ID, &dept.ID, staffLevelID, "active")
+
+	deleteEmployeeReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/employees/%d", employee.ID), nil)
+	deleteEmployeeReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	deleteEmployeeResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteEmployeeResp, deleteEmployeeReq)
+	if deleteEmployeeResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer delete employee status=403, got=%d body=%s", deleteEmployeeResp.Code, deleteEmployeeResp.Body.String())
+	}
+
+	deleteDepartmentReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/departments/%d", dept.ID), nil)
+	deleteDepartmentReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	deleteDepartmentResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteDepartmentResp, deleteDepartmentReq)
+	if deleteDepartmentResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer delete department status=403, got=%d body=%s", deleteDepartmentResp.Code, deleteDepartmentResp.Body.String())
+	}
+
+	deleteOrganizationReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/organizations/%d", company.ID), nil)
+	deleteOrganizationReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	deleteOrganizationResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteOrganizationResp, deleteOrganizationReq)
+	if deleteOrganizationResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer delete organization status=403, got=%d body=%s", deleteOrganizationResp.Code, deleteOrganizationResp.Body.String())
 	}
 }
 
@@ -344,12 +437,78 @@ func TestM2RootCanCRUDPositionLevels(t *testing.T) {
 	}
 }
 
+func TestM2ListAssessmentCategories(t *testing.T) {
+	engine, _ := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/org/assessment-categories", nil)
+	req.Header.Set("Authorization", "Bearer "+rootToken)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected list assessment categories status=200, got=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var envelope apiEnvelope
+	if err := json.Unmarshal(resp.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse list assessment categories response: %v", err)
+	}
+	var payload struct {
+		Items []struct {
+			CategoryCode string `json:"categoryCode"`
+			ObjectType   string `json:"objectType"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatalf("failed to parse list assessment categories payload: %v", err)
+	}
+	if len(payload.Items) != 11 {
+		t.Fatalf("expected default category count=11, got=%d", len(payload.Items))
+	}
+
+	teamCount := 0
+	individualCount := 0
+	for _, item := range payload.Items {
+		if item.ObjectType == "team" {
+			teamCount++
+		}
+		if item.ObjectType == "individual" {
+			individualCount++
+		}
+	}
+	if teamCount != 6 || individualCount != 5 {
+		t.Fatalf("expected category distribution team=6 individual=5, got team=%d individual=%d", teamCount, individualCount)
+	}
+}
+
+func TestM2RootCanDeleteSystemPositionLevel(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+	systemLevelID := mustPositionLevelIDByCode(t, db, "leadership_main")
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/org/position-levels/%d", systemLevelID), nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete system position level status=200, got=%d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	var count int64
+	if err := db.Model(&model.PositionLevel{}).Where("id = ?", systemLevelID).Count(&count).Error; err != nil {
+		t.Fatalf("failed to verify deleted system position level: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected deleted system position level count=0, got=%d", count)
+	}
+}
+
 func TestM2PositionLevelMutationRequiresRoot(t *testing.T) {
 	engine, db := setupTestServer(t)
 	createViewerUser(t, db, "viewer_pl", "Viewer PositionLevel")
 
 	viewerToken, _ := loginAndReadData(t, engine, "viewer_pl", testDefaultPassword)
-	existingLevelID := mustPositionLevelIDByCode(t, db, "staff")
+	existingLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
 
 	createBody, _ := json.Marshal(map[string]any{
 		"levelCode":       "viewer_should_fail",
@@ -368,7 +527,7 @@ func TestM2PositionLevelMutationRequiresRoot(t *testing.T) {
 	}
 
 	updateBody, _ := json.Marshal(map[string]any{
-		"levelCode":       "staff",
+		"levelCode":       "general_management_personnel",
 		"levelName":       "Viewer Should Fail Update",
 		"isForAssessment": true,
 		"sortOrder":       1,

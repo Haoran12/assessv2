@@ -29,6 +29,12 @@ func SeedBaselineData(db *gorm.DB, defaultPassword string) error {
 	if err := seedDefaultPositionLevels(db); err != nil {
 		return err
 	}
+	if err := seedDefaultAssessmentCategories(db); err != nil {
+		return err
+	}
+	if err := seedResourcePermissionSettings(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -203,41 +209,41 @@ func seedDefaultPositionLevels(db *gorm.DB) error {
 
 	seeds := []positionLevelSeed{
 		{
-			LevelCode:       "group_leader",
-			LevelName:       "集团高层",
-			Description:     "集团层级高管",
+			LevelCode:       "leadership_main",
+			LevelName:       "领导班子正职",
+			Description:     "用于个人考核分类：领导班子正职",
 			IsSystem:        true,
 			IsForAssessment: true,
 			SortOrder:       1,
 		},
 		{
-			LevelCode:       "company_leader",
-			LevelName:       "企业高层",
-			Description:     "权属企业高管",
+			LevelCode:       "leadership_deputy",
+			LevelName:       "领导班子副职",
+			Description:     "用于个人考核分类：领导班子副职",
 			IsSystem:        true,
 			IsForAssessment: true,
 			SortOrder:       2,
 		},
 		{
-			LevelCode:       "manager_main",
-			LevelName:       "正职管理人员",
-			Description:     "部门正职管理人员",
+			LevelCode:       "department_main",
+			LevelName:       "部门正职",
+			Description:     "用于个人考核分类：部门正职",
 			IsSystem:        true,
 			IsForAssessment: true,
 			SortOrder:       3,
 		},
 		{
-			LevelCode:       "manager_deputy",
-			LevelName:       "副职管理人员",
-			Description:     "部门副职管理人员",
+			LevelCode:       "department_deputy",
+			LevelName:       "部门副职",
+			Description:     "用于个人考核分类：部门副职",
 			IsSystem:        true,
 			IsForAssessment: true,
 			SortOrder:       4,
 		},
 		{
-			LevelCode:       "staff",
-			LevelName:       "一般人员",
-			Description:     "普通员工",
+			LevelCode:       "general_management_personnel",
+			LevelName:       "一般管理人员",
+			Description:     "用于个人考核分类：一般管理人员",
 			IsSystem:        true,
 			IsForAssessment: true,
 			SortOrder:       5,
@@ -273,6 +279,133 @@ func seedDefaultPositionLevels(db *gorm.DB) error {
 				existing.Status = "active"
 				if saveErr := tx.Save(&existing).Error; saveErr != nil {
 					return fmt.Errorf("failed to update position level %s: %w", item.LevelCode, saveErr)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func seedDefaultAssessmentCategories(db *gorm.DB) error {
+	type assessmentCategorySeed struct {
+		CategoryCode string
+		CategoryName string
+		ObjectType   string
+		SortOrder    int
+	}
+
+	seeds := []assessmentCategorySeed{
+		{CategoryCode: "group", CategoryName: "集团", ObjectType: "team", SortOrder: 1},
+		{CategoryCode: "group_leadership_team", CategoryName: "集团领导班子", ObjectType: "team", SortOrder: 2},
+		{CategoryCode: "group_department", CategoryName: "集团部门", ObjectType: "team", SortOrder: 3},
+		{CategoryCode: "subsidiary_company", CategoryName: "权属企业", ObjectType: "team", SortOrder: 4},
+		{CategoryCode: "subsidiary_company_leadership_team", CategoryName: "权属企业领导班子", ObjectType: "team", SortOrder: 5},
+		{CategoryCode: "subsidiary_company_department", CategoryName: "权属企业部门", ObjectType: "team", SortOrder: 6},
+		{CategoryCode: "leadership_main", CategoryName: "领导班子正职", ObjectType: "individual", SortOrder: 101},
+		{CategoryCode: "leadership_deputy", CategoryName: "领导班子副职", ObjectType: "individual", SortOrder: 102},
+		{CategoryCode: "department_main", CategoryName: "部门正职", ObjectType: "individual", SortOrder: 103},
+		{CategoryCode: "department_deputy", CategoryName: "部门副职", ObjectType: "individual", SortOrder: 104},
+		{CategoryCode: "general_management_personnel", CategoryName: "一般管理人员", ObjectType: "individual", SortOrder: 105},
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, item := range seeds {
+			var existing model.AssessmentCategory
+			err := tx.Where("category_code = ?", item.CategoryCode).First(&existing).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				record := model.AssessmentCategory{
+					CategoryCode: item.CategoryCode,
+					CategoryName: item.CategoryName,
+					ObjectType:   item.ObjectType,
+					SortOrder:    item.SortOrder,
+					IsSystem:     true,
+					Status:       "active",
+				}
+				if createErr := tx.Create(&record).Error; createErr != nil {
+					return fmt.Errorf("failed to create assessment category %s: %w", item.CategoryCode, createErr)
+				}
+			case err != nil:
+				return fmt.Errorf("failed to query assessment category %s: %w", item.CategoryCode, err)
+			default:
+				existing.CategoryName = item.CategoryName
+				existing.ObjectType = item.ObjectType
+				existing.SortOrder = item.SortOrder
+				existing.IsSystem = true
+				existing.Status = "active"
+				if saveErr := tx.Save(&existing).Error; saveErr != nil {
+					return fmt.Errorf("failed to update assessment category %s: %w", item.CategoryCode, saveErr)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func seedResourcePermissionSettings(db *gorm.DB) error {
+	now := time.Now().Unix()
+	seeds := []model.SystemSetting{
+		{
+			SettingKey:   "resource.default_permission.assessment_year",
+			SettingValue: "420",
+			SettingType:  "number",
+			Description:  "考核年度默认权限模式 (0644: Owner可读写, Group可读, Others可读)",
+			IsSystem:     true,
+			UpdatedAt:    now,
+		},
+		{
+			SettingKey:   "resource.default_permission.assessment_rule",
+			SettingValue: "420",
+			SettingType:  "number",
+			Description:  "考核规则默认权限模式 (0644: Owner可读写, Group可读, Others可读)",
+			IsSystem:     true,
+			UpdatedAt:    now,
+		},
+		{
+			SettingKey:   "resource.default_permission.rule_template",
+			SettingValue: "420",
+			SettingType:  "number",
+			Description:  "规则模板默认权限模式 (0644: Owner可读写, Group可读, Others可读)",
+			IsSystem:     true,
+			UpdatedAt:    now,
+		},
+		{
+			SettingKey:   "resource.default_permission.direct_score",
+			SettingValue: "384",
+			SettingType:  "number",
+			Description:  "直接评分默认权限模式 (0600: 仅Owner可读写)",
+			IsSystem:     true,
+			UpdatedAt:    now,
+		},
+		{
+			SettingKey:   "resource.default_permission.extra_point",
+			SettingValue: "416",
+			SettingType:  "number",
+			Description:  "加减分默认权限模式 (0640: Owner可读写, Group可读)",
+			IsSystem:     true,
+			UpdatedAt:    now,
+		},
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, item := range seeds {
+			var existing model.SystemSetting
+			err := tx.Where("setting_key = ?", item.SettingKey).First(&existing).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				if createErr := tx.Create(&item).Error; createErr != nil {
+					return fmt.Errorf("failed to create system setting %s: %w", item.SettingKey, createErr)
+				}
+			case err != nil:
+				return fmt.Errorf("failed to query system setting %s: %w", item.SettingKey, err)
+			default:
+				existing.SettingValue = item.SettingValue
+				existing.SettingType = item.SettingType
+				existing.Description = item.Description
+				existing.IsSystem = item.IsSystem
+				existing.UpdatedAt = now
+				if saveErr := tx.Save(&existing).Error; saveErr != nil {
+					return fmt.Errorf("failed to update system setting %s: %w", item.SettingKey, saveErr)
 				}
 			}
 		}

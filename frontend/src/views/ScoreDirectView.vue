@@ -17,7 +17,7 @@
           <el-option
             v-for="item in contextStore.years"
             :key="item.id"
-            :label="`${item.year} - ${item.yearName}`"
+            :label="formatAssessmentYearLabel(item)"
             :value="item.id"
           />
         </el-select>
@@ -233,7 +233,7 @@ import {
 } from "@/api/score";
 import type { AssessmentObjectItem } from "@/types/assessment";
 import type { ScorePeriodCode, DirectScoreItem } from "@/types/score";
-import { PERIOD_OPTIONS, formatFloat, formatTimestamp, toObjectNameMap } from "@/utils/assessment";
+import { PERIOD_OPTIONS, formatAssessmentYearLabel, formatFloat, formatTimestamp, toObjectNameMap } from "@/utils/assessment";
 
 interface BatchEntryForm {
   objectId?: number;
@@ -271,7 +271,7 @@ const currentYearLabel = computed(() => {
   if (!hit) {
     return "-";
   }
-  return `${hit.year} - ${hit.yearName}`;
+  return formatAssessmentYearLabel(hit);
 });
 
 const singleDialogVisible = ref(false);

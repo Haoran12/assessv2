@@ -2,8 +2,8 @@
   <el-container class="app-shell">
     <el-aside width="250px" class="app-sidebar">
       <div class="brand">
-        <div class="brand-title">AssessV2</div>
-        <div class="brand-subtitle">M1-M3 前端交互版</div>
+        <div class="brand-title">考核管理系统</div>
+        <div class="brand-subtitle">assessv2</div>
       </div>
       <el-menu :default-active="activePath" router>
         <el-menu-item
@@ -17,11 +17,8 @@
     </el-aside>
     <el-container>
       <el-header class="app-header">
-        <div class="header-left">
-          <strong>集团考核管理系统</strong>
-        </div>
         <div class="header-right">
-          <div v-if="showGlobalContext" class="global-context">
+          <div v-if="appStore.isAuthed" class="global-context">
             <el-select
               v-model="contextYearId"
               class="context-select"
@@ -32,12 +29,35 @@
               <el-option
                 v-for="item in contextStore.years"
                 :key="item.id"
-                :label="`${item.year} - ${item.yearName}`"
+                :label="formatAssessmentYearLabel(item)"
                 :value="item.id"
               />
             </el-select>
-            <el-select v-model="contextPeriodCode" class="context-select" placeholder="周期">
-              <el-option v-for="item in periodOptions" :key="item" :label="item" :value="item" />
+            <el-select
+              v-model="contextPeriodCode"
+              class="context-select"
+              placeholder="周期"
+              :loading="contextStore.loadingPeriods"
+              :disabled="!contextYearId"
+            >
+              <el-option
+                v-for="item in periodOptions"
+                :key="item.id"
+                :label="periodLabel(item.periodCode, item.periodName)"
+                :value="item.periodCode"
+              />
+            </el-select>
+            <el-select
+              v-model="contextObjectCategory"
+              class="context-select"
+              placeholder="考核分类"
+            >
+              <el-option
+                v-for="item in objectCategoryOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
             </el-select>
           </div>
           <el-dropdown trigger="click">
@@ -75,7 +95,8 @@ import { ElMessage } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
-import { PERIOD_OPTIONS } from "@/utils/assessment";
+import type { AssessmentPeriodCode, GlobalAssessmentObjectCategory } from "@/types/assessment";
+import { formatAssessmentYearLabel } from "@/utils/assessment";
 
 interface NavItem {
   path: string;
@@ -84,18 +105,11 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { path: "/dashboard", label: "首页" },
+  { path: "/overview", label: "系统概览" },
   { path: "/org", label: "组织架构", permission: "org:view" },
-  { path: "/assessment", label: "年度周期", permission: "assessment:view" },
-  { path: "/rules", label: "规则配置", permission: "rule:view" },
-  { path: "/scores/direct", label: "直接录入", permission: "score:view" },
-  { path: "/scores/extra", label: "加减分", permission: "score:view" },
-  { path: "/votes/task", label: "投票任务", permission: "score:view" },
-  { path: "/votes/execute", label: "执行投票", permission: "score:view" },
-  { path: "/votes/statistics", label: "投票统计", permission: "score:view" },
-  { path: "/calc", label: "计算引擎", permission: "score:*" },
-  { path: "/reports", label: "报表中心", permission: "report:view" },
-  { path: "/backup", label: "备份审计", permission: "backup:*" },
+  { path: "/rules/total", label: "总分规则", permission: "rule:view" },
+  { path: "/rules/module", label: "模块规则", permission: "rule:view" },
+  { path: "/rules/grade", label: "等第规则", permission: "rule:view" },
   { path: "/system/users", label: "用户管理", permission: "user:view" },
 ];
 
@@ -103,26 +117,36 @@ const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 const contextStore = useContextStore();
-const periodOptions = PERIOD_OPTIONS;
+
+const objectCategoryOptions = computed(() => contextStore.categoryOptions);
 
 const activePath = computed(() => route.path);
 const visibleMenus = computed(() =>
   navItems.filter((item) => !item.permission || appStore.hasPermission(item.permission)),
 );
-const showGlobalContext = computed(() => route.matched.some((record) => record.meta.useGlobalContext));
+const periodOptions = computed(() => contextStore.periods);
+
 const contextYearId = computed({
   get: () => contextStore.yearId,
-  set: (value) => contextStore.setYear(value),
+  set: (value) => {
+    contextStore.setYear(value).catch(() => {
+      ElMessage.error("全局年度切换失败");
+    });
+  },
 });
 const contextPeriodCode = computed({
   get: () => contextStore.periodCode,
-  set: (value) => contextStore.setPeriodCode(value),
+  set: (value: AssessmentPeriodCode) => contextStore.setPeriodCode(value),
+});
+const contextObjectCategory = computed({
+  get: () => contextStore.objectCategory,
+  set: (value: GlobalAssessmentObjectCategory) => contextStore.setObjectCategory(value),
 });
 
 watch(
-  () => [showGlobalContext.value, appStore.isAuthed],
-  async ([visible, authed]) => {
-    if (!visible || !authed) {
+  () => appStore.isAuthed,
+  async (authed) => {
+    if (!authed) {
       return;
     }
     try {
@@ -133,6 +157,11 @@ watch(
   },
   { immediate: true },
 );
+
+function periodLabel(code: AssessmentPeriodCode, name?: string): string {
+  const text = name?.trim();
+  return text ? `${code} - ${text}` : code;
+}
 
 async function handleLogout(): Promise<void> {
   await appStore.logout();
@@ -147,7 +176,7 @@ async function goToChangePassword(): Promise<void> {
 function roleLabel(roleCode: string): string {
   switch (roleCode) {
     case "root":
-      return "Root 管理员";
+      return "Root";
     case "viewer":
       return "查看者";
     case "":
@@ -205,7 +234,7 @@ function roleLabel(roleCode: string): string {
 }
 
 .context-select {
-  width: 180px;
+  width: 170px;
 }
 
 .username-trigger {
@@ -242,14 +271,14 @@ function roleLabel(roleCode: string): string {
   background: #f5f7fa;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .header-right {
     flex-wrap: wrap;
     justify-content: flex-end;
   }
 
   .context-select {
-    width: 150px;
+    width: 145px;
   }
 }
 </style>

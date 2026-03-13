@@ -128,6 +128,23 @@ func (h *OrgHandler) UpdateOrganization(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *OrgHandler) DeleteOrganization(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	organizationID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid organization id")
+		return
+	}
+	if err := h.orgService.DeleteOrganization(c.Request.Context(), operatorID, organizationID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		h.handleOrgError(c, err, "failed to delete organization")
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h *OrgHandler) ListDepartments(c *gin.Context) {
 	var organizationID *uint
 	if value := strings.TrimSpace(c.Query("organizationId")); value != "" {
@@ -188,10 +205,39 @@ func (h *OrgHandler) UpdateDepartment(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *OrgHandler) DeleteDepartment(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	departmentID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid department id")
+		return
+	}
+	if err := h.orgService.DeleteDepartment(c.Request.Context(), operatorID, departmentID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		h.handleOrgError(c, err, "failed to delete department")
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h *OrgHandler) ListPositionLevels(c *gin.Context) {
 	result, err := h.orgService.ListPositionLevels(c.Request.Context(), service.ListPositionLevelFilter{Status: c.Query("status")})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to query position levels")
+		return
+	}
+	response.Success(c, gin.H{"items": result})
+}
+
+func (h *OrgHandler) ListAssessmentCategories(c *gin.Context) {
+	result, err := h.orgService.ListAssessmentCategories(c.Request.Context(), service.ListAssessmentCategoryFilter{
+		ObjectType: strings.TrimSpace(c.Query("objectType")),
+		Status:     strings.TrimSpace(c.Query("status")),
+	})
+	if err != nil {
+		h.handleOrgError(c, err, "failed to query assessment categories")
 		return
 	}
 	response.Success(c, gin.H{"items": result})
@@ -349,6 +395,23 @@ func (h *OrgHandler) UpdateEmployee(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *OrgHandler) DeleteEmployee(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	employeeID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid employee id")
+		return
+	}
+	if err := h.orgService.DeleteEmployee(c.Request.Context(), operatorID, employeeID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		h.handleOrgError(c, err, "failed to delete employee")
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h *OrgHandler) TransferEmployee(c *gin.Context) {
 	operatorID, ok := operatorFromClaims(c)
 	if !ok {
@@ -397,6 +460,7 @@ func (h *OrgHandler) handleOrgError(c *gin.Context, err error, fallback string) 
 		errors.Is(err, service.ErrInvalidOrganizationType),
 		errors.Is(err, service.ErrInvalidOrganizationStatus),
 		errors.Is(err, service.ErrInvalidDepartmentStatus),
+		errors.Is(err, service.ErrInvalidRuleObjectType),
 		errors.Is(err, service.ErrInvalidPositionLevelStatus),
 		errors.Is(err, service.ErrPositionLevelCodeExists),
 		errors.Is(err, service.ErrInvalidEmployeeStatus),
@@ -404,6 +468,8 @@ func (h *OrgHandler) handleOrgError(c *gin.Context, err error, fallback string) 
 		errors.Is(err, service.ErrInvalidEffectiveDate):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 	case errors.Is(err, service.ErrSystemPositionLevelLocked),
+		errors.Is(err, service.ErrOrganizationInUse),
+		errors.Is(err, service.ErrDepartmentInUse),
 		errors.Is(err, service.ErrPositionLevelInUse):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrOrganizationNotFound),

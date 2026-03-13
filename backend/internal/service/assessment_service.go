@@ -297,20 +297,57 @@ func (s *AssessmentService) generateAssessmentObjects(tx *gorm.DB, yearID uint, 
 	count := 0
 	teamKeyToObjectID := map[string]uint{}
 
-	var companies []model.Organization
-	if err := tx.Where("org_type = ? AND status = ? AND deleted_at IS NULL", "company", "active").Order("id ASC").Find(&companies).Error; err != nil {
-		return 0, fmt.Errorf("failed to query active companies: %w", err)
+	var organizations []model.Organization
+	if err := tx.Where("org_type IN ? AND status = ? AND deleted_at IS NULL", []string{"group", "company"}, "active").Order("id ASC").Find(&organizations).Error; err != nil {
+		return 0, fmt.Errorf("failed to query active organizations: %w", err)
 	}
-	for _, item := range companies {
-		record := model.AssessmentObject{YearID: yearID, ObjectType: "team", ObjectCategory: "company", TargetID: item.ID, TargetType: "organization", ObjectName: item.OrgName, IsActive: true, CreatedBy: operatorID, UpdatedBy: operatorID}
-		if err := tx.Create(&record).Error; err != nil {
-			if isUniqueConstraintError(err) {
-				continue
-			}
-			return 0, fmt.Errorf("failed to generate company object: %w", err)
+	for _, item := range organizations {
+		mainCategory := TeamCategorySubsidiaryCompany
+		leadershipCategory := TeamCategorySubsidiaryCompanyLeadership
+		if item.OrgType == "group" {
+			mainCategory = TeamCategoryGroup
+			leadershipCategory = TeamCategoryGroupLeadership
 		}
-		teamKeyToObjectID[teamKey("organization", item.ID)] = record.ID
-		count++
+
+		mainRecord := model.AssessmentObject{
+			YearID:         yearID,
+			ObjectType:     ObjectTypeTeam,
+			ObjectCategory: mainCategory,
+			TargetID:       item.ID,
+			TargetType:     "organization",
+			ObjectName:     item.OrgName,
+			IsActive:       true,
+			CreatedBy:      operatorID,
+			UpdatedBy:      operatorID,
+		}
+		mainObjectID, created, err := createAssessmentObjectTx(tx, mainRecord)
+		if err != nil {
+			return 0, fmt.Errorf("failed to generate organization object: %w", err)
+		}
+		if created {
+			count++
+		}
+		teamKeyToObjectID[teamKey("organization", item.ID)] = mainObjectID
+
+		leadershipRecord := model.AssessmentObject{
+			YearID:         yearID,
+			ObjectType:     ObjectTypeTeam,
+			ObjectCategory: leadershipCategory,
+			TargetID:       item.ID,
+			TargetType:     "leadership_team",
+			ObjectName:     fmt.Sprintf("%s领导班子", item.OrgName),
+			IsActive:       true,
+			CreatedBy:      operatorID,
+			UpdatedBy:      operatorID,
+		}
+		leadershipObjectID, created, err := createAssessmentObjectTx(tx, leadershipRecord)
+		if err != nil {
+			return 0, fmt.Errorf("failed to generate leadership team object: %w", err)
+		}
+		if created {
+			count++
+		}
+		teamKeyToObjectID[teamKey("leadership_team", item.ID)] = leadershipObjectID
 	}
 
 	var departments []struct {
@@ -328,19 +365,29 @@ func (s *AssessmentService) generateAssessmentObjects(tx *gorm.DB, yearID uint, 
 		return 0, fmt.Errorf("failed to query active departments: %w", err)
 	}
 	for _, item := range departments {
-		category := "company_dept"
+		category := TeamCategorySubsidiaryCompanyDepartment
 		if item.OrgType == "group" {
-			category = "group_dept"
+			category = TeamCategoryGroupDepartment
 		}
-		record := model.AssessmentObject{YearID: yearID, ObjectType: "team", ObjectCategory: category, TargetID: item.ID, TargetType: "department", ObjectName: item.DeptName, IsActive: true, CreatedBy: operatorID, UpdatedBy: operatorID}
-		if err := tx.Create(&record).Error; err != nil {
-			if isUniqueConstraintError(err) {
-				continue
-			}
+		record := model.AssessmentObject{
+			YearID:         yearID,
+			ObjectType:     ObjectTypeTeam,
+			ObjectCategory: category,
+			TargetID:       item.ID,
+			TargetType:     "department",
+			ObjectName:     item.DeptName,
+			IsActive:       true,
+			CreatedBy:      operatorID,
+			UpdatedBy:      operatorID,
+		}
+		objectID, created, err := createAssessmentObjectTx(tx, record)
+		if err != nil {
 			return 0, fmt.Errorf("failed to generate department object: %w", err)
 		}
-		teamKeyToObjectID[teamKey("department", item.ID)] = record.ID
-		count++
+		if created {
+			count++
+		}
+		teamKeyToObjectID[teamKey("department", item.ID)] = objectID
 	}
 
 	var employees []struct {
@@ -370,19 +417,30 @@ func (s *AssessmentService) generateAssessmentObjects(tx *gorm.DB, yearID uint, 
 				parentObjectID = uintPtr(objectID)
 			}
 		}
-		if parentObjectID == nil && item.OrgType == "company" {
+		if parentObjectID == nil {
 			if objectID, ok := teamKeyToObjectID[teamKey("organization", item.OrganizationID)]; ok {
 				parentObjectID = uintPtr(objectID)
 			}
 		}
-		record := model.AssessmentObject{YearID: yearID, ObjectType: "individual", ObjectCategory: category, TargetID: item.ID, TargetType: "employee", ObjectName: item.EmpName, ParentObjectID: parentObjectID, IsActive: true, CreatedBy: operatorID, UpdatedBy: operatorID}
-		if err := tx.Create(&record).Error; err != nil {
-			if isUniqueConstraintError(err) {
-				continue
-			}
+		record := model.AssessmentObject{
+			YearID:         yearID,
+			ObjectType:     ObjectTypeIndividual,
+			ObjectCategory: category,
+			TargetID:       item.ID,
+			TargetType:     "employee",
+			ObjectName:     item.EmpName,
+			ParentObjectID: parentObjectID,
+			IsActive:       true,
+			CreatedBy:      operatorID,
+			UpdatedBy:      operatorID,
+		}
+		_, created, err := createAssessmentObjectTx(tx, record)
+		if err != nil {
 			return 0, fmt.Errorf("failed to generate employee object: %w", err)
 		}
-		count++
+		if created {
+			count++
+		}
 	}
 
 	return count, nil
@@ -394,6 +452,10 @@ func (s *AssessmentService) isTargetActive(tx *gorm.DB, targetType string, targe
 	case "organization":
 		if err := tx.Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL AND status = ?", targetID, "active").Count(&count).Error; err != nil {
 			return false, fmt.Errorf("failed to verify active organization target: %w", err)
+		}
+	case "leadership_team":
+		if err := tx.Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL AND status = ?", targetID, "active").Count(&count).Error; err != nil {
+			return false, fmt.Errorf("failed to verify active leadership team target: %w", err)
 		}
 	case "department":
 		if err := tx.Table("departments d").Joins("JOIN organizations o ON o.id = d.organization_id").Where("d.id = ? AND d.deleted_at IS NULL AND d.status = 'active' AND o.deleted_at IS NULL AND o.status = 'active'", targetID).Count(&count).Error; err != nil {
@@ -414,12 +476,27 @@ func teamKey(targetType string, targetID uint) string {
 }
 
 func normalizeEmployeeCategory(levelCode string) string {
-	switch strings.TrimSpace(levelCode) {
-	case "group_leader", "company_leader", "manager_main", "manager_deputy", "staff":
-		return strings.TrimSpace(levelCode)
-	default:
-		return "staff"
+	return normalizeIndividualCategoryFromLevelCode(levelCode)
+}
+
+func createAssessmentObjectTx(tx *gorm.DB, input model.AssessmentObject) (uint, bool, error) {
+	if err := tx.Create(&input).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			var existing model.AssessmentObject
+			findErr := tx.Where(
+				"year_id = ? AND target_type = ? AND target_id = ?",
+				input.YearID,
+				input.TargetType,
+				input.TargetID,
+			).First(&existing).Error
+			if findErr != nil {
+				return 0, false, fmt.Errorf("failed to load existing assessment object: %w", findErr)
+			}
+			return existing.ID, false, nil
+		}
+		return 0, false, err
 	}
+	return input.ID, true, nil
 }
 
 func isValidYearStatus(status string) bool {

@@ -24,6 +24,7 @@ func AutoMigrateAndSeed(db *gorm.DB, defaultPassword string) error {
 		&model.AssessmentYear{},
 		&model.AssessmentPeriod{},
 		&model.AssessmentObject{},
+		&model.AssessmentCategory{},
 		&model.AssessmentRule{},
 		&model.ScoreModule{},
 		&model.VoteGroup{},

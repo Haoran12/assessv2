@@ -24,7 +24,7 @@ func TestM4DirectScoreAndExtraPointFlow(t *testing.T) {
 		t.Fatalf("expected at least 2 assessment objects, got=%d", len(objectIDs))
 	}
 
-	ruleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "team", "company", []map[string]any{
+	ruleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "team", "subsidiary_company", []map[string]any{
 		{
 			"moduleCode": "direct",
 			"moduleKey":  "direct_q1",
@@ -178,7 +178,7 @@ func TestM4VoteGenerateDraftSubmitResetAndStats(t *testing.T) {
 		t.Fatalf("expected at least one assessment object")
 	}
 
-	ruleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "team", "company", []map[string]any{
+	ruleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "team", "subsidiary_company", []map[string]any{
 		{
 			"moduleCode": "vote",
 			"moduleKey":  "vote_q1",

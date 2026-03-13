@@ -19,7 +19,7 @@ func TestM3CreateRuleAndQuarterSync(t *testing.T) {
 		"yearId":         yearID,
 		"periodCode":     "Q1",
 		"objectType":     "team",
-		"objectCategory": "company",
+		"objectCategory": "subsidiary_company",
 		"ruleName":       "Team Quarterly Rule",
 		"isActive":       true,
 		"syncQuarterly":  true,
@@ -62,7 +62,7 @@ func TestM3CreateRuleAndQuarterSync(t *testing.T) {
 		t.Fatalf("expected create rule status=200, got=%d body=%s", createRuleResp.Code, createRuleResp.Body.String())
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/rules?yearId=%d&objectType=team&objectCategory=company", yearID), nil)
+	listReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/rules?yearId=%d&objectType=team&objectCategory=subsidiary_company", yearID), nil)
 	listReq.Header.Set("Authorization", "Bearer "+rootToken)
 	listResp := httptest.NewRecorder()
 	engine.ServeHTTP(listResp, listReq)
@@ -103,7 +103,7 @@ func TestM3InvalidExpressionRejected(t *testing.T) {
 		"yearId":         yearID,
 		"periodCode":     "YEAR_END",
 		"objectType":     "individual",
-		"objectCategory": "staff",
+		"objectCategory": "general_management_personnel",
 		"ruleName":       "Invalid Expression Rule",
 		"isActive":       true,
 		"modules": []map[string]any{
@@ -139,7 +139,7 @@ func TestM3TemplateSaveAndApplyAcrossYear(t *testing.T) {
 		"yearId":         sourceYearID,
 		"periodCode":     "YEAR_END",
 		"objectType":     "individual",
-		"objectCategory": "staff",
+		"objectCategory": "general_management_personnel",
 		"ruleName":       "Personal Year-End Rule",
 		"isActive":       true,
 		"modules": []map[string]any{
@@ -216,7 +216,7 @@ func TestM3TemplateSaveAndApplyAcrossYear(t *testing.T) {
 		"yearId":         targetYearID,
 		"periodCode":     "YEAR_END",
 		"objectType":     "individual",
-		"objectCategory": "staff",
+		"objectCategory": "general_management_personnel",
 		"ruleName":       "Applied Staff Year-End Rule",
 		"isActive":       true,
 		"overwrite":      false,

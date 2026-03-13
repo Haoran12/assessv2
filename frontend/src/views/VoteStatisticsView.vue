@@ -13,7 +13,7 @@
           <el-option
             v-for="item in contextStore.years"
             :key="item.id"
-            :label="`${item.year} - ${item.yearName}`"
+            :label="formatAssessmentYearLabel(item)"
             :value="item.id"
           />
         </el-select>
@@ -99,7 +99,7 @@ import { getVoteStatistics } from "@/api/vote";
 import type { AssessmentObjectItem } from "@/types/assessment";
 import type { ScorePeriodCode } from "@/types/score";
 import type { VoteStatistics } from "@/types/vote";
-import { PERIOD_OPTIONS } from "@/utils/assessment";
+import { PERIOD_OPTIONS, formatAssessmentYearLabel } from "@/utils/assessment";
 
 const periodOptions = PERIOD_OPTIONS;
 const contextStore = useContextStore();

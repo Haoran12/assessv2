@@ -24,9 +24,11 @@ var (
 	ErrInvalidOrganizationStatus = errors.New("invalid organization status")
 	ErrOrganizationNotFound      = errors.New("organization not found")
 	ErrOrganizationInactive      = errors.New("organization is inactive")
+	ErrOrganizationInUse         = errors.New("organization still has child records")
 
 	ErrInvalidDepartmentStatus = errors.New("invalid department status")
 	ErrDepartmentNotFound      = errors.New("department not found")
+	ErrDepartmentInUse         = errors.New("department still has child records")
 
 	ErrInvalidPositionLevelStatus = errors.New("invalid position level status")
 	ErrPositionLevelNotFound      = errors.New("position level not found")
@@ -36,6 +38,7 @@ var (
 
 	ErrInvalidEmployeeStatus = errors.New("invalid employee status")
 	ErrEmployeeNotFound      = errors.New("employee not found")
+	ErrEmployeeInUse         = errors.New("employee still has dependent records")
 
 	ErrInvalidTransferType   = errors.New("invalid transfer type")
 	ErrInvalidEffectiveDate  = errors.New("effective date is required")

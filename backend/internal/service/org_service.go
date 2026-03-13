@@ -274,6 +274,37 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, operatorID, organiz
 	return &existing, nil
 }
 
+func (s *OrgService) DeleteOrganization(ctx context.Context, operatorID, organizationID uint, ipAddress string, userAgent string) error {
+	var existing model.Organization
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", organizationID).First(&existing).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return ErrOrganizationNotFound
+		}
+		return fmt.Errorf("failed to query organization: %w", err)
+	}
+	if err := s.ensureOrganizationNotInUse(ctx, organizationID); err != nil {
+		return err
+	}
+
+	operator := operatorID
+	now := time.Now().Unix()
+	updates := map[string]any{
+		"deleted_at": now,
+		"updated_by": &operator,
+		"updated_at": now,
+	}
+	if err := s.db.WithContext(ctx).Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL", organizationID).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to delete organization: %w", err)
+	}
+
+	targetID := existing.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "organizations", &targetID, map[string]any{
+		"event":   "delete_organization",
+		"orgName": existing.OrgName,
+	}, ipAddress, userAgent))
+	return nil
+}
+
 func (s *OrgService) ListDepartments(ctx context.Context, filter ListDepartmentFilter) ([]model.Department, error) {
 	query := s.db.WithContext(ctx).Where("deleted_at IS NULL").Order("sort_order ASC, id ASC")
 	if filter.OrganizationID != nil && *filter.OrganizationID > 0 {
@@ -361,8 +392,44 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, operatorID, departmen
 	return &existing, nil
 }
 
+func (s *OrgService) DeleteDepartment(ctx context.Context, operatorID, departmentID uint, ipAddress string, userAgent string) error {
+	var existing model.Department
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", departmentID).First(&existing).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return ErrDepartmentNotFound
+		}
+		return fmt.Errorf("failed to query department: %w", err)
+	}
+	if err := s.ensureDepartmentNotInUse(ctx, departmentID); err != nil {
+		return err
+	}
+
+	operator := operatorID
+	now := time.Now().Unix()
+	updates := map[string]any{
+		"deleted_at": now,
+		"updated_by": &operator,
+		"updated_at": now,
+	}
+	if err := s.db.WithContext(ctx).Model(&model.Department{}).Where("id = ? AND deleted_at IS NULL", departmentID).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to delete department: %w", err)
+	}
+
+	targetID := existing.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "departments", &targetID, map[string]any{
+		"event":    "delete_department",
+		"deptName": existing.DeptName,
+	}, ipAddress, userAgent))
+	return nil
+}
+
 type ListPositionLevelFilter struct {
 	Status string
+}
+
+type ListAssessmentCategoryFilter struct {
+	ObjectType string
+	Status     string
 }
 
 type CreatePositionLevelInput struct {
@@ -375,6 +442,29 @@ type CreatePositionLevelInput struct {
 }
 
 type UpdatePositionLevelInput = CreatePositionLevelInput
+
+func (s *OrgService) ListAssessmentCategories(ctx context.Context, filter ListAssessmentCategoryFilter) ([]model.AssessmentCategory, error) {
+	query := s.db.WithContext(ctx).Model(&model.AssessmentCategory{}).Order("sort_order ASC, id ASC")
+
+	status := strings.TrimSpace(filter.Status)
+	if status == "" {
+		status = "active"
+	}
+	query = query.Where("status = ?", status)
+
+	if objectType := strings.TrimSpace(filter.ObjectType); objectType != "" {
+		if !isValidAssessmentObjectType(objectType) {
+			return nil, ErrInvalidRuleObjectType
+		}
+		query = query.Where("object_type = ?", objectType)
+	}
+
+	var items []model.AssessmentCategory
+	if err := query.Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to list assessment categories: %w", err)
+	}
+	return items, nil
+}
 
 func (s *OrgService) ListPositionLevels(ctx context.Context, filter ListPositionLevelFilter) ([]model.PositionLevel, error) {
 	query := s.db.WithContext(ctx).Order("sort_order ASC, id ASC")
@@ -521,9 +611,6 @@ func (s *OrgService) DeletePositionLevel(ctx context.Context, operatorID, positi
 		}
 		return fmt.Errorf("failed to query position level: %w", err)
 	}
-	if existing.IsSystem {
-		return ErrSystemPositionLevelLocked
-	}
 	if err := s.ensurePositionLevelNotInUse(ctx, positionLevelID); err != nil {
 		return err
 	}
@@ -637,6 +724,34 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, operatorID, employeeID 
 	return &existing, nil
 }
 
+func (s *OrgService) DeleteEmployee(ctx context.Context, operatorID, employeeID uint, ipAddress string, userAgent string) error {
+	var existing model.Employee
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", employeeID).First(&existing).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return ErrEmployeeNotFound
+		}
+		return fmt.Errorf("failed to query employee: %w", err)
+	}
+
+	operator := operatorID
+	now := time.Now().Unix()
+	updates := map[string]any{
+		"deleted_at": now,
+		"updated_by": &operator,
+		"updated_at": now,
+	}
+	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("id = ? AND deleted_at IS NULL", employeeID).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to delete employee: %w", err)
+	}
+
+	targetID := existing.ID
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "employees", &targetID, map[string]any{
+		"event":   "delete_employee",
+		"empName": existing.EmpName,
+	}, ipAddress, userAgent))
+	return nil
+}
+
 func (s *OrgService) TransferEmployee(ctx context.Context, operatorID, employeeID uint, input TransferEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
 	if !isValidTransferType(strings.TrimSpace(input.ChangeType)) {
 		return nil, ErrInvalidTransferType
@@ -742,6 +857,33 @@ func (s *OrgService) requireOrganization(ctx context.Context, organizationID uin
 	return nil
 }
 
+func (s *OrgService) ensureOrganizationNotInUse(ctx context.Context, organizationID uint) error {
+	var childOrgCount int64
+	if err := s.db.WithContext(ctx).Model(&model.Organization{}).Where("parent_id = ? AND deleted_at IS NULL", organizationID).Count(&childOrgCount).Error; err != nil {
+		return fmt.Errorf("failed to verify organization child organizations: %w", err)
+	}
+	if childOrgCount > 0 {
+		return ErrOrganizationInUse
+	}
+
+	var deptCount int64
+	if err := s.db.WithContext(ctx).Model(&model.Department{}).Where("organization_id = ? AND deleted_at IS NULL", organizationID).Count(&deptCount).Error; err != nil {
+		return fmt.Errorf("failed to verify organization departments: %w", err)
+	}
+	if deptCount > 0 {
+		return ErrOrganizationInUse
+	}
+
+	var employeeCount int64
+	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("organization_id = ? AND deleted_at IS NULL", organizationID).Count(&employeeCount).Error; err != nil {
+		return fmt.Errorf("failed to verify organization employees: %w", err)
+	}
+	if employeeCount > 0 {
+		return ErrOrganizationInUse
+	}
+	return nil
+}
+
 func (s *OrgService) requireDepartment(ctx context.Context, departmentID uint) error {
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&model.Department{}).Where("id = ? AND deleted_at IS NULL", departmentID).Count(&count).Error; err != nil {
@@ -749,6 +891,25 @@ func (s *OrgService) requireDepartment(ctx context.Context, departmentID uint) e
 	}
 	if count == 0 {
 		return ErrDepartmentNotFound
+	}
+	return nil
+}
+
+func (s *OrgService) ensureDepartmentNotInUse(ctx context.Context, departmentID uint) error {
+	var childDeptCount int64
+	if err := s.db.WithContext(ctx).Model(&model.Department{}).Where("parent_dept_id = ? AND deleted_at IS NULL", departmentID).Count(&childDeptCount).Error; err != nil {
+		return fmt.Errorf("failed to verify department child departments: %w", err)
+	}
+	if childDeptCount > 0 {
+		return ErrDepartmentInUse
+	}
+
+	var employeeCount int64
+	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("department_id = ? AND deleted_at IS NULL", departmentID).Count(&employeeCount).Error; err != nil {
+		return fmt.Errorf("failed to verify department employees: %w", err)
+	}
+	if employeeCount > 0 {
+		return ErrDepartmentInUse
 	}
 	return nil
 }
@@ -870,6 +1031,15 @@ func isValidPositionLevelStatus(status string) bool {
 func isValidTransferType(changeType string) bool {
 	switch changeType {
 	case "transfer", "promotion", "demotion", "position_change":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidAssessmentObjectType(objectType string) bool {
+	switch objectType {
+	case ObjectTypeTeam, ObjectTypeIndividual:
 		return true
 	default:
 		return false

@@ -1,5 +1,6 @@
 import { http } from "@/api/http";
 import type {
+  AssessmentCategoryItem,
   DepartmentItem,
   EmployeeHistoryItem,
   EmployeeItem,
@@ -52,6 +53,10 @@ export async function updateOrganization(
   return response.data?.data as OrganizationItem;
 }
 
+export async function deleteOrganization(organizationId: number): Promise<void> {
+  await http.delete(`/api/org/organizations/${organizationId}`);
+}
+
 export async function listDepartments(params: ListDepartmentQuery): Promise<DepartmentItem[]> {
   const response = await http.get("/api/org/departments", { params });
   return (response.data?.data?.items ?? []) as DepartmentItem[];
@@ -68,6 +73,18 @@ export async function updateDepartment(
 ): Promise<DepartmentItem> {
   const response = await http.put(`/api/org/departments/${departmentId}`, payload);
   return response.data?.data as DepartmentItem;
+}
+
+export async function deleteDepartment(departmentId: number): Promise<void> {
+  await http.delete(`/api/org/departments/${departmentId}`);
+}
+
+export async function listAssessmentCategories(params?: {
+  objectType?: "team" | "individual";
+  status?: string;
+}): Promise<AssessmentCategoryItem[]> {
+  const response = await http.get("/api/org/assessment-categories", { params });
+  return (response.data?.data?.items ?? []) as AssessmentCategoryItem[];
 }
 
 export async function listPositionLevels(status?: string): Promise<PositionLevelItem[]> {
@@ -107,6 +124,10 @@ export async function createEmployee(payload: UpsertEmployeePayload): Promise<Em
 export async function updateEmployee(employeeId: number, payload: UpsertEmployeePayload): Promise<EmployeeItem> {
   const response = await http.put(`/api/org/employees/${employeeId}`, payload);
   return response.data?.data as EmployeeItem;
+}
+
+export async function deleteEmployee(employeeId: number): Promise<void> {
+  await http.delete(`/api/org/employees/${employeeId}`);
 }
 
 export async function transferEmployee(employeeId: number, payload: TransferEmployeePayload): Promise<EmployeeItem> {
