@@ -165,14 +165,14 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: "reports",
     name: "reports",
     component: PlaceholderView,
-    props: { title: "Reports", apiGroup: "/api/reports" },
+    props: { title: "报表中心", apiGroup: "/api/reports" },
     meta: { requiresAuth: true, permission: "report:view" },
   },
   {
     path: "backup",
     name: "backup",
     component: PlaceholderView,
-    props: { title: "Backup", apiGroup: "/api/backup" },
+    props: { title: "备份管理", apiGroup: "/api/backup" },
     meta: { requiresAuth: true, permission: "backup:*" },
   },
   {

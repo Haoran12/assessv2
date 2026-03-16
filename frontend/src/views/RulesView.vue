@@ -12,7 +12,7 @@
       </template>
 
       <el-form :inline="true" class="filters">
-        <el-form-item label="年度ID">
+        <el-form-item label="年度编号">
           <el-input-number v-model="filters.yearId" :min="1" controls-position="right" />
         </el-form-item>
         <el-form-item label="周期">
@@ -22,8 +22,8 @@
         </el-form-item>
         <el-form-item label="对象类型">
           <el-select v-model="filters.objectType" style="width: 140px" @change="onFilterObjectTypeChange">
-            <el-option label="team" value="team" />
-            <el-option label="individual" value="individual" />
+            <el-option label="团体" value="team" />
+            <el-option label="个人" value="individual" />
           </el-select>
         </el-form-item>
         <el-form-item label="对象分类">
@@ -43,8 +43,8 @@
       </el-form>
 
       <el-table v-loading="rulesLoading" :data="rules" border>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="yearId" label="年度ID" width="100" />
+        <el-table-column prop="id" label="编号" width="80" />
+        <el-table-column prop="yearId" label="年度编号" width="100" />
         <el-table-column prop="periodCode" label="周期" width="110" />
         <el-table-column prop="objectType" label="对象类型" width="120" />
         <el-table-column label="对象分类" min-width="150">
@@ -77,7 +77,7 @@
         </div>
       </template>
       <el-table v-loading="templatesLoading" :data="templates" border>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="id" label="编号" width="80" />
         <el-table-column prop="templateName" label="模板名称" min-width="180" />
         <el-table-column prop="objectType" label="对象类型" width="120" />
         <el-table-column label="对象分类" min-width="150">
@@ -113,7 +113,7 @@
         <el-form label-width="120px">
           <el-row :gutter="12">
             <el-col :span="8">
-              <el-form-item label="年度ID">
+              <el-form-item label="年度编号">
                 <el-input-number
                   v-model="ruleForm.yearId"
                   :disabled="Boolean(ruleForm.id)"
@@ -144,8 +144,8 @@
                   :disabled="Boolean(ruleForm.id)"
                   @change="onRuleObjectTypeChange"
                 >
-                  <el-option label="team" value="team" />
-                  <el-option label="individual" value="individual" />
+                  <el-option label="团体" value="team" />
+                  <el-option label="个人" value="individual" />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -180,14 +180,14 @@
           <div>
             <strong>模块配置</strong>
             <el-tag class="weight-tag" :type="weightSumTagType">
-              权重和（不含 extra）：{{ weightedSum.toFixed(4) }}
+              权重和（不含加减分模块）：{{ weightedSum.toFixed(4) }}
             </el-tag>
           </div>
           <div>
-            <el-button @click="addModule('direct')">加直接录入</el-button>
-            <el-button @click="addModule('vote')">加投票</el-button>
-            <el-button @click="addModule('custom')">加自定义</el-button>
-            <el-button @click="addModule('extra')">加权重外</el-button>
+            <el-button @click="addModule('direct')">新增直接录入</el-button>
+            <el-button @click="addModule('vote')">新增投票</el-button>
+            <el-button @click="addModule('custom')">新增自定义</el-button>
+            <el-button @click="addModule('extra')">新增加减分</el-button>
           </div>
         </div>
 
@@ -222,25 +222,25 @@
               <el-col :span="6">
                 <el-form-item label="类型">
                   <el-select v-model="module.moduleCode">
-                    <el-option label="direct" value="direct" />
-                    <el-option label="vote" value="vote" />
-                    <el-option label="custom" value="custom" />
-                    <el-option label="extra" value="extra" />
+                    <el-option label="直接录入" value="direct" />
+                    <el-option label="投票" value="vote" />
+                    <el-option label="自定义" value="custom" />
+                    <el-option label="加减分" value="extra" />
                   </el-select>
                 </el-form-item>
               </el-col>
               <el-col :span="6">
-                <el-form-item label="moduleKey">
+                <el-form-item label="模块标识">
                   <el-input v-model="module.moduleKey" />
                 </el-form-item>
               </el-col>
               <el-col :span="6">
-                <el-form-item label="moduleName">
+                <el-form-item label="模块名称">
                   <el-input v-model="module.moduleName" />
                 </el-form-item>
               </el-col>
               <el-col :span="6">
-                <el-form-item label="sortOrder">
+                <el-form-item label="排序">
                   <el-input-number v-model="module.sortOrder" :min="1" controls-position="right" />
                 </el-form-item>
               </el-col>
@@ -261,7 +261,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="6">
-                <el-form-item label="maxScore">
+                <el-form-item label="最高分">
                   <el-input-number
                     v-model="module.maxScore"
                     :disabled="module.moduleCode === 'extra'"
@@ -274,7 +274,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="6">
-                <el-form-item label="calculationMethod">
+                <el-form-item label="计算方式">
                   <el-input v-model="module.calculationMethod" />
                 </el-form-item>
               </el-col>
@@ -285,7 +285,7 @@
               </el-col>
             </el-row>
 
-            <el-form-item label="表达式（custom）">
+            <el-form-item label="表达式（自定义）">
               <el-input
                 v-model="module.expression"
                 type="textarea"
@@ -297,10 +297,10 @@
               v-if="module.moduleCode === 'custom'"
               type="info"
               :closable="false"
-              title="表达式白名单：team.score、team.rank、q1.score~q4.score、extra_points、org.*、module_*；函数支持 abs/round/ceil/floor/max/min/if/avg/sum"
+              title="表达式白名单变量：team.score、team.rank、q1.score~q4.score、extra_points、org.*、module_*；函数支持 abs/round/ceil/floor/max/min/if/avg/sum"
               style="margin-bottom: 8px"
             />
-            <el-form-item label="ContextScope(JSON)">
+            <el-form-item label="上下文范围（JSON）">
               <el-input
                 v-model="module.contextScopeText"
                 type="textarea"
@@ -320,13 +320,13 @@
                 <el-button size="small" @click="addVoteGroup(module)">新增分组</el-button>
               </div>
               <el-table :data="module.voteGroups" border size="small">
-                <el-table-column prop="groupCode" label="groupCode">
+                <el-table-column prop="groupCode" label="分组编码">
                   <template #default="{ row }"><el-input v-model="row.groupCode" /></template>
                 </el-table-column>
-                <el-table-column prop="groupName" label="groupName">
+                <el-table-column prop="groupName" label="分组名称">
                   <template #default="{ row }"><el-input v-model="row.groupName" /></template>
                 </el-table-column>
-                <el-table-column prop="weight" label="weight" width="120">
+                <el-table-column prop="weight" label="权重" width="120">
                   <template #default="{ row }">
                     <el-input-number
                       v-model="row.weight"
@@ -338,10 +338,10 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column prop="voterType" label="voterType">
+                <el-table-column prop="voterType" label="投票人类型">
                   <template #default="{ row }"><el-input v-model="row.voterType" /></template>
                 </el-table-column>
-                <el-table-column prop="maxScore" label="maxScore" width="120">
+                <el-table-column prop="maxScore" label="最高分" width="120">
                   <template #default="{ row }">
                     <el-input-number v-model="row.maxScore" :min="0" :precision="2" controls-position="right" />
                   </template>
@@ -367,7 +367,7 @@
         <el-form-item label="模板">
           <el-input v-model="applyForm.templateName" disabled />
         </el-form-item>
-        <el-form-item label="年度ID">
+        <el-form-item label="年度编号">
           <el-input-number v-model="applyForm.yearId" :min="1" controls-position="right" />
         </el-form-item>
         <el-form-item label="周期">
@@ -377,8 +377,8 @@
         </el-form-item>
         <el-form-item label="对象类型">
           <el-select v-model="applyForm.objectType" @change="onApplyObjectTypeChange">
-            <el-option label="team" value="team" />
-            <el-option label="individual" value="individual" />
+            <el-option label="团体" value="team" />
+            <el-option label="个人" value="individual" />
           </el-select>
         </el-form-item>
         <el-form-item label="对象分类">
@@ -859,7 +859,7 @@ function validateModulesBeforeSubmit(): boolean {
   for (let moduleIndex = 0; moduleIndex < ruleForm.modules.length; moduleIndex += 1) {
     const module = ruleForm.modules[moduleIndex];
     if (!module.moduleKey.trim() || !module.moduleName.trim()) {
-      ElMessage.warning(`模块 ${moduleIndex + 1} 的 moduleKey 与 moduleName 不能为空`);
+      ElMessage.warning(`模块 ${moduleIndex + 1} 的“模块标识”和“模块名称”不能为空`);
       return false;
     }
     if (module.moduleCode === "custom") {
@@ -886,7 +886,7 @@ function validateModulesBeforeSubmit(): boolean {
 async function submitRule(): Promise<void> {
   try {
     if (!ruleForm.yearId || ruleForm.yearId <= 0) {
-      ElMessage.warning("请填写年度ID");
+      ElMessage.warning("请填写年度编号");
       return;
     }
     if (!ruleForm.ruleName.trim()) {
@@ -944,7 +944,7 @@ async function saveTemplateFromRule(ruleId: number, ruleName: string): Promise<v
     });
     await createTemplateFromRule(ruleId, {
       templateName: value.trim(),
-      description: `from rule #${ruleId}`,
+      description: `来源规则 #${ruleId}`,
     });
     ElMessage.success("模板创建成功");
     await loadTemplates();
@@ -968,11 +968,11 @@ function openApplyTemplate(template: RuleTemplateSummary): void {
 
 async function submitApplyTemplate(): Promise<void> {
   if (!applyForm.templateId) {
-    ElMessage.warning("模板ID无效");
+    ElMessage.warning("模板编号无效");
     return;
   }
   if (!applyForm.yearId || applyForm.yearId <= 0) {
-    ElMessage.warning("请填写年度ID");
+    ElMessage.warning("请填写年度编号");
     return;
   }
 

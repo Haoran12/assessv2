@@ -26,9 +26,9 @@ const defaultUser: MockUser = {
 
 export async function setAuthedSession(page: Page, user: MockUser = defaultUser): Promise<void> {
   await page.addInitScript((sessionUser) => {
-    window.localStorage.setItem("assessv2_token", "test-token");
-    window.localStorage.setItem("assessv2_user", JSON.stringify(sessionUser));
-    window.localStorage.setItem("assessv2_must_change_password", "false");
+    window.sessionStorage.setItem("assessv2_token", "test-token");
+    window.sessionStorage.setItem("assessv2_user", JSON.stringify(sessionUser));
+    window.sessionStorage.setItem("assessv2_must_change_password", "false");
   }, user);
 }
 

@@ -15,7 +15,7 @@ const USER_KEY = "assessv2_user";
 const MUST_CHANGE_KEY = "assessv2_must_change_password";
 
 function readStoredUser(): SessionUser | null {
-  const text = localStorage.getItem(USER_KEY);
+  const text = sessionStorage.getItem(USER_KEY);
   if (!text) {
     return null;
   }
@@ -27,9 +27,9 @@ function readStoredUser(): SessionUser | null {
 }
 
 export const useAppStore = defineStore("app", () => {
-  const token = ref(localStorage.getItem(TOKEN_KEY) || "");
+  const token = ref(sessionStorage.getItem(TOKEN_KEY) || "");
   const currentUser = ref<SessionUser | null>(readStoredUser());
-  const mustChangePassword = ref(localStorage.getItem(MUST_CHANGE_KEY) === "true");
+  const mustChangePassword = ref(sessionStorage.getItem(MUST_CHANGE_KEY) === "true");
   const initialized = ref(false);
 
   const isAuthed = computed(() => token.value.length > 0);
@@ -70,9 +70,9 @@ export const useAppStore = defineStore("app", () => {
     token.value = newToken;
     currentUser.value = user;
     mustChangePassword.value = mustChange;
-    localStorage.setItem(TOKEN_KEY, newToken);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-    localStorage.setItem(MUST_CHANGE_KEY, mustChange ? "true" : "false");
+    sessionStorage.setItem(TOKEN_KEY, newToken);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+    sessionStorage.setItem(MUST_CHANGE_KEY, mustChange ? "true" : "false");
   }
 
   function clearSession(): void {
@@ -80,9 +80,9 @@ export const useAppStore = defineStore("app", () => {
     currentUser.value = null;
     mustChangePassword.value = false;
     initialized.value = true;
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(MUST_CHANGE_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(MUST_CHANGE_KEY);
   }
 
   async function login(payload: LoginPayload): Promise<LoginResponseData> {
@@ -120,7 +120,7 @@ export const useAppStore = defineStore("app", () => {
   async function changePassword(payload: ChangePasswordPayload): Promise<void> {
     await http.post("/api/auth/change-password", payload);
     mustChangePassword.value = false;
-    localStorage.setItem(MUST_CHANGE_KEY, "false");
+    sessionStorage.setItem(MUST_CHANGE_KEY, "false");
     await fetchProfile();
   }
 

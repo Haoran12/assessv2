@@ -16,6 +16,10 @@ backend/desktop/build/windows/info.json
 backend/desktop/build/windows/wails.exe.manifest
 frontend/src/wailsjs/
 frontend/wailsjs/
+backend/desktop/runtime/frontend/dist/**
+!backend/desktop/runtime/frontend/dist/.gitkeep
+backend/desktop/runtime/migrations/**
+!backend/desktop/runtime/migrations/.gitkeep
 
 # Logs / runtime outputs
 logs/
@@ -33,4 +37,9 @@ backend/coverage.out
 # IDE / OS
 .DS_Store
 Thumbs.db
+.vscode/
 .claude/
+
+# Desktop runtime data
+data/
+assessv2-desktop.exe

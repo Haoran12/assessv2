@@ -60,7 +60,7 @@
       />
 
       <el-table v-loading="loadingRows" :data="rows" border>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="id" label="编号" width="80" />
         <el-table-column label="模块" min-width="220">
           <template #default="{ row }">
             {{ moduleLabel(row.moduleId) }}

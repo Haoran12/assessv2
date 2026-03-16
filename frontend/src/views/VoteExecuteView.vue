@@ -60,7 +60,7 @@
       />
 
       <el-table v-loading="loadingTasks" :data="tasks" border>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="id" label="编号" width="80" />
         <el-table-column label="模块" min-width="180">
           <template #default="{ row }">{{ row.moduleName }}</template>
         </el-table-column>
@@ -98,7 +98,7 @@
 
     <el-dialog v-model="voteDialogVisible" title="执行投票" width="560px">
       <el-descriptions :column="1" border size="small" class="vote-summary">
-        <el-descriptions-item label="任务ID">{{ currentTask?.id }}</el-descriptions-item>
+        <el-descriptions-item label="任务编号">{{ currentTask?.id }}</el-descriptions-item>
         <el-descriptions-item label="投票模块">{{ currentTask?.moduleName || "-" }}</el-descriptions-item>
         <el-descriptions-item label="投票组">
           {{ currentTask ? `${currentTask.groupName} (${currentTask.groupCode})` : "-" }}

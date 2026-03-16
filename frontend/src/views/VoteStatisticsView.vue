@@ -64,7 +64,7 @@
       <el-progress :percentage="completionRatePercent" :stroke-width="16" status="success" class="progress" />
 
       <el-table v-loading="loadingStats" :data="stats.groupStatistics" border>
-        <el-table-column prop="voteGroupId" label="组ID" width="90" />
+        <el-table-column prop="voteGroupId" label="组编号" width="90" />
         <el-table-column label="投票组" min-width="230">
           <template #default="{ row }">{{ row.groupName }} ({{ row.groupCode }})</template>
         </el-table-column>

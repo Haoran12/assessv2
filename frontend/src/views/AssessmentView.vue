@@ -12,7 +12,7 @@
       </template>
 
       <el-table v-loading="loadingYears" :data="years" border>
-        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="year" label="年度" width="100" />
         <el-table-column prop="yearName" label="年度名称" min-width="180" />
         <el-table-column label="开始日期" width="120">
@@ -71,7 +71,7 @@
 
       <el-empty v-if="!selectedYear" description="请选择一个年度查看周期" />
       <el-table v-else v-loading="loadingPeriods" :data="periods" border>
-        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="periodCode" label="周期编码" width="120" />
         <el-table-column prop="periodName" label="周期名称" min-width="160" />
         <el-table-column label="开始日期" width="120">
@@ -133,15 +133,15 @@
 
       <el-empty v-if="!selectedYear" description="请选择年度后查看考核对象" />
       <el-table v-else v-loading="loadingObjects" :data="filteredObjects" border>
-        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="objectName" label="对象名称" min-width="180" />
         <el-table-column prop="objectType" label="对象类型" width="110" />
         <el-table-column label="对象分类" min-width="140">
           <template #default="{ row }">{{ assessmentCategoryLabel(row.objectCategory) }}</template>
         </el-table-column>
         <el-table-column prop="targetType" label="目标类型" width="110" />
-        <el-table-column prop="targetId" label="目标ID" width="100" />
-        <el-table-column prop="parentObjectId" label="上级对象ID" width="110">
+        <el-table-column prop="targetId" label="目标编号" width="100" />
+        <el-table-column prop="parentObjectId" label="上级对象编号" width="110">
           <template #default="{ row }">{{ row.parentObjectId || "-" }}</template>
         </el-table-column>
         <el-table-column label="是否参与" width="100">
@@ -179,7 +179,7 @@
         <el-form-item label="复制上年对象">
           <el-select v-model="createYearForm.copyFromYearId" clearable filterable style="width: 100%">
             <el-option
-              v-for="year in years.filter((item) => item.id !== selectedYear?.id)"
+              v-for="year in copyFromYearOptions"
               :key="year.id"
               :label="formatAssessmentYearLabel(year)"
               :value="year.id"
@@ -205,9 +205,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useAppStore } from "@/stores/app";
+import { useContextStore } from "@/stores/context";
 import {
   createAssessmentYear,
   listAssessmentObjects,
@@ -227,6 +228,7 @@ import { formatAssessmentYearLabel } from "@/utils/assessment";
 import { assessmentCategoryLabel } from "@/constants/assessmentCategories";
 
 const appStore = useAppStore();
+const contextStore = useContextStore();
 const canEdit = computed(() => appStore.hasPermission("assessment:update"));
 
 const loadingYears = ref(false);
@@ -255,6 +257,10 @@ const createYearForm = reactive({
   copyFromYearId: undefined as number | undefined,
   description: "",
 });
+
+const copyFromYearOptions = computed(() =>
+  years.value.filter((item) => item.year !== createYearForm.year),
+);
 
 const objectCategoryOptions = computed(() => {
   const set = new Set<string>();
@@ -377,10 +383,14 @@ async function loadYears(): Promise<void> {
   try {
     years.value = await listAssessmentYears();
     if (!selectedYear.value && years.value.length > 0) {
-      await selectYear(years.value[0]);
+      const preferred = years.value.find((item) => item.id === contextStore.yearId);
+      await selectYear(preferred ?? years.value[0]);
     } else if (selectedYear.value) {
       const latest = years.value.find((item) => item.id === selectedYear.value?.id) || null;
       selectedYear.value = latest;
+      if (!latest && years.value.length > 0) {
+        await selectYear(years.value[0]);
+      }
     }
   } catch (_error) {
     ElMessage.error("年度列表加载失败");
@@ -414,6 +424,13 @@ async function loadObjects(yearId: number): Promise<void> {
 async function selectYear(row: AssessmentYearItem): Promise<void> {
   selectedYear.value = row;
   await Promise.all([loadPeriods(row.id), loadObjects(row.id)]);
+  if (contextStore.yearId !== row.id) {
+    try {
+      await contextStore.setYear(row.id);
+    } catch (_error) {
+      ElMessage.error("全局年度切换失败");
+    }
+  }
 }
 
 async function reloadCurrentYearData(): Promise<void> {
@@ -455,8 +472,11 @@ async function submitCreateYear(): Promise<void> {
     });
     ElMessage.success(`年度创建成功，自动生成 ${result.periods.length} 个周期`);
     createYearDialogVisible.value = false;
+    await contextStore.ensureInitialized(true);
+    await contextStore.setYear(result.year.id);
     await loadYears();
-    await selectYear(result.year);
+    const latest = years.value.find((item) => item.id === result.year.id) ?? result.year;
+    await selectYear(latest);
   } catch (error) {
     const message = error instanceof Error ? error.message : "创建年度失败";
     ElMessage.error(message);
@@ -511,7 +531,32 @@ async function handlePeriodStatusChange(row: AssessmentPeriodItem, statusRaw: st
   }
 }
 
+watch(
+  () => contextStore.yearId,
+  async (yearId) => {
+    if (!yearId) {
+      selectedYear.value = null;
+      periods.value = [];
+      objects.value = [];
+      return;
+    }
+
+    if (selectedYear.value?.id === yearId) {
+      return;
+    }
+
+    const hit = years.value.find((item) => item.id === yearId);
+    if (hit) {
+      await selectYear(hit);
+      return;
+    }
+
+    await loadYears();
+  },
+);
+
 onMounted(async () => {
+  await contextStore.ensureInitialized();
   await loadYears();
 });
 </script>

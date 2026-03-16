@@ -32,7 +32,7 @@
       </div>
 
       <el-table v-loading="loadingUsers" :data="rows" border>
-        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="username" label="用户名" min-width="120" />
         <el-table-column prop="realName" label="姓名" min-width="140" />
         <el-table-column label="状态" width="120">
@@ -130,7 +130,7 @@
       </template>
 
       <el-table v-loading="loadingGroups" :data="userGroups" border>
-        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="roleName" label="组名" min-width="160" />
         <el-table-column prop="roleCode" label="编码" min-width="160" />
         <el-table-column prop="description" label="描述" min-width="220">

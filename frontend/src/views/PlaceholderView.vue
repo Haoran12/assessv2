@@ -7,7 +7,7 @@
     <p>模块页面已创建，可在此继续开发业务功能。</p>
 
     <el-descriptions :column="1" border>
-      <el-descriptions-item label="API 分组">{{ apiGroup }}</el-descriptions-item>
+      <el-descriptions-item label="接口分组">{{ apiGroup }}</el-descriptions-item>
       <el-descriptions-item label="状态">{{ statusText }}</el-descriptions-item>
     </el-descriptions>
 

@@ -74,7 +74,6 @@
                   {{ row.orgType === "group" ? "集团" : "公司" }}
                 </template>
               </el-table-column>
-              <el-table-column prop="sortOrder" label="排序" width="90" />
               <el-table-column label="状态" width="100">
                 <template #default="{ row }">
                   <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
@@ -132,7 +131,6 @@
                   {{ organizationName(row.organizationId) }}
                 </template>
               </el-table-column>
-              <el-table-column prop="sortOrder" label="排序" width="90" />
               <el-table-column label="状态" width="100">
                 <template #default="{ row }">
                   <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
@@ -175,15 +173,6 @@
             <el-table v-loading="loadingPositionLevels" :data="filteredPositionLevels" border>
               <el-table-column prop="id" label="ID" width="70" />
               <el-table-column prop="levelName" label="分类名称" min-width="160" />
-              <el-table-column prop="levelCode" label="分类编码" min-width="160" />
-              <el-table-column label="用于考核对象" width="130">
-                <template #default="{ row }">
-                  <el-tag :type="row.isForAssessment ? 'success' : 'info'">
-                    {{ row.isForAssessment ? "是" : "否" }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="sortOrder" label="排序" width="90" />
               <el-table-column label="状态" width="100">
                 <template #default="{ row }">
                   <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
@@ -1465,5 +1454,3 @@ onMounted(async () => {
   }
 }
 </style>
-
-

@@ -48,7 +48,7 @@
       <el-alert title="加减分范围：-20 ~ +20，且必须填写原因" type="warning" :closable="false" class="range-tip" />
 
       <el-table v-loading="loadingRows" :data="rows" border>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="id" label="编号" width="80" />
         <el-table-column label="考核对象" min-width="180">
           <template #default="{ row }">{{ objectNameMap[row.objectId] || `对象#${row.objectId}` }}</template>
         </el-table-column>

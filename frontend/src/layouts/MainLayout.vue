@@ -3,21 +3,16 @@
     <el-aside width="250px" class="app-sidebar">
       <div class="brand">
         <div class="brand-title">考核管理系统</div>
-        <div class="brand-subtitle">assessv2</div>
       </div>
       <el-menu :default-active="activePath" router>
-        <el-menu-item
-          v-for="item in visibleMenus"
-          :key="item.path"
-          :index="item.path"
-        >
+        <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
           {{ item.label }}
         </el-menu-item>
       </el-menu>
     </el-aside>
-    <el-container>
+    <el-container class="app-content-shell">
       <el-header class="app-header">
-        <div class="header-right">
+        <div class="header-left">
           <div v-if="appStore.isAuthed" class="global-context">
             <el-select
               v-model="contextYearId"
@@ -47,11 +42,7 @@
                 :value="item.periodCode"
               />
             </el-select>
-            <el-select
-              v-model="contextObjectCategory"
-              class="context-select"
-              placeholder="考核分类"
-            >
+            <el-select v-model="contextObjectCategory" class="context-select" placeholder="考核分类">
               <el-option
                 v-for="item in objectCategoryOptions"
                 :key="item.value"
@@ -60,6 +51,8 @@
               />
             </el-select>
           </div>
+        </div>
+        <div class="header-right">
           <el-dropdown trigger="click">
             <span class="username-trigger" :class="{ 'is-root': appStore.primaryRole === 'root' }">
               {{ appStore.username || "未登录" }}
@@ -70,12 +63,9 @@
                 <el-dropdown-item disabled>
                   <span class="role-tag">{{ roleLabel(appStore.primaryRole) }}</span>
                 </el-dropdown-item>
-                <el-dropdown-item divided @click="goToChangePassword">
-                  修改密码
-                </el-dropdown-item>
-                <el-dropdown-item @click="handleLogout">
-                  退出登录
-                </el-dropdown-item>
+                <el-dropdown-item divided @click="goToChangePassword">修改密码</el-dropdown-item>
+                <el-dropdown-item @click="handleLogout">退出登录</el-dropdown-item>
+                <el-dropdown-item divided @click="handleExitSystem">退出系统</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -89,12 +79,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
+import { useUnsavedStore } from "@/stores/unsaved";
 import type { AssessmentPeriodCode, GlobalAssessmentObjectCategory } from "@/types/assessment";
 import { formatAssessmentYearLabel } from "@/utils/assessment";
 
@@ -104,12 +95,18 @@ interface NavItem {
   permission?: string;
 }
 
+interface DesktopAppBridge {
+  ExitSystem?: () => Promise<void> | void;
+  SetPreferredDataYear?: (year: number) => Promise<void> | void;
+  SetCloseGuard?: (enabled: boolean) => Promise<void> | void;
+}
+
 const navItems: NavItem[] = [
   { path: "/overview", label: "系统概览" },
   { path: "/org", label: "组织架构", permission: "org:view" },
   { path: "/rules/total", label: "总分规则", permission: "rule:view" },
   { path: "/rules/module", label: "模块规则", permission: "rule:view" },
-  { path: "/rules/grade", label: "等第规则", permission: "rule:view" },
+  { path: "/rules/grade", label: "等级规则", permission: "rule:view" },
   { path: "/system/users", label: "用户管理", permission: "user:view" },
 ];
 
@@ -117,9 +114,13 @@ const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 const contextStore = useContextStore();
+const unsavedStore = useUnsavedStore();
+let closeGuardObserver: MutationObserver | null = null;
+let closeGuardSyncTimer: number | null = null;
+let lastSyncedCloseGuardState: boolean | null = null;
+let bypassBeforeUnloadUntil = 0;
 
 const objectCategoryOptions = computed(() => contextStore.categoryOptions);
-
 const activePath = computed(() => route.path);
 const visibleMenus = computed(() =>
   navItems.filter((item) => !item.permission || appStore.hasPermission(item.permission)),
@@ -158,6 +159,70 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => contextStore.currentYear?.year,
+  (year) => {
+    if (!year || !appStore.isAuthed) {
+      return;
+    }
+    void syncPreferredDataYear(year);
+  },
+  { immediate: true },
+);
+
+watch(
+  () => unsavedStore.hasUnsavedChanges,
+  () => {
+    scheduleCloseGuardSync();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => appStore.isAuthed,
+  () => {
+    scheduleCloseGuardSync();
+  },
+  { immediate: true },
+);
+
+onMounted(() => {
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", handleBeforeUnload);
+  }
+
+  if (typeof document !== "undefined" && typeof MutationObserver !== "undefined") {
+    closeGuardObserver = new MutationObserver(() => {
+      scheduleCloseGuardSync();
+    });
+    closeGuardObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+  }
+
+  scheduleCloseGuardSync();
+});
+
+onBeforeUnmount(() => {
+  if (typeof window !== "undefined") {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    if (closeGuardSyncTimer !== null) {
+      window.clearTimeout(closeGuardSyncTimer);
+      closeGuardSyncTimer = null;
+    }
+  }
+
+  if (closeGuardObserver) {
+    closeGuardObserver.disconnect();
+    closeGuardObserver = null;
+  }
+
+  clearDesktopCloseGuard();
+});
+
 function periodLabel(code: AssessmentPeriodCode, name?: string): string {
   const text = name?.trim();
   return text ? `${code} - ${text}` : code;
@@ -165,12 +230,177 @@ function periodLabel(code: AssessmentPeriodCode, name?: string): string {
 
 async function handleLogout(): Promise<void> {
   await appStore.logout();
+  unsavedStore.clearAll();
   ElMessage.success("已退出登录");
   await router.push("/login");
 }
 
 async function goToChangePassword(): Promise<void> {
   await router.push("/change-password");
+}
+
+function hasOpenEditorDialog(): boolean {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return false;
+  }
+
+  const overlays = Array.from(document.querySelectorAll<HTMLElement>(".el-overlay"));
+  return overlays.some((overlay) => {
+    if (!overlay.querySelector(".el-dialog")) {
+      return false;
+    }
+    if (overlay.querySelector(".el-message-box")) {
+      return false;
+    }
+    const style = window.getComputedStyle(overlay);
+    return style.display !== "none" && style.visibility !== "hidden";
+  });
+}
+
+function isDesktopRuntime(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("wails");
+}
+
+function hasPendingExitChanges(): boolean {
+  return unsavedStore.hasUnsavedChanges || hasOpenEditorDialog();
+}
+
+function getDesktopAppBridge(): DesktopAppBridge | undefined {
+  if (typeof window === "undefined" || !isDesktopRuntime()) {
+    return undefined;
+  }
+  const goBridge = (window as Window & { go?: { main?: { App?: DesktopAppBridge } } }).go;
+  return goBridge?.main?.App;
+}
+
+function scheduleCloseGuardSync(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (closeGuardSyncTimer !== null) {
+    window.clearTimeout(closeGuardSyncTimer);
+  }
+  closeGuardSyncTimer = window.setTimeout(() => {
+    closeGuardSyncTimer = null;
+    void syncDesktopCloseGuard();
+  }, 120);
+}
+
+async function syncDesktopCloseGuard(force = false): Promise<void> {
+  const appBridge = getDesktopAppBridge();
+  if (!appBridge?.SetCloseGuard) {
+    return;
+  }
+
+  const enabled = hasPendingExitChanges();
+  if (!force && lastSyncedCloseGuardState === enabled) {
+    return;
+  }
+
+  lastSyncedCloseGuardState = enabled;
+  try {
+    await appBridge.SetCloseGuard(enabled);
+  } catch (_error) {
+    // Ignore close guard sync failures.
+  }
+}
+
+function clearDesktopCloseGuard(): void {
+  const appBridge = getDesktopAppBridge();
+  if (!appBridge?.SetCloseGuard) {
+    return;
+  }
+
+  lastSyncedCloseGuardState = false;
+  void appBridge.SetCloseGuard(false);
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!isDesktopRuntime()) {
+    return;
+  }
+  if (Date.now() < bypassBeforeUnloadUntil) {
+    return;
+  }
+  if (!hasPendingExitChanges()) {
+    return;
+  }
+
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+async function tryExitDesktopRuntime(): Promise<boolean> {
+  if (typeof window === "undefined" || !isDesktopRuntime()) {
+    return false;
+  }
+
+  const appBridge = getDesktopAppBridge();
+  if (appBridge?.ExitSystem) {
+    await appBridge.ExitSystem();
+    return true;
+  }
+
+  const runtimeBridge = (window as Window & { runtime?: { Quit?: () => void } }).runtime;
+  if (runtimeBridge?.Quit) {
+    runtimeBridge.Quit();
+    return true;
+  }
+
+  return false;
+}
+
+async function syncPreferredDataYear(year: number): Promise<void> {
+  const appBridge = getDesktopAppBridge();
+  if (!appBridge?.SetPreferredDataYear) {
+    return;
+  }
+
+  try {
+    await appBridge.SetPreferredDataYear(year);
+  } catch (_error) {
+    // Ignore preference sync failures.
+  }
+}
+
+async function confirmExitIfUnsaved(): Promise<boolean> {
+  const hasUnsavedChanges = hasPendingExitChanges();
+  if (!hasUnsavedChanges) {
+    return true;
+  }
+
+  try {
+    await ElMessageBox.confirm("检测到存在未保存的数据，退出后将丢失，是否继续？", "退出提醒", {
+      type: "warning",
+      confirmButtonText: "继续退出",
+      cancelButtonText: "取消",
+    });
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function handleExitSystem(): Promise<void> {
+  const allowed = await confirmExitIfUnsaved();
+  if (!allowed) {
+    return;
+  }
+
+  try {
+    await appStore.logout();
+  } catch (_error) {
+    // Best effort cleanup before quit.
+  }
+  unsavedStore.clearAll();
+
+  bypassBeforeUnloadUntil = Date.now() + 3000;
+  const exited = await tryExitDesktopRuntime();
+  if (!exited) {
+    bypassBeforeUnloadUntil = 0;
+    ElMessage.success("已退出登录");
+    await router.push("/login");
+  }
 }
 
 function roleLabel(roleCode: string): string {
@@ -189,12 +419,24 @@ function roleLabel(roleCode: string): string {
 
 <style scoped>
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-sidebar {
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-shrink: 0;
   border-right: 1px solid #e4e7ed;
   background: #fff;
+}
+
+.app-content-shell {
+  min-width: 0;
+  min-height: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .brand {
@@ -216,15 +458,22 @@ function roleLabel(roleCode: string): string {
 .app-header {
   border-bottom: 1px solid #ebeef5;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 12px;
   background: #fff;
 }
 
-.header-right {
+.header-left {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex: 1;
+}
+
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
 }
 
 .global-context {
@@ -268,11 +517,17 @@ function roleLabel(roleCode: string): string {
 }
 
 .app-main {
+  min-height: 0;
+  overflow: auto;
   background: #f5f7fa;
 }
 
 @media (max-width: 1280px) {
-  .header-right {
+  .header-left {
+    justify-content: flex-end;
+  }
+
+  .global-context {
     flex-wrap: wrap;
     justify-content: flex-end;
   }

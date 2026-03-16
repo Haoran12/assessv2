@@ -73,7 +73,7 @@
       </div>
 
       <el-table v-loading="loadingTasks" :data="tasks" border>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="id" label="编号" width="80" />
         <el-table-column label="模块" min-width="200">
           <template #default="{ row }">{{ row.moduleName }}</template>
         </el-table-column>

@@ -76,17 +76,17 @@
         <el-form label-width="140px" class="module-form">
           <el-row :gutter="12">
             <el-col :span="8">
-              <el-form-item label="moduleCode">
+              <el-form-item label="模块编码">
                 <el-input :model-value="editingModule.moduleCode" disabled />
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="moduleKey">
+              <el-form-item label="模块标识">
                 <el-input v-model="editingModule.moduleKey" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="moduleName">
+              <el-form-item label="模块名称">
                 <el-input v-model="editingModule.moduleName" />
               </el-form-item>
             </el-col>
@@ -94,7 +94,7 @@
 
           <el-row :gutter="12">
             <el-col :span="8">
-              <el-form-item label="weight">
+              <el-form-item label="权重">
                 <el-input-number
                   v-model="editingModule.weight"
                   :disabled="editingModule.moduleCode === 'extra'"
@@ -107,7 +107,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="maxScore">
+              <el-form-item label="最高分">
                 <el-input-number
                   v-model="editingModule.maxScore"
                   :disabled="editingModule.moduleCode === 'extra'"
@@ -120,7 +120,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="sortOrder">
+              <el-form-item label="排序">
                 <el-input-number
                   v-model="editingModule.sortOrder"
                   :min="1"
@@ -132,7 +132,7 @@
 
           <el-row :gutter="12">
             <el-col :span="12">
-              <el-form-item label="calculationMethod">
+              <el-form-item label="计算方式">
                 <el-input v-model="editingModule.calculationMethod" />
               </el-form-item>
             </el-col>
@@ -143,7 +143,7 @@
             </el-col>
           </el-row>
 
-          <el-form-item label="ContextScope(JSON)">
+          <el-form-item label="上下文范围(JSON)">
             <el-input
               v-model="editingModule.contextScopeText"
               type="textarea"
@@ -161,7 +161,7 @@
                   :rows="3"
                   disabled
                 />
-                <el-button type="primary" @click="openCustomEditor">打开 Overlay 编辑器</el-button>
+                <el-button type="primary" @click="openCustomEditor">打开浮层编辑器</el-button>
               </div>
             </el-form-item>
           </template>
@@ -171,13 +171,13 @@
               <div class="vote-group-wrap">
                 <el-button size="small" @click="addVoteGroup">新增分组</el-button>
                 <el-table :data="editingModule.voteGroups" border size="small" class="vote-group-table">
-                  <el-table-column prop="groupCode" label="groupCode">
+                  <el-table-column prop="groupCode" label="分组编码">
                     <template #default="{ row }"><el-input v-model="row.groupCode" /></template>
                   </el-table-column>
-                  <el-table-column prop="groupName" label="groupName">
+                  <el-table-column prop="groupName" label="分组名称">
                     <template #default="{ row }"><el-input v-model="row.groupName" /></template>
                   </el-table-column>
-                  <el-table-column prop="weight" label="weight" width="120">
+                  <el-table-column prop="weight" label="权重" width="120">
                     <template #default="{ row }">
                       <el-input-number
                         v-model="row.weight"
@@ -189,10 +189,10 @@
                       />
                     </template>
                   </el-table-column>
-                  <el-table-column prop="voterType" label="voterType">
+                  <el-table-column prop="voterType" label="投票人类型">
                     <template #default="{ row }"><el-input v-model="row.voterType" /></template>
                   </el-table-column>
-                  <el-table-column prop="maxScore" label="maxScore" width="120">
+                  <el-table-column prop="maxScore" label="最高分" width="120">
                     <template #default="{ row }">
                       <el-input-number v-model="row.maxScore" :min="0" :precision="2" controls-position="right" />
                     </template>
@@ -217,7 +217,7 @@
       top="6vh"
     >
       <el-alert
-        title="此 Overlay 用于替代原导航中的“计算引擎”入口，直接在模块规则内编辑 custom 表达式。"
+        title="此浮层用于替代原导航中的“计算引擎”入口，可直接在模块规则中编辑自定义表达式。"
         type="info"
         :closable="false"
         class="mb-12"
@@ -237,10 +237,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useContextStore } from "@/stores/context";
+import { useUnsavedStore } from "@/stores/unsaved";
+import { assessmentCategoryLabel } from "@/constants/assessmentCategories";
 import { getRule, listRules, updateRule } from "@/api/rules";
+import { periodStatusText } from "@/utils/assessment";
 import type {
   RuleDetail,
   RuleModule,
@@ -286,6 +289,7 @@ interface EditableModule {
 }
 
 const contextStore = useContextStore();
+const unsavedStore = useUnsavedStore();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -296,6 +300,8 @@ const ruleBundles = ref<RuleBundle[]>([]);
 const selectedRuleId = ref<number | undefined>();
 const selectedModuleToken = ref("");
 const editingModule = ref<EditableModule | null>(null);
+const moduleBaseline = ref("");
+const dirtySourceId = "module-rules";
 
 const customEditorVisible = ref(false);
 const customExpressionDraft = ref("");
@@ -313,6 +319,39 @@ const moduleOptions = computed(() => {
     label: `${item.moduleName} [${item.moduleCode}]`,
   }));
 });
+
+function buildModuleSignature(module: EditableModule | null): string {
+  if (!module) {
+    return "";
+  }
+  return JSON.stringify({
+    moduleCode: module.moduleCode,
+    moduleKey: module.moduleKey,
+    moduleName: module.moduleName,
+    weight: module.weight,
+    maxScore: module.maxScore,
+    calculationMethod: module.calculationMethod,
+    expression: module.expression,
+    contextScopeText: module.contextScopeText,
+    sortOrder: module.sortOrder,
+    isActive: module.isActive,
+    voteGroups: module.voteGroups.map((group) => ({
+      groupCode: group.groupCode,
+      groupName: group.groupName,
+      weight: group.weight,
+      voterType: group.voterType,
+      voterScopeText: group.voterScopeText,
+      maxScore: group.maxScore,
+      sortOrder: group.sortOrder,
+      isActive: group.isActive,
+    })),
+  });
+}
+
+function resetModuleBaseline(): void {
+  moduleBaseline.value = buildModuleSignature(editingModule.value);
+  unsavedStore.clearDirty(dirtySourceId);
+}
 
 function stringifyJSONText(value: unknown): string {
   if (value === null || value === undefined) {
@@ -428,7 +467,9 @@ function toPayloadModule(module: EditableModule): RuleModule {
 }
 
 function ruleLabel(rule: RuleSummary): string {
-  return `${rule.ruleName} (${rule.objectType}/${rule.objectCategory})`;
+  const objectTypeText = rule.objectType === "team" ? "团体" : "个人";
+  const objectCategoryText = assessmentCategoryLabel(rule.objectCategory);
+  return `${rule.ruleName}（${objectTypeText} / ${objectCategoryText}）`;
 }
 
 function syncVoteGroupSortOrder(): void {
@@ -487,6 +528,7 @@ function handleRuleChange(): void {
   if (!selectedBundle.value || selectedBundle.value.detail.modules.length === 0) {
     selectedModuleToken.value = "";
     editingModule.value = null;
+    resetModuleBaseline();
     return;
   }
   selectedModuleToken.value = toModuleToken(selectedBundle.value.detail.modules[0], 0);
@@ -496,14 +538,17 @@ function handleRuleChange(): void {
 function handleModuleChange(): void {
   if (!selectedBundle.value || !selectedModuleToken.value) {
     editingModule.value = null;
+    resetModuleBaseline();
     return;
   }
   const index = resolveModuleIndex(selectedBundle.value.detail, selectedModuleToken.value);
   if (index < 0 || index >= selectedBundle.value.detail.modules.length) {
     editingModule.value = null;
+    resetModuleBaseline();
     return;
   }
   editingModule.value = toEditableModule(selectedBundle.value.detail.modules[index], index);
+  resetModuleBaseline();
 }
 
 async function loadData(): Promise<void> {
@@ -518,6 +563,7 @@ async function loadData(): Promise<void> {
       selectedRuleId.value = undefined;
       selectedModuleToken.value = "";
       editingModule.value = null;
+      resetModuleBaseline();
       contextText.value = "未选择考核年度";
       return;
     }
@@ -529,11 +575,11 @@ async function loadData(): Promise<void> {
       return;
     }
     if (!activePeriod) {
-      contextWarning.value = "当前年度不存在“进行中(active)”周期，已回退到当前选中周期。";
+      contextWarning.value = "当前年度不存在“进行中”周期，已回退到当前选中周期。";
     }
 
     const yearId = contextStore.yearId;
-    contextText.value = `当前定位：yearId=${yearId} / period=${targetPeriod.periodCode} / status=${targetPeriod.status}`;
+    contextText.value = `当前位置：年度编号 ${yearId} / 周期=${targetPeriod.periodCode} / 状态=${periodStatusText(targetPeriod.status)}`;
 
     const rows = await listRules({
       yearId,
@@ -555,6 +601,7 @@ async function loadData(): Promise<void> {
       selectedRuleId.value = undefined;
       selectedModuleToken.value = "";
       editingModule.value = null;
+      resetModuleBaseline();
       return;
     }
 
@@ -590,7 +637,7 @@ async function saveModule(): Promise<void> {
     return;
   }
   if (!editingModule.value.moduleKey.trim() || !editingModule.value.moduleName.trim()) {
-    ElMessage.warning("moduleKey 和 moduleName 不能为空");
+    ElMessage.warning("模块标识和模块名称不能为空");
     return;
   }
 
@@ -624,6 +671,27 @@ async function saveModule(): Promise<void> {
     saving.value = false;
   }
 }
+
+watch(
+  editingModule,
+  () => {
+    const currentSignature = buildModuleSignature(editingModule.value);
+    if (!currentSignature || !moduleBaseline.value) {
+      unsavedStore.clearDirty(dirtySourceId);
+      return;
+    }
+    if (currentSignature === moduleBaseline.value) {
+      unsavedStore.clearDirty(dirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(dirtySourceId);
+  },
+  { deep: true },
+);
+
+onBeforeUnmount(() => {
+  unsavedStore.clearDirty(dirtySourceId);
+});
 
 onMounted(async () => {
   await loadData();
@@ -687,3 +755,4 @@ onMounted(async () => {
   }
 }
 </style>
+

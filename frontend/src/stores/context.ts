@@ -5,7 +5,7 @@ import { listAssessmentCategories } from "@/api/org";
 import {
   allAssessmentCategories,
   applyAssessmentCategoryDefinitions,
-  globalAssessmentCategoryOptions,
+  assessmentCategoryLabel,
   isAssessmentObjectCategory,
 } from "@/constants/assessmentCategories";
 import type {
@@ -86,7 +86,29 @@ export const useContextStore = defineStore("context", () => {
 
   const currentYear = computed(() => years.value.find((item) => item.id === yearId.value));
   const currentPeriod = computed(() => periods.value.find((item) => item.periodCode === periodCode.value));
-  const categoryOptions = computed(() => globalAssessmentCategoryOptions());
+  const categoryOptions = computed(() => {
+    const items = [...assessmentCategories.value].sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      return a.id - b.id;
+    });
+    const categoryItems =
+      items.length > 0
+        ? items.map((item) => ({
+            value: item.categoryCode as GlobalAssessmentObjectCategory,
+            label: item.categoryName,
+          }))
+        : allAssessmentCategories().map((code) => ({
+            value: code as GlobalAssessmentObjectCategory,
+            label: assessmentCategoryLabel(code),
+          }));
+
+    return [
+      { value: "all" as GlobalAssessmentObjectCategory, label: "全部分类" },
+      ...categoryItems,
+    ];
+  });
 
   function setPeriodCode(value: AssessmentPeriodCode): void {
     const nextValue = PERIOD_SET.has(value) ? value : DEFAULT_PERIOD;

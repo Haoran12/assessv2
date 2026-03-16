@@ -14,7 +14,7 @@ export const http = axios.create({
 });
 
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem("assessv2_token");
+  const token = sessionStorage.getItem("assessv2_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -30,9 +30,9 @@ http.interceptors.response.use(
     const requestURL = error.config?.url ?? "";
     const isLoginRequest = requestURL.includes("/api/auth/login");
     if (status === 401 && !isLoginRequest) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-      localStorage.removeItem(MUST_CHANGE_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(USER_KEY);
+      sessionStorage.removeItem(MUST_CHANGE_KEY);
       sessionStorage.setItem(SESSION_EXPIRED_KEY, "1");
       if (window.location.pathname !== "/login") {
         const redirectPath = encodeURIComponent(window.location.pathname + window.location.search);
