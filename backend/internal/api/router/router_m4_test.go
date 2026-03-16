@@ -164,6 +164,26 @@ func TestM4DirectScoreAndExtraPointFlow(t *testing.T) {
 	if len(listExtraData.Items) == 0 {
 		t.Fatalf("expected at least one extra point item")
 	}
+
+	var directAuditCount int64
+	if err := db.Model(&model.AuditLog{}).
+		Where("target_type = ? AND action_detail LIKE ?", "direct_scores", "%create_direct_score%").
+		Count(&directAuditCount).Error; err != nil {
+		t.Fatalf("failed to query direct score audit logs: %v", err)
+	}
+	if directAuditCount == 0 {
+		t.Fatalf("expected direct score audit logs")
+	}
+
+	var extraAuditCount int64
+	if err := db.Model(&model.AuditLog{}).
+		Where("target_type = ? AND action_detail LIKE ?", "extra_points", "%create_extra_point%").
+		Count(&extraAuditCount).Error; err != nil {
+		t.Fatalf("failed to query extra point audit logs: %v", err)
+	}
+	if extraAuditCount == 0 {
+		t.Fatalf("expected extra point audit logs")
+	}
 }
 
 func TestM4VoteGenerateDraftSubmitResetAndStats(t *testing.T) {
@@ -239,6 +259,17 @@ func TestM4VoteGenerateDraftSubmitResetAndStats(t *testing.T) {
 		t.Fatalf("expected generated vote tasks")
 	}
 	taskID := listTasksData.Items[0].ID
+	if listTasksData.Items[0].Status != "pending" {
+		t.Fatalf("expected generated vote task status=pending, got=%s", listTasksData.Items[0].Status)
+	}
+
+	resetPendingReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/votes/tasks/%d/reset", taskID), nil)
+	resetPendingReq.Header.Set("Authorization", "Bearer "+rootToken)
+	resetPendingResp := httptest.NewRecorder()
+	engine.ServeHTTP(resetPendingResp, resetPendingReq)
+	if resetPendingResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected reset pending vote task status=400, got=%d body=%s", resetPendingResp.Code, resetPendingResp.Body.String())
+	}
 
 	draftBody, _ := json.Marshal(map[string]any{
 		"gradeOption": "good",
@@ -251,6 +282,37 @@ func TestM4VoteGenerateDraftSubmitResetAndStats(t *testing.T) {
 	engine.ServeHTTP(draftResp, draftReq)
 	if draftResp.Code != http.StatusOK {
 		t.Fatalf("expected save vote draft status=200, got=%d body=%s", draftResp.Code, draftResp.Body.String())
+	}
+
+	draftStatsReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/votes/statistics?yearId=%d&periodCode=Q1&moduleId=%d", yearID, voteModuleID), nil)
+	draftStatsReq.Header.Set("Authorization", "Bearer "+rootToken)
+	draftStatsResp := httptest.NewRecorder()
+	engine.ServeHTTP(draftStatsResp, draftStatsReq)
+	if draftStatsResp.Code != http.StatusOK {
+		t.Fatalf("expected draft vote statistics status=200, got=%d body=%s", draftStatsResp.Code, draftStatsResp.Body.String())
+	}
+	var draftStatsEnvelope apiEnvelope
+	if err := json.Unmarshal(draftStatsResp.Body.Bytes(), &draftStatsEnvelope); err != nil {
+		t.Fatalf("failed to parse draft vote statistics response: %v", err)
+	}
+	var draftStatsData struct {
+		TotalTasks      int `json:"totalTasks"`
+		CompletedTasks  int `json:"completedTasks"`
+		GroupStatistics []struct {
+			GradeCounts map[string]int `json:"gradeCounts"`
+		} `json:"groupStatistics"`
+	}
+	if err := json.Unmarshal(draftStatsEnvelope.Data, &draftStatsData); err != nil {
+		t.Fatalf("failed to parse draft vote statistics payload: %v", err)
+	}
+	if draftStatsData.TotalTasks == 0 || draftStatsData.CompletedTasks != 0 {
+		t.Fatalf("expected draft stats total>0 and completed=0, got total=%d completed=%d", draftStatsData.TotalTasks, draftStatsData.CompletedTasks)
+	}
+	if len(draftStatsData.GroupStatistics) == 0 {
+		t.Fatalf("expected group statistics in draft stage")
+	}
+	if draftStatsData.GroupStatistics[0].GradeCounts["good"] != 0 {
+		t.Fatalf("expected draft vote not counted in grade stats, got=%+v", draftStatsData.GroupStatistics[0].GradeCounts)
 	}
 
 	submitBody, _ := json.Marshal(map[string]any{
@@ -309,6 +371,16 @@ func TestM4VoteGenerateDraftSubmitResetAndStats(t *testing.T) {
 	engine.ServeHTTP(resetResp, resetReq)
 	if resetResp.Code != http.StatusOK {
 		t.Fatalf("expected reset vote task status=200, got=%d body=%s", resetResp.Code, resetResp.Body.String())
+	}
+
+	var voteAuditCount int64
+	if err := db.Model(&model.AuditLog{}).
+		Where("target_type = ? AND action_detail LIKE ?", "vote_tasks", "%submit_vote%").
+		Count(&voteAuditCount).Error; err != nil {
+		t.Fatalf("failed to query vote audit logs: %v", err)
+	}
+	if voteAuditCount == 0 {
+		t.Fatalf("expected vote submit audit logs")
 	}
 }
 

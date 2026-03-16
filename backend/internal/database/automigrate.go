@@ -33,6 +33,9 @@ func AutoMigrateAndSeed(db *gorm.DB, defaultPassword string) error {
 		&model.VoteTask{},
 		&model.VoteRecord{},
 		&model.ExtraPoint{},
+		&model.CalculatedScore{},
+		&model.CalculatedModuleScore{},
+		&model.Ranking{},
 	); err != nil {
 		return fmt.Errorf("failed to run automigrate: %w", err)
 	}

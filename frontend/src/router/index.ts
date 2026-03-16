@@ -1,22 +1,23 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import { useAppStore } from "@/stores/app";
-import MainLayout from "@/layouts/MainLayout.vue";
-import LoginView from "@/views/LoginView.vue";
-import PlaceholderView from "@/views/PlaceholderView.vue";
-import ChangePasswordView from "@/views/ChangePasswordView.vue";
-import SystemUsersView from "@/views/SystemUsersView.vue";
-import ForbiddenView from "@/views/ForbiddenView.vue";
-import RulesView from "@/views/RulesView.vue";
-import OrganizationView from "@/views/OrganizationView.vue";
-import ScoreDirectView from "@/views/ScoreDirectView.vue";
-import ScoreExtraView from "@/views/ScoreExtraView.vue";
-import VoteTaskView from "@/views/VoteTaskView.vue";
-import VoteExecuteView from "@/views/VoteExecuteView.vue";
-import VoteStatisticsView from "@/views/VoteStatisticsView.vue";
-import ResultOverviewView from "@/views/ResultOverviewView.vue";
-import SystemOverviewView from "@/views/SystemOverviewView.vue";
-import ModuleRulesView from "@/views/ModuleRulesView.vue";
-import GradeRulesPlaceholderView from "@/views/GradeRulesPlaceholderView.vue";
+
+const MainLayout = () => import("@/layouts/MainLayout.vue");
+const LoginView = () => import("@/views/LoginView.vue");
+const PlaceholderView = () => import("@/views/PlaceholderView.vue");
+const ChangePasswordView = () => import("@/views/ChangePasswordView.vue");
+const SystemUsersView = () => import("@/views/SystemUsersView.vue");
+const ForbiddenView = () => import("@/views/ForbiddenView.vue");
+const RulesView = () => import("@/views/RulesView.vue");
+const OrganizationView = () => import("@/views/OrganizationView.vue");
+const ScoreDirectView = () => import("@/views/ScoreDirectView.vue");
+const ScoreExtraView = () => import("@/views/ScoreExtraView.vue");
+const VoteTaskView = () => import("@/views/VoteTaskView.vue");
+const VoteExecuteView = () => import("@/views/VoteExecuteView.vue");
+const VoteStatisticsView = () => import("@/views/VoteStatisticsView.vue");
+const ResultOverviewView = () => import("@/views/ResultOverviewView.vue");
+const SystemOverviewView = () => import("@/views/SystemOverviewView.vue");
+const ModuleRulesView = () => import("@/views/ModuleRulesView.vue");
+const GradeRulesPlaceholderView = () => import("@/views/GradeRulesPlaceholderView.vue");
 
 const moduleRoutes: RouteRecordRaw[] = [
   {

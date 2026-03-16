@@ -15,6 +15,7 @@ import (
 type ScoreService struct {
 	db        *gorm.DB
 	auditRepo *repository.AuditRepository
+	calc      *CalculationService
 }
 
 type ListDirectScoreFilter struct {
@@ -84,8 +85,8 @@ type UpdateExtraPointInput struct {
 	Approve   *bool
 }
 
-func NewScoreService(db *gorm.DB, auditRepo *repository.AuditRepository) *ScoreService {
-	return &ScoreService{db: db, auditRepo: auditRepo}
+func NewScoreService(db *gorm.DB, auditRepo *repository.AuditRepository, calcService *CalculationService) *ScoreService {
+	return &ScoreService{db: db, auditRepo: auditRepo, calc: calcService}
 }
 
 func (s *ScoreService) ListDirectScores(ctx context.Context, filter ListDirectScoreFilter) ([]model.DirectScore, error) {
@@ -187,6 +188,7 @@ func (s *ScoreService) CreateDirectScore(
 		"objectId":   record.ObjectID,
 		"score":      record.Score,
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return record, nil
 }
 
@@ -315,6 +317,7 @@ func (s *ScoreService) BatchUpsertDirectScores(
 		"updated":    result.Updated,
 		"skipped":    result.Skipped,
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, input.YearID, periodCode, objectIDs)
 	return result, nil
 }
 
@@ -379,6 +382,7 @@ func (s *ScoreService) UpdateDirectScore(
 		"event": "update_direct_score",
 		"score": record.Score,
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return &record, nil
 }
 
@@ -421,6 +425,7 @@ func (s *ScoreService) DeleteDirectScore(
 		"moduleId":   record.ModuleID,
 		"objectId":   record.ObjectID,
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return nil
 }
 
@@ -512,6 +517,7 @@ func (s *ScoreService) CreateExtraPoint(
 		"signedPoints": signedExtraPoints(record.PointType, record.Points),
 		"approved":     record.ApprovedBy != nil,
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return record, nil
 }
 
@@ -586,6 +592,7 @@ func (s *ScoreService) UpdateExtraPoint(
 		"signedPoints": signedExtraPoints(record.PointType, record.Points),
 		"approved":     record.ApprovedBy != nil,
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return &record, nil
 }
 
@@ -634,6 +641,7 @@ func (s *ScoreService) ApproveExtraPoint(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "extra_points", &targetID, map[string]any{
 		"event": "approve_extra_point",
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return &record, nil
 }
 
@@ -672,7 +680,20 @@ func (s *ScoreService) DeleteExtraPoint(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "extra_points", &targetID, map[string]any{
 		"event": "delete_extra_point",
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
 	return nil
+}
+
+func (s *ScoreService) triggerAutoRecalculate(ctx context.Context, operatorID uint, yearID uint, periodCode string, objectIDs []uint) {
+	if s.calc == nil || yearID == 0 || !isValidPeriodCode(periodCode) || len(objectIDs) == 0 {
+		return
+	}
+	_, _ = s.calc.Recalculate(ctx, &operatorID, RecalculateInput{
+		YearID:      yearID,
+		PeriodCode:  periodCode,
+		ObjectIDs:   objectIDs,
+		TriggerMode: calcTriggerAuto,
+	}, "", "")
 }
 
 func normalizeExtraPointInput(pointType string, points float64) (string, float64, error) {

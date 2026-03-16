@@ -216,6 +216,7 @@ func (h *VoteHandler) handleVoteError(c *gin.Context, err error, fallback string
 		errors.Is(err, service.ErrInvalidVoteGradeOption):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 	case errors.Is(err, service.ErrVoteTaskLocked),
+		errors.Is(err, service.ErrVoteTaskNotResettable),
 		errors.Is(err, service.ErrPeriodLocked):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrVoteTaskForbidden):

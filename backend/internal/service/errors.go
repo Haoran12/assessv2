@@ -81,6 +81,10 @@ var (
 	ErrInvalidVoteTaskStatus  = errors.New("invalid vote task status")
 	ErrVoteTaskNotFound       = errors.New("vote task not found")
 	ErrVoteTaskLocked         = errors.New("vote task is already completed")
+	ErrVoteTaskNotResettable  = errors.New("only completed or expired vote task can be reset")
 	ErrVoteTaskForbidden      = errors.New("vote task does not belong to current user")
 	ErrInvalidVoteGradeOption = errors.New("invalid vote grade option")
+
+	ErrCalcDependencyCycle = errors.New("calculation dependency graph has cycle")
+	ErrCalcExpressionEval  = errors.New("failed to evaluate custom expression")
 )

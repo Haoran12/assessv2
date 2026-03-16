@@ -18,6 +18,7 @@ import (
 type VoteService struct {
 	db        *gorm.DB
 	auditRepo *repository.AuditRepository
+	calc      *CalculationService
 }
 
 type GenerateVoteTasksInput struct {
@@ -98,8 +99,8 @@ type voteScope struct {
 	RoleCodes       []string `json:"role_codes"`
 }
 
-func NewVoteService(db *gorm.DB, auditRepo *repository.AuditRepository) *VoteService {
-	return &VoteService{db: db, auditRepo: auditRepo}
+func NewVoteService(db *gorm.DB, auditRepo *repository.AuditRepository, calcService *CalculationService) *VoteService {
+	return &VoteService{db: db, auditRepo: auditRepo, calc: calcService}
 }
 
 func (s *VoteService) GenerateVoteTasks(
@@ -355,6 +356,9 @@ func (s *VoteService) ResetVoteTask(
 		if err := ensurePeriodWritableTx(tx, task.YearID, task.PeriodCode); err != nil {
 			return err
 		}
+		if task.Status != "completed" && task.Status != "expired" {
+			return ErrVoteTaskNotResettable
+		}
 		if err := tx.Model(&model.VoteTask{}).Where("id = ?", taskID).Updates(map[string]any{
 			"status":       "pending",
 			"completed_at": nil,
@@ -378,6 +382,7 @@ func (s *VoteService) ResetVoteTask(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "vote_tasks", &targetID, map[string]any{
 		"event": "reset_vote_task",
 	}, ipAddress, userAgent))
+	s.triggerAutoRecalculate(ctx, operatorID, task.YearID, task.PeriodCode, []uint{task.ObjectID})
 	return &task, nil
 }
 
@@ -460,7 +465,7 @@ func (s *VoteService) ListVoteStatistics(ctx context.Context, filter VoteStatist
 		case "expired":
 			groupStat.ExpiredTasks++
 		}
-		if row.GradeOption.Valid {
+		if row.Status == "completed" && row.GradeOption.Valid {
 			grade := strings.ToLower(strings.TrimSpace(row.GradeOption.String))
 			if _, ok := voteGradeOptionSet[grade]; ok {
 				groupStat.GradeCounts[grade]++
@@ -590,7 +595,22 @@ func (s *VoteService) saveVoteRecord(
 		"event":       event,
 		"gradeOption": result.Record.GradeOption,
 	}, ipAddress, userAgent))
+	if finalSubmit {
+		s.triggerAutoRecalculate(ctx, operatorID, result.Task.YearID, result.Task.PeriodCode, []uint{result.Task.ObjectID})
+	}
 	return result, nil
+}
+
+func (s *VoteService) triggerAutoRecalculate(ctx context.Context, operatorID uint, yearID uint, periodCode string, objectIDs []uint) {
+	if s.calc == nil || yearID == 0 || !isValidPeriodCode(periodCode) || len(objectIDs) == 0 {
+		return
+	}
+	_, _ = s.calc.Recalculate(ctx, &operatorID, RecalculateInput{
+		YearID:      yearID,
+		PeriodCode:  periodCode,
+		ObjectIDs:   objectIDs,
+		TriggerMode: calcTriggerAuto,
+	}, "", "")
 }
 
 func resolveVoteTaskObjectsTx(tx *gorm.DB, yearID uint, objectIDs []uint) ([]model.AssessmentObject, error) {

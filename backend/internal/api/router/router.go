@@ -25,8 +25,9 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 	orgService := service.NewOrgService(db, auditRepo)
 	assessmentService := service.NewAssessmentService(db, auditRepo)
 	ruleService := service.NewRuleService(db, auditRepo)
-	scoreService := service.NewScoreService(db, auditRepo)
-	voteService := service.NewVoteService(db, auditRepo)
+	calcService := service.NewCalculationService(db, auditRepo)
+	scoreService := service.NewScoreService(db, auditRepo, calcService)
+	voteService := service.NewVoteService(db, auditRepo, calcService)
 
 	authHandler := handler.NewAuthHandler(authService)
 	systemHandler := handler.NewSystemHandler(authService, userService)
@@ -35,6 +36,7 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 	ruleHandler := handler.NewRuleHandler(ruleService)
 	scoreHandler := handler.NewScoreHandler(scoreService)
 	voteHandler := handler.NewVoteHandler(voteService)
+	calcHandler := handler.NewCalcHandler(calcService)
 
 	r.GET("/health", healthHandler.Health)
 
@@ -121,7 +123,14 @@ func New(cfg config.Config, db *gorm.DB) *gin.Engine {
 		votes.POST("/tasks/:id/reset", middleware.RequireRoot(), voteHandler.ResetVoteTask)
 		votes.GET("/statistics", middleware.RequirePermission("score:view"), voteHandler.VoteStatistics)
 
-		registerModule(api, "calc", moduleHandler)
+		calc := api.Group("/calc")
+		calc.Use(middleware.RequireJWT(cfg.JWTSecret), middleware.RequireOrgScope())
+		calc.GET("/_ping", moduleHandler.ModulePing("calc"))
+		calc.POST("/recalculate", middleware.RequirePermission("score:update"), calcHandler.Recalculate)
+		calc.GET("/scores", middleware.RequirePermission("score:view"), calcHandler.ListCalculatedScores)
+		calc.GET("/scores/:id/modules", middleware.RequirePermission("score:view"), calcHandler.ListCalculatedModuleScores)
+		calc.GET("/rankings", middleware.RequirePermission("score:view"), calcHandler.ListRankings)
+
 		registerModule(api, "reports", moduleHandler)
 		registerModule(api, "backup", moduleHandler)
 
