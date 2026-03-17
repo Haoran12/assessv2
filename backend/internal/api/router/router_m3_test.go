@@ -248,6 +248,170 @@ func TestM3TemplateSaveAndApplyAcrossYear(t *testing.T) {
 	}
 }
 
+func TestM3RuleBindingCRUD(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	levelID := mustPositionLevelIDByCode(t, db, "department_main")
+	company := createOrganization(t, db, "M3 Binding Company", "company", "active", nil)
+	dept := createDepartment(t, db, "M3 Binding Dept", company.ID, "active")
+	_ = createEmployee(t, db, "M3 Binding Emp", company.ID, &dept.ID, levelID, "active")
+
+	yearID := createAssessmentYearForTest(t, engine, rootToken, 2103)
+	ruleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "individual", "SEG_SELF_DEPT_PERSON_MAIN", []map[string]any{
+		{
+			"moduleCode": "direct",
+			"moduleKey":  "binding_direct",
+			"moduleName": "Binding Direct",
+			"weight":     1.0,
+			"maxScore":   100,
+			"isActive":   true,
+		},
+	})
+
+	createBindingBody, _ := json.Marshal(map[string]any{
+		"yearId":      yearID,
+		"periodCode":  "Q1",
+		"objectType":  "individual",
+		"segmentCode": "SEG_SELF_DEPT_PERSON_MAIN",
+		"ownerScope":  "organization",
+		"ownerOrgId":  company.ID,
+		"ruleId":      ruleID,
+		"priority":    90,
+		"description": "M3 binding create",
+		"isActive":    true,
+	})
+	createBindingReq := httptest.NewRequest(http.MethodPost, "/api/rules/bindings", bytes.NewReader(createBindingBody))
+	createBindingReq.Header.Set("Authorization", "Bearer "+rootToken)
+	createBindingReq.Header.Set("Content-Type", "application/json")
+	createBindingResp := httptest.NewRecorder()
+	engine.ServeHTTP(createBindingResp, createBindingReq)
+	if createBindingResp.Code != http.StatusOK {
+		t.Fatalf("expected create binding status=200, got=%d body=%s", createBindingResp.Code, createBindingResp.Body.String())
+	}
+
+	var createBindingEnvelope apiEnvelope
+	if err := json.Unmarshal(createBindingResp.Body.Bytes(), &createBindingEnvelope); err != nil {
+		t.Fatalf("failed to parse create binding response: %v", err)
+	}
+	var createBindingPayload struct {
+		ID         uint   `json:"id"`
+		OwnerScope string `json:"ownerScope"`
+		OwnerOrgID *uint  `json:"ownerOrgId"`
+		RuleID     uint   `json:"ruleId"`
+	}
+	if err := json.Unmarshal(createBindingEnvelope.Data, &createBindingPayload); err != nil {
+		t.Fatalf("failed to parse create binding payload: %v", err)
+	}
+	if createBindingPayload.ID == 0 {
+		t.Fatalf("expected created binding id > 0")
+	}
+	if createBindingPayload.OwnerScope != "organization" {
+		t.Fatalf("expected ownerScope=organization, got=%s", createBindingPayload.OwnerScope)
+	}
+	if createBindingPayload.OwnerOrgID == nil || *createBindingPayload.OwnerOrgID != company.ID {
+		t.Fatalf("expected ownerOrgId=%d, got=%v", company.ID, createBindingPayload.OwnerOrgID)
+	}
+	if createBindingPayload.RuleID != ruleID {
+		t.Fatalf("expected ruleId=%d, got=%d", ruleID, createBindingPayload.RuleID)
+	}
+
+	listBindingReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/rules/bindings?yearId=%d&segmentCode=SEG_SELF_DEPT_PERSON_MAIN", yearID), nil)
+	listBindingReq.Header.Set("Authorization", "Bearer "+rootToken)
+	listBindingResp := httptest.NewRecorder()
+	engine.ServeHTTP(listBindingResp, listBindingReq)
+	if listBindingResp.Code != http.StatusOK {
+		t.Fatalf("expected list bindings status=200, got=%d body=%s", listBindingResp.Code, listBindingResp.Body.String())
+	}
+	var listBindingEnvelope apiEnvelope
+	if err := json.Unmarshal(listBindingResp.Body.Bytes(), &listBindingEnvelope); err != nil {
+		t.Fatalf("failed to parse list bindings response: %v", err)
+	}
+	var listBindingPayload struct {
+		Items []struct {
+			ID         uint   `json:"id"`
+			OwnerScope string `json:"ownerScope"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(listBindingEnvelope.Data, &listBindingPayload); err != nil {
+		t.Fatalf("failed to parse list bindings payload: %v", err)
+	}
+	if len(listBindingPayload.Items) == 0 || listBindingPayload.Items[0].ID != createBindingPayload.ID {
+		t.Fatalf("expected list bindings to include created binding id=%d, got=%+v", createBindingPayload.ID, listBindingPayload.Items)
+	}
+
+	updateBindingBody, _ := json.Marshal(map[string]any{
+		"yearId":      yearID,
+		"periodCode":  "Q1",
+		"objectType":  "individual",
+		"segmentCode": "SEG_SELF_DEPT_PERSON_MAIN",
+		"ownerScope":  "global",
+		"ruleId":      ruleID,
+		"priority":    10,
+		"description": "M3 binding updated",
+		"isActive":    false,
+	})
+	updateBindingReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/rules/bindings/%d", createBindingPayload.ID), bytes.NewReader(updateBindingBody))
+	updateBindingReq.Header.Set("Authorization", "Bearer "+rootToken)
+	updateBindingReq.Header.Set("Content-Type", "application/json")
+	updateBindingResp := httptest.NewRecorder()
+	engine.ServeHTTP(updateBindingResp, updateBindingReq)
+	if updateBindingResp.Code != http.StatusOK {
+		t.Fatalf("expected update binding status=200, got=%d body=%s", updateBindingResp.Code, updateBindingResp.Body.String())
+	}
+	var updateBindingEnvelope apiEnvelope
+	if err := json.Unmarshal(updateBindingResp.Body.Bytes(), &updateBindingEnvelope); err != nil {
+		t.Fatalf("failed to parse update binding response: %v", err)
+	}
+	var updateBindingPayload struct {
+		ID         uint   `json:"id"`
+		OwnerScope string `json:"ownerScope"`
+		OwnerOrgID *uint  `json:"ownerOrgId"`
+		IsActive   bool   `json:"isActive"`
+		Priority   int    `json:"priority"`
+	}
+	if err := json.Unmarshal(updateBindingEnvelope.Data, &updateBindingPayload); err != nil {
+		t.Fatalf("failed to parse update binding payload: %v", err)
+	}
+	if updateBindingPayload.OwnerScope != "global" || updateBindingPayload.OwnerOrgID != nil {
+		t.Fatalf("expected updated binding scope=global and ownerOrgId=nil, got scope=%s ownerOrgId=%v", updateBindingPayload.OwnerScope, updateBindingPayload.OwnerOrgID)
+	}
+	if updateBindingPayload.IsActive || updateBindingPayload.Priority != 10 {
+		t.Fatalf("expected updated binding isActive=false priority=10, got isActive=%v priority=%d", updateBindingPayload.IsActive, updateBindingPayload.Priority)
+	}
+
+	deleteBindingReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/rules/bindings/%d", createBindingPayload.ID), nil)
+	deleteBindingReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteBindingResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteBindingResp, deleteBindingReq)
+	if deleteBindingResp.Code != http.StatusOK {
+		t.Fatalf("expected delete binding status=200, got=%d body=%s", deleteBindingResp.Code, deleteBindingResp.Body.String())
+	}
+
+	verifyListReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/rules/bindings?ruleId=%d", ruleID), nil)
+	verifyListReq.Header.Set("Authorization", "Bearer "+rootToken)
+	verifyListResp := httptest.NewRecorder()
+	engine.ServeHTTP(verifyListResp, verifyListReq)
+	if verifyListResp.Code != http.StatusOK {
+		t.Fatalf("expected verify list bindings status=200, got=%d body=%s", verifyListResp.Code, verifyListResp.Body.String())
+	}
+	var verifyEnvelope apiEnvelope
+	if err := json.Unmarshal(verifyListResp.Body.Bytes(), &verifyEnvelope); err != nil {
+		t.Fatalf("failed to parse verify list bindings response: %v", err)
+	}
+	var verifyPayload struct {
+		Items []struct {
+			ID uint `json:"id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(verifyEnvelope.Data, &verifyPayload); err != nil {
+		t.Fatalf("failed to parse verify list bindings payload: %v", err)
+	}
+	if len(verifyPayload.Items) != 0 {
+		t.Fatalf("expected no bindings after delete, got=%+v", verifyPayload.Items)
+	}
+}
+
 func createAssessmentYearForTest(t *testing.T, engine http.Handler, token string, year int) uint {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{

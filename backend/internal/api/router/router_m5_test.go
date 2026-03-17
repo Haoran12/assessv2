@@ -204,6 +204,194 @@ func TestM5ManualRecalculateWithDependencyAndTieBreakRanking(t *testing.T) {
 	}
 }
 
+func TestM5SegmentRuleTakesPrecedenceOverLegacyCategoryRule(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	levelID := mustPositionLevelIDByCode(t, db, "department_main")
+	company := createOrganization(t, db, "M5 Segment Company", "company", "active", nil)
+	dept := createDepartment(t, db, "M5 Segment Dept", company.ID, "active")
+	employee := createEmployee(t, db, "M5 Segment User", company.ID, &dept.ID, levelID, "active")
+
+	yearID := createAssessmentYearForTest(t, engine, rootToken, 2101)
+	activateYearAndPeriodForTest(t, engine, db, rootToken, yearID, "Q1")
+	objectID := mustAssessmentObjectIDByTarget(t, db, yearID, "employee", employee.ID)
+
+	legacyRuleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "individual", "department_main", []map[string]any{
+		{
+			"moduleCode": "direct",
+			"moduleKey":  "legacy_direct",
+			"moduleName": "Legacy Direct",
+			"weight":     1.0,
+			"maxScore":   100,
+			"sortOrder":  1,
+			"isActive":   true,
+		},
+	})
+	segmentRuleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "individual", "SEG_SELF_DEPT_PERSON_MAIN", []map[string]any{
+		{
+			"moduleCode": "direct",
+			"moduleKey":  "segment_direct",
+			"moduleName": "Segment Direct",
+			"weight":     1.0,
+			"maxScore":   100,
+			"sortOrder":  1,
+			"isActive":   true,
+		},
+	})
+
+	legacyModuleID := mustModuleIDByRuleAndKey(t, db, legacyRuleID, "legacy_direct")
+	segmentModuleID := mustModuleIDByRuleAndKey(t, db, segmentRuleID, "segment_direct")
+
+	_ = createDirectScoreForTest(t, engine, rootToken, map[string]any{
+		"yearId":     yearID,
+		"periodCode": "Q1",
+		"moduleId":   legacyModuleID,
+		"objectId":   objectID,
+		"score":      81.2,
+	})
+	_ = createDirectScoreForTest(t, engine, rootToken, map[string]any{
+		"yearId":     yearID,
+		"periodCode": "Q1",
+		"moduleId":   segmentModuleID,
+		"objectId":   objectID,
+		"score":      93.5,
+	})
+
+	recalculateBody, _ := json.Marshal(map[string]any{
+		"yearId":     yearID,
+		"periodCode": "Q1",
+		"objectIds":  []uint{objectID},
+	})
+	recalculateReq := httptest.NewRequest(http.MethodPost, "/api/calc/recalculate", bytes.NewReader(recalculateBody))
+	recalculateReq.Header.Set("Authorization", "Bearer "+rootToken)
+	recalculateReq.Header.Set("Content-Type", "application/json")
+	recalculateResp := httptest.NewRecorder()
+	engine.ServeHTTP(recalculateResp, recalculateReq)
+	if recalculateResp.Code != http.StatusOK {
+		t.Fatalf("expected manual recalculate status=200, got=%d body=%s", recalculateResp.Code, recalculateResp.Body.String())
+	}
+
+	scores := listCalculatedScoresForTest(t, engine, rootToken,
+		fmt.Sprintf("/api/calc/scores?yearId=%d&periodCode=Q1&objectId=%d", yearID, objectID))
+	if len(scores) != 1 {
+		t.Fatalf("expected one calculated score, got=%d", len(scores))
+	}
+	if scores[0].FinalScore != 93.5 {
+		t.Fatalf("expected final score=93.5 from segment rule, got=%v", scores[0].FinalScore)
+	}
+
+	modules := listCalculatedModulesForTest(t, engine, rootToken, scores[0].ID)
+	if len(modules) != 1 {
+		t.Fatalf("expected one calculated module record, got=%d", len(modules))
+	}
+	if modules[0].ModuleKey != "segment_direct" {
+		t.Fatalf("expected segment module selected, got moduleKey=%s", modules[0].ModuleKey)
+	}
+}
+
+func TestM5OwnerBindingOverridesDefaultSegmentRule(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	levelID := mustPositionLevelIDByCode(t, db, "department_main")
+	company := createOrganization(t, db, "M5 Binding Company", "company", "active", nil)
+	dept := createDepartment(t, db, "M5 Binding Dept", company.ID, "active")
+	employee := createEmployee(t, db, "M5 Binding User", company.ID, &dept.ID, levelID, "active")
+
+	yearID := createAssessmentYearForTest(t, engine, rootToken, 2102)
+	activateYearAndPeriodForTest(t, engine, db, rootToken, yearID, "Q1")
+	objectID := mustAssessmentObjectIDByTarget(t, db, yearID, "employee", employee.ID)
+
+	segmentRuleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "individual", "SEG_SELF_DEPT_PERSON_MAIN", []map[string]any{
+		{
+			"moduleCode": "direct",
+			"moduleKey":  "segment_direct_low",
+			"moduleName": "Segment Direct Low",
+			"weight":     1.0,
+			"maxScore":   100,
+			"sortOrder":  1,
+			"isActive":   true,
+		},
+	})
+	legacyRuleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "individual", "department_main", []map[string]any{
+		{
+			"moduleCode": "direct",
+			"moduleKey":  "legacy_direct_high",
+			"moduleName": "Legacy Direct High",
+			"weight":     1.0,
+			"maxScore":   100,
+			"sortOrder":  1,
+			"isActive":   true,
+		},
+	})
+
+	segmentModuleID := mustModuleIDByRuleAndKey(t, db, segmentRuleID, "segment_direct_low")
+	legacyModuleID := mustModuleIDByRuleAndKey(t, db, legacyRuleID, "legacy_direct_high")
+
+	_ = createDirectScoreForTest(t, engine, rootToken, map[string]any{
+		"yearId":     yearID,
+		"periodCode": "Q1",
+		"moduleId":   segmentModuleID,
+		"objectId":   objectID,
+		"score":      71.3,
+	})
+	_ = createDirectScoreForTest(t, engine, rootToken, map[string]any{
+		"yearId":     yearID,
+		"periodCode": "Q1",
+		"moduleId":   legacyModuleID,
+		"objectId":   objectID,
+		"score":      96.8,
+	})
+
+	binding := model.RuleBinding{
+		YearID:      yearID,
+		PeriodCode:  "Q1",
+		ObjectType:  "individual",
+		SegmentCode: "SEG_SELF_DEPT_PERSON_MAIN",
+		OwnerScope:  "organization",
+		OwnerOrgID:  &company.ID,
+		RuleID:      legacyRuleID,
+		Priority:    100,
+		IsActive:    true,
+		Description: "Owner scoped binding should override default segment rule",
+	}
+	if err := db.Create(&binding).Error; err != nil {
+		t.Fatalf("failed to create owner-segment rule binding: %v", err)
+	}
+
+	recalculateBody, _ := json.Marshal(map[string]any{
+		"yearId":     yearID,
+		"periodCode": "Q1",
+		"objectIds":  []uint{objectID},
+	})
+	recalculateReq := httptest.NewRequest(http.MethodPost, "/api/calc/recalculate", bytes.NewReader(recalculateBody))
+	recalculateReq.Header.Set("Authorization", "Bearer "+rootToken)
+	recalculateReq.Header.Set("Content-Type", "application/json")
+	recalculateResp := httptest.NewRecorder()
+	engine.ServeHTTP(recalculateResp, recalculateReq)
+	if recalculateResp.Code != http.StatusOK {
+		t.Fatalf("expected manual recalculate status=200, got=%d body=%s", recalculateResp.Code, recalculateResp.Body.String())
+	}
+
+	scores := listCalculatedScoresForTest(t, engine, rootToken,
+		fmt.Sprintf("/api/calc/scores?yearId=%d&periodCode=Q1&objectId=%d", yearID, objectID))
+	if len(scores) != 1 {
+		t.Fatalf("expected one calculated score, got=%d", len(scores))
+	}
+	if scores[0].FinalScore != 96.8 {
+		t.Fatalf("expected final score=96.8 from owner binding matched rule, got=%v", scores[0].FinalScore)
+	}
+
+	modules := listCalculatedModulesForTest(t, engine, rootToken, scores[0].ID)
+	if len(modules) != 1 {
+		t.Fatalf("expected one calculated module record, got=%d", len(modules))
+	}
+	if modules[0].ModuleKey != "legacy_direct_high" {
+		t.Fatalf("expected owner binding matched module, got moduleKey=%s", modules[0].ModuleKey)
+	}
+}
+
 func createDirectScoreForTest(t *testing.T, engine http.Handler, token string, payload map[string]any) model.DirectScore {
 	t.Helper()
 	body, _ := json.Marshal(payload)

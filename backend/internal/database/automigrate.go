@@ -28,6 +28,7 @@ func AutoMigrateAndSeed(db *gorm.DB, defaultPassword string) error {
 		&model.AssessmentObject{},
 		&model.AssessmentCategory{},
 		&model.AssessmentRule{},
+		&model.RuleBinding{},
 		&model.ScoreModule{},
 		&model.VoteGroup{},
 		&model.RuleTemplate{},

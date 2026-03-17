@@ -76,6 +76,8 @@ var (
 	ErrInvalidExpression         = errors.New("invalid custom expression")
 	ErrRuleTemplateNotFound      = errors.New("rule template not found")
 	ErrRuleTemplateNameInvalid   = errors.New("invalid template name")
+	ErrRuleBindingNotFound       = errors.New("rule binding not found")
+	ErrInvalidRuleBindingScope   = errors.New("invalid rule binding owner scope")
 
 	ErrDirectScoreNotFound       = errors.New("direct score not found")
 	ErrDirectScoreExists         = errors.New("direct score already exists")

@@ -117,6 +117,10 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		rules.GET("/templates", middleware.RequirePermission("rule:view"), ruleHandler.ListTemplates)
 		rules.POST("/templates", middleware.RequirePermission("rule:update"), ruleHandler.CreateTemplate)
 		rules.POST("/templates/:id/apply", middleware.RequirePermission("rule:update"), ruleHandler.ApplyTemplate)
+		rules.GET("/bindings", middleware.RequirePermission("rule:view"), ruleHandler.ListBindings)
+		rules.POST("/bindings", middleware.RequirePermission("rule:update"), ruleHandler.CreateBinding)
+		rules.PUT("/bindings/:id", middleware.RequirePermission("rule:update"), ruleHandler.UpdateBinding)
+		rules.DELETE("/bindings/:id", middleware.RequirePermission("rule:update"), ruleHandler.DeleteBinding)
 		rules.GET("/:id", middleware.RequirePermission("rule:view"), ruleHandler.GetRule)
 		rules.POST("/:id/templates", middleware.RequirePermission("rule:update"), ruleHandler.CreateTemplateFromRule)
 

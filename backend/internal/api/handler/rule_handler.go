@@ -93,6 +93,20 @@ type applyTemplateRequest struct {
 	Overwrite      bool   `json:"overwrite"`
 }
 
+type upsertRuleBindingRequest struct {
+	YearID       uint   `json:"yearId"`
+	PeriodCode   string `json:"periodCode"`
+	ObjectType   string `json:"objectType"`
+	SegmentCode  string `json:"segmentCode"`
+	OwnerScope   string `json:"ownerScope"`
+	OwnerOrgType string `json:"ownerOrgType"`
+	OwnerOrgID   *uint  `json:"ownerOrgId"`
+	RuleID       uint   `json:"ruleId"`
+	Priority     int    `json:"priority"`
+	Description  string `json:"description"`
+	IsActive     *bool  `json:"isActive"`
+}
+
 func NewRuleHandler(ruleService *service.RuleService) *RuleHandler {
 	return &RuleHandler{ruleService: ruleService}
 }
@@ -317,9 +331,154 @@ func (h *RuleHandler) ApplyTemplate(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *RuleHandler) ListBindings(c *gin.Context) {
+	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
+		return
+	}
+	ownerOrgID, err := parseOptionalUintQuery(c.Query("ownerOrgId"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid ownerOrgId")
+		return
+	}
+	ruleID, err := parseOptionalUintQuery(c.Query("ruleId"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid ruleId")
+		return
+	}
+
+	var isActive *bool
+	if raw := strings.TrimSpace(c.Query("isActive")); raw != "" {
+		parsed, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid isActive")
+			return
+		}
+		isActive = &parsed
+	}
+
+	items, err := h.ruleService.ListRuleBindings(c.Request.Context(), service.ListRuleBindingFilter{
+		YearID:       yearID,
+		PeriodCode:   strings.TrimSpace(c.Query("periodCode")),
+		ObjectType:   strings.TrimSpace(c.Query("objectType")),
+		SegmentCode:  strings.TrimSpace(c.Query("segmentCode")),
+		OwnerScope:   strings.TrimSpace(c.Query("ownerScope")),
+		OwnerOrgType: strings.TrimSpace(c.Query("ownerOrgType")),
+		OwnerOrgID:   ownerOrgID,
+		RuleID:       ruleID,
+		IsActive:     isActive,
+	})
+	if err != nil {
+		h.handleRuleError(c, err, "failed to query rule bindings")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *RuleHandler) CreateBinding(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	var req upsertRuleBindingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid rule binding payload")
+		return
+	}
+
+	result, err := h.ruleService.CreateRuleBinding(c.Request.Context(), claims, operatorID, service.CreateRuleBindingInput{
+		YearID:       req.YearID,
+		PeriodCode:   strings.TrimSpace(req.PeriodCode),
+		ObjectType:   strings.TrimSpace(req.ObjectType),
+		SegmentCode:  strings.TrimSpace(req.SegmentCode),
+		OwnerScope:   strings.TrimSpace(req.OwnerScope),
+		OwnerOrgType: strings.TrimSpace(req.OwnerOrgType),
+		OwnerOrgID:   req.OwnerOrgID,
+		RuleID:       req.RuleID,
+		Priority:     req.Priority,
+		Description:  strings.TrimSpace(req.Description),
+		IsActive:     boolOrDefault(req.IsActive, true),
+	}, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		h.handleRuleError(c, err, "failed to create rule binding")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *RuleHandler) UpdateBinding(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	bindingID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid binding id")
+		return
+	}
+
+	var req upsertRuleBindingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid rule binding payload")
+		return
+	}
+	result, err := h.ruleService.UpdateRuleBinding(c.Request.Context(), claims, operatorID, bindingID, service.UpdateRuleBindingInput{
+		YearID:       req.YearID,
+		PeriodCode:   strings.TrimSpace(req.PeriodCode),
+		ObjectType:   strings.TrimSpace(req.ObjectType),
+		SegmentCode:  strings.TrimSpace(req.SegmentCode),
+		OwnerScope:   strings.TrimSpace(req.OwnerScope),
+		OwnerOrgType: strings.TrimSpace(req.OwnerOrgType),
+		OwnerOrgID:   req.OwnerOrgID,
+		RuleID:       req.RuleID,
+		Priority:     req.Priority,
+		Description:  strings.TrimSpace(req.Description),
+		IsActive:     boolOrDefault(req.IsActive, true),
+	}, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		h.handleRuleError(c, err, "failed to update rule binding")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *RuleHandler) DeleteBinding(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	bindingID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid binding id")
+		return
+	}
+	if err := h.ruleService.DeleteRuleBinding(c.Request.Context(), claims, operatorID, bindingID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+		h.handleRuleError(c, err, "failed to delete rule binding")
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
+}
+
 func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, service.ErrInvalidParam),
+		errors.Is(err, service.ErrInvalidOrganizationType),
 		errors.Is(err, service.ErrInvalidYearStatus),
 		errors.Is(err, service.ErrInvalidPeriodStatus),
 		errors.Is(err, service.ErrInvalidRulePeriodCode),
@@ -327,6 +486,7 @@ func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string
 		errors.Is(err, service.ErrInvalidRuleObjectCategory),
 		errors.Is(err, service.ErrInvalidRuleName),
 		errors.Is(err, service.ErrInvalidRuleModules),
+		errors.Is(err, service.ErrInvalidRuleBindingScope),
 		errors.Is(err, service.ErrRuleWeightSumInvalid),
 		errors.Is(err, service.ErrVoteGroupWeightInvalid),
 		errors.Is(err, service.ErrInvalidModuleCode),
@@ -339,8 +499,11 @@ func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string
 	case errors.Is(err, service.ErrForbidden):
 		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrRuleNotFound),
+		errors.Is(err, service.ErrRuleBindingNotFound),
 		errors.Is(err, service.ErrRuleTemplateNotFound),
-		errors.Is(err, service.ErrYearNotFound):
+		errors.Is(err, service.ErrYearNotFound),
+		errors.Is(err, service.ErrPeriodNotFound),
+		errors.Is(err, service.ErrOrganizationNotFound):
 		response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())
 	default:
 		response.Error(c, http.StatusInternalServerError, response.CodeInternal, fallback)

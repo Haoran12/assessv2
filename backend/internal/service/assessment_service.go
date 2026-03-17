@@ -73,16 +73,9 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 	operator := operatorID
 	result := &CreateAssessmentYearResult{}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		year := model.AssessmentYear{
-			Year:        input.Year,
-			Status:      assessmentStatusPreparing,
-			StartDate:   input.StartDate,
-			EndDate:     input.EndDate,
-			Description: strings.TrimSpace(input.Description),
-			CreatedBy:   &operator,
-			UpdatedBy:   &operator,
-		}
-		if err := tx.Create(&year).Error; err != nil {
+		operatorRef := resolveBusinessWriteOperatorRefTx(tx, operator)
+		year, err := createAssessmentYearTx(tx, input, operatorRef)
+		if err != nil {
 			if isUniqueConstraintError(err) {
 				return ErrYearAlreadyExists
 			}
@@ -93,7 +86,7 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 		if err != nil {
 			return fmt.Errorf("failed to load assessment period templates: %w", err)
 		}
-		periods, err := buildPeriodsFromTemplates(year.ID, year.Year, &operator, templates)
+		periods, err := buildPeriodsFromTemplates(year.ID, year.Year, operatorRef, templates)
 		if err != nil {
 			return err
 		}
@@ -103,20 +96,20 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 
 		objectsCount := 0
 		if input.CopyFromYearID != nil && *input.CopyFromYearID > 0 {
-			copied, err := s.copyAssessmentObjects(tx, *input.CopyFromYearID, year.ID, &operator)
+			copied, err := s.copyAssessmentObjects(tx, *input.CopyFromYearID, year.ID, operatorRef)
 			if err != nil {
 				return err
 			}
 			objectsCount = copied
 		} else {
-			generated, err := s.generateAssessmentObjects(tx, year.ID, &operator)
+			generated, err := s.generateAssessmentObjects(tx, year.ID, operatorRef)
 			if err != nil {
 				return err
 			}
 			objectsCount = generated
 		}
 
-		result.Year = year
+		result.Year = *year
 		result.Periods = periods
 		result.ObjectsCount = objectsCount
 		return nil
@@ -559,6 +552,69 @@ func canTransitionPeriodStatus(current, next string) bool {
 		return true
 	}
 	return isValidPeriodStatus(current) && isValidPeriodStatus(next)
+}
+
+func resolveBusinessWriteOperatorRefTx(tx *gorm.DB, operatorID uint) *uint {
+	if operatorID == 0 || tx == nil {
+		return nil
+	}
+	if !tx.Migrator().HasTable("users") {
+		return nil
+	}
+	var count int64
+	if err := tx.Table("users").Where("id = ?", operatorID).Count(&count).Error; err != nil {
+		return nil
+	}
+	if count == 0 {
+		return nil
+	}
+	value := operatorID
+	return &value
+}
+
+func createAssessmentYearTx(tx *gorm.DB, input CreateAssessmentYearInput, operatorID *uint) (*model.AssessmentYear, error) {
+	year := &model.AssessmentYear{
+		Year:        input.Year,
+		Status:      assessmentStatusPreparing,
+		StartDate:   input.StartDate,
+		EndDate:     input.EndDate,
+		Description: strings.TrimSpace(input.Description),
+		CreatedBy:   operatorID,
+		UpdatedBy:   operatorID,
+	}
+
+	if !tx.Migrator().HasColumn("assessment_years", "year_name") {
+		if err := tx.Create(year).Error; err != nil {
+			return nil, err
+		}
+		return year, nil
+	}
+
+	// Backward compatibility for historical schemas where `year_name` still exists and is NOT NULL.
+	now := time.Now().Unix()
+	legacyPayload := map[string]any{
+		"year":        input.Year,
+		"year_name":   strconv.Itoa(input.Year),
+		"status":      assessmentStatusPreparing,
+		"start_date":  input.StartDate,
+		"end_date":    input.EndDate,
+		"description": strings.TrimSpace(input.Description),
+		"created_by":  operatorID,
+		"updated_by":  operatorID,
+		"created_at":  now,
+		"updated_at":  now,
+	}
+	if tx.Migrator().HasColumn("assessment_years", "permission_mode") {
+		legacyPayload["permission_mode"] = uint16(420)
+	}
+
+	if err := tx.Table("assessment_years").Create(legacyPayload).Error; err != nil {
+		return nil, err
+	}
+	if err := tx.Where("year = ?", input.Year).First(year).Error; err != nil {
+		return nil, err
+	}
+	return year, nil
 }
 
 func ensureAssessmentYearDataDirectory(year int) error {

@@ -23,6 +23,10 @@ const (
 
 	rankingScopeOverall = "overall"
 	rankingScopeParent  = "parent_object"
+
+	ruleMatchModeBinding = "binding_owner_segment"
+	ruleMatchModeSegment = "segment"
+	ruleMatchModeLegacy  = "legacy_object_category"
 )
 
 var (
@@ -92,8 +96,14 @@ type RankingListItem struct {
 }
 
 type calcObjectNode struct {
-	Object model.AssessmentObject
-	Rule   model.AssessmentRule
+	Object           model.AssessmentObject
+	Rule             model.AssessmentRule
+	SegmentCode      string
+	RuleMatchMode    string
+	OwnerOrgID       *uint
+	OwnerOrgType     string
+	BelongOrgID      *uint
+	MatchedBindingID *uint
 }
 
 type objectCalcResult struct {
@@ -439,6 +449,7 @@ func (s *CalculationService) loadTargetObjectsTx(
 	targetID *uint,
 ) ([]model.AssessmentObject, error) {
 	query := tx.Model(&model.AssessmentObject{}).Where("year_id = ? AND is_active = 1", yearID)
+	segmentFilter := ""
 
 	dedup := make([]uint, 0, len(objectIDs))
 	seen := make(map[uint]struct{}, len(objectIDs))
@@ -459,7 +470,11 @@ func (s *CalculationService) loadTargetObjectsTx(
 		query = query.Where("object_type = ?", text)
 	}
 	if text := normalizeObjectCategory(strings.TrimSpace(objectCategory)); text != "" {
-		query = query.Where("object_category = ?", text)
+		if segmentCode := normalizeSegmentCode(text); segmentCode != "" {
+			segmentFilter = segmentCode
+		} else {
+			query = query.Where("object_category = ?", text)
+		}
 	}
 	if targetID != nil {
 		if strings.TrimSpace(targetType) == "" || *targetID == 0 {
@@ -471,6 +486,20 @@ func (s *CalculationService) loadTargetObjectsTx(
 	var objects []model.AssessmentObject
 	if err := query.Order("id ASC").Find(&objects).Error; err != nil {
 		return nil, fmt.Errorf("failed to query target assessment objects: %w", err)
+	}
+	if segmentFilter != "" && len(objects) > 0 {
+		segmentMap, err := buildObjectSegmentMapTx(tx, objects)
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]model.AssessmentObject, 0, len(objects))
+		for _, object := range objects {
+			if segmentMap[object.ID] != segmentFilter {
+				continue
+			}
+			filtered = append(filtered, object)
+		}
+		objects = filtered
 	}
 	if len(dedup) > 0 && len(objects) != len(dedup) {
 		return nil, ErrAssessmentObjectNotFound
@@ -488,24 +517,83 @@ func (s *CalculationService) buildCalcNodesTx(
 	if err := tx.Where("year_id = ? AND period_code = ? AND is_active = 1", yearID, periodCode).Find(&rules).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to query active rules: %w", err)
 	}
-	ruleMap := make(map[string]model.AssessmentRule, len(rules))
+	ruleByID := make(map[uint]model.AssessmentRule, len(rules))
+	legacyRuleMap := make(map[string]model.AssessmentRule, len(rules))
+	segmentRuleMap := make(map[string]model.AssessmentRule, len(rules))
 	for _, item := range rules {
-		key := item.ObjectType + "|" + item.ObjectCategory
-		ruleMap[key] = item
+		ruleByID[item.ID] = item
+		category := normalizeObjectCategory(item.ObjectCategory)
+		key := item.ObjectType + "|" + category
+		if segmentCode := normalizeSegmentCode(category); segmentCode != "" {
+			segmentRuleMap[key] = item
+			continue
+		}
+		legacyRuleMap[key] = item
+	}
+
+	segmentMap, err := buildObjectSegmentMapTx(tx, objects)
+	if err != nil {
+		return nil, nil, err
+	}
+	ownerContextMap, err := buildObjectOwnerContextMapTx(tx, objects, segmentMap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var bindings []model.RuleBinding
+	if err := tx.Where("year_id = ? AND period_code = ? AND is_active = 1", yearID, periodCode).
+		Order("priority DESC, id ASC").
+		Find(&bindings).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to query active rule bindings: %w", err)
 	}
 
 	nodes := make(map[uint]*calcObjectNode, len(objects))
 	noRuleObjectIDs := make([]uint, 0)
 	for _, item := range objects {
-		key := item.ObjectType + "|" + item.ObjectCategory
-		rule, ok := ruleMap[key]
-		if !ok {
+		ownerContext := ownerContextMap[item.ID]
+		segmentCode := segmentMap[item.ID]
+		ruleMatchMode := ""
+		var matchedBindingID *uint
+		rule := model.AssessmentRule{}
+		matched := false
+
+		if segmentCode != "" {
+			if binding := selectRuleBindingForObject(bindings, item.ObjectType, segmentCode, ownerContext); binding != nil {
+				if matchedRule, ok := ruleByID[binding.RuleID]; ok {
+					rule = matchedRule
+					ruleMatchMode = ruleMatchModeBinding
+					matchedBindingID = uintPtr(binding.ID)
+					matched = true
+				}
+			}
+		}
+		if !matched && segmentCode != "" {
+			if matchedRule, ok := segmentRuleMap[item.ObjectType+"|"+segmentCode]; ok {
+				rule = matchedRule
+				ruleMatchMode = ruleMatchModeSegment
+				matched = true
+			}
+		}
+		if !matched {
+			if matchedRule, ok := legacyRuleMap[item.ObjectType+"|"+normalizeObjectCategory(item.ObjectCategory)]; ok {
+				rule = matchedRule
+				ruleMatchMode = ruleMatchModeLegacy
+				matched = true
+			}
+		}
+		if !matched {
 			noRuleObjectIDs = append(noRuleObjectIDs, item.ID)
 			continue
 		}
 		nodes[item.ID] = &calcObjectNode{
-			Object: item,
-			Rule:   rule,
+			Object:           item,
+			Rule:             rule,
+			SegmentCode:      segmentCode,
+			RuleMatchMode:    ruleMatchMode,
+			OwnerOrgID:       ownerContext.OwnerOrgID,
+			OwnerOrgType:     ownerContext.OwnerOrgType,
+			BelongOrgID:      ownerContext.BelongOrgID,
+			MatchedBindingID: matchedBindingID,
 		}
 	}
 	return nodes, noRuleObjectIDs, nil
@@ -853,10 +941,23 @@ func (s *CalculationService) calculateObjectScore(
 		"moduleRaw":     moduleRaw,
 		"weightedScore": weightedTotal,
 		"extraPoints":   extraPoints,
+		"segmentCode":   node.SegmentCode,
+		"ruleMatchMode": node.RuleMatchMode,
+		"ruleId":        node.Rule.ID,
+		"ownerOrgId":    node.OwnerOrgID,
+		"ownerOrgType":  node.OwnerOrgType,
+		"bindingId":     node.MatchedBindingID,
 	})
 	detailJSON, _ := json.Marshal(map[string]any{
 		"objectType":     node.Object.ObjectType,
 		"objectCategory": node.Object.ObjectCategory,
+		"segmentCode":    node.SegmentCode,
+		"ruleMatchMode":  node.RuleMatchMode,
+		"ruleCategory":   node.Rule.ObjectCategory,
+		"ownerOrgId":     node.OwnerOrgID,
+		"ownerOrgType":   node.OwnerOrgType,
+		"belongOrgId":    node.BelongOrgID,
+		"bindingId":      node.MatchedBindingID,
 		"moduleCount":    len(moduleOrder),
 	})
 

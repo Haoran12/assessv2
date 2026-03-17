@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/auth"
+	"assessv2/backend/internal/model"
 	"gorm.io/gorm"
 )
 
@@ -218,14 +219,35 @@ func requireRuleDimensionWriteScope(
 		return err
 	}
 
-	query := db.WithContext(ctx).Table("assessment_objects").
-		Select("id").
-		Where("year_id = ? AND is_active = 1 AND object_type = ? AND object_category = ?", yearID, objectType, objectCategory)
+	normalizedCategory := normalizeObjectCategory(objectCategory)
+	baseQuery := db.WithContext(ctx).
+		Where("year_id = ? AND is_active = 1 AND object_type = ?", yearID, objectType)
 
 	var objectIDs []uint
-	if err := query.Pluck("id", &objectIDs).Error; err != nil {
-		return fmt.Errorf("failed to load assessment objects for rule scope check: %w", err)
+	segmentCode := normalizeSegmentCode(normalizedCategory)
+	if segmentCode == "" {
+		if err := baseQuery.Model(&model.AssessmentObject{}).
+			Where("object_category = ?", normalizedCategory).
+			Pluck("id", &objectIDs).Error; err != nil {
+			return fmt.Errorf("failed to load assessment objects for rule scope check: %w", err)
+		}
+	} else {
+		var objects []model.AssessmentObject
+		if err := baseQuery.Model(&model.AssessmentObject{}).Find(&objects).Error; err != nil {
+			return fmt.Errorf("failed to load assessment objects for segment rule scope check: %w", err)
+		}
+		segmentMap, segmentErr := buildObjectSegmentMapTx(db.WithContext(ctx), objects)
+		if segmentErr != nil {
+			return segmentErr
+		}
+		for _, object := range objects {
+			if segmentMap[object.ID] != segmentCode {
+				continue
+			}
+			objectIDs = append(objectIDs, object.ID)
+		}
 	}
+
 	if len(objectIDs) == 0 {
 		return ErrForbidden
 	}
