@@ -9,7 +9,6 @@ test("assessment page supports create year and status transition interactions", 
     {
       id: 1,
       year: 2025,
-      yearName: "2025骞村害鑰冩牳",
       status: "preparing",
       description: "",
     },
@@ -43,7 +42,6 @@ test("assessment page supports create year and status transition interactions", 
       const created = {
         id: 2,
         year: 2027,
-        yearName: "2027骞村害鑰冩牳",
         status: "preparing",
         description: "",
       };
@@ -119,6 +117,6 @@ test("assessment page supports create year and status transition interactions", 
   await page.getByRole("button", { name: "鍒涘缓" }).click();
 
   await expect(page.getByText("骞村害鍒涘缓鎴愬姛锛岃嚜鍔ㄧ敓鎴?5 涓懆鏈?)).toBeVisible();
-  await expect(page.getByText("2027骞村害鑰冩牳")).toBeVisible();
+  await expect(page.getByText("2027")).toBeVisible();
 });
 

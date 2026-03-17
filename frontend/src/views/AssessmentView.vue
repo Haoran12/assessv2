@@ -15,7 +15,6 @@
       <el-table v-loading="loadingYears" :data="years" border>
         <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="year" label="年度" width="100" />
-        <el-table-column prop="yearName" label="年度名称" min-width="180" />
         <el-table-column label="开始日期" width="120">
           <template #default="{ row }">{{ dateText(row.startDate) }}</template>
         </el-table-column>
@@ -162,9 +161,6 @@
         <el-form-item label="年度" required>
           <el-input-number v-model="createYearForm.year" :min="2000" :max="9999" controls-position="right" />
         </el-form-item>
-        <el-form-item label="年度名称">
-          <el-input v-model="createYearForm.yearName" placeholder="可留空，系统自动生成" />
-        </el-form-item>
         <el-form-item label="开始日期">
           <el-date-picker
             v-model="createYearForm.startDate"
@@ -253,7 +249,6 @@ const createYearDialogVisible = ref(false);
 const creatingYear = ref(false);
 const createYearForm = reactive({
   year: new Date().getFullYear(),
-  yearName: "",
   startDate: "",
   endDate: "",
   copyFromYearId: undefined as number | undefined,
@@ -268,7 +263,6 @@ const copyFromYearOptions = computed(() =>
 function createYearFormSignature(): string {
   return JSON.stringify({
     year: createYearForm.year,
-    yearName: createYearForm.yearName,
     startDate: createYearForm.startDate,
     endDate: createYearForm.endDate,
     copyFromYearId: createYearForm.copyFromYearId,
@@ -471,7 +465,6 @@ async function reloadCurrentYearData(): Promise<void> {
 
 function openCreateYearDialog(): void {
   createYearForm.year = new Date().getFullYear();
-  createYearForm.yearName = "";
   createYearForm.startDate = "";
   createYearForm.endDate = "";
   createYearForm.copyFromYearId = undefined;
@@ -494,7 +487,6 @@ async function submitCreateYear(): Promise<void> {
   try {
     const result = await createAssessmentYear({
       year: createYearForm.year,
-      yearName: createYearForm.yearName.trim() || undefined,
       startDate: createYearForm.startDate || undefined,
       endDate: createYearForm.endDate || undefined,
       copyFromYearId: createYearForm.copyFromYearId,

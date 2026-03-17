@@ -20,7 +20,6 @@ export type GlobalAssessmentObjectCategory = AssessmentObjectCategory | "all";
 export interface AssessmentYearItem {
   id: number;
   year: number;
-  yearName: string;
   status: AssessmentYearStatus;
   startDate?: string;
   endDate?: string;
@@ -65,7 +64,6 @@ export interface AssessmentObjectItem {
 
 export interface CreateAssessmentYearPayload {
   year: number;
-  yearName?: string;
   description?: string;
   startDate?: string;
   endDate?: string;

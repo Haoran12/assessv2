@@ -22,7 +22,6 @@ type AssessmentService struct {
 
 type CreateAssessmentYearInput struct {
 	Year           int
-	YearName       string
 	Description    string
 	StartDate      *time.Time
 	EndDate        *time.Time
@@ -63,11 +62,6 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 	if err := ensureAssessmentYearDataDirectory(input.Year); err != nil {
 		return nil, err
 	}
-	name := strings.TrimSpace(input.YearName)
-	if name == "" {
-		name = fmt.Sprintf("%d年度考核", input.Year)
-	}
-
 	var existingCount int64
 	if err := s.db.WithContext(ctx).Model(&model.AssessmentYear{}).Where("year = ?", input.Year).Count(&existingCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to verify assessment year uniqueness: %w", err)
@@ -81,7 +75,6 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		year := model.AssessmentYear{
 			Year:        input.Year,
-			YearName:    name,
 			Status:      assessmentStatusPreparing,
 			StartDate:   input.StartDate,
 			EndDate:     input.EndDate,

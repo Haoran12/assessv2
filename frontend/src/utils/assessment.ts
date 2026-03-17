@@ -22,18 +22,11 @@ export function periodDisplayLabel(code: AssessmentPeriodCode, name?: string): s
   return PERIOD_DISPLAY_LABELS[normalizedCode] ?? code;
 }
 
-export function formatAssessmentYearLabel(year?: Pick<AssessmentYearItem, "year" | "yearName">): string {
+export function formatAssessmentYearLabel(year?: Pick<AssessmentYearItem, "year">): string {
   if (!year) {
     return "-";
   }
-  const yearName = year.yearName?.trim();
-  if (!yearName) {
-    return `${year.year}年度`;
-  }
-  if (yearName === String(year.year)) {
-    return `${yearName}年度`;
-  }
-  return yearName;
+  return `${year.year}年度`;
 }
 
 export function periodStatusText(status: AssessmentPeriodStatus): string {

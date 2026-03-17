@@ -5,7 +5,6 @@ import "time"
 type AssessmentYear struct {
 	ID             uint       `gorm:"primaryKey;autoIncrement" json:"id"`
 	Year           int        `gorm:"not null;uniqueIndex" json:"year"`
-	YearName       string     `gorm:"size:100;not null" json:"yearName"`
 	Status         string     `gorm:"size:20;not null;default:preparing;index" json:"status"`
 	StartDate      *time.Time `gorm:"type:date" json:"startDate,omitempty"`
 	EndDate        *time.Time `gorm:"type:date" json:"endDate,omitempty"`

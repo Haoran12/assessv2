@@ -21,7 +21,6 @@ func NewAssessmentHandler(assessmentService *service.AssessmentService) *Assessm
 
 type createAssessmentYearRequest struct {
 	Year           int    `json:"year"`
-	YearName       string `json:"yearName"`
 	Description    string `json:"description"`
 	StartDate      string `json:"startDate"`
 	EndDate        string `json:"endDate"`
@@ -78,7 +77,7 @@ func (h *AssessmentHandler) CreateYear(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid endDate")
 		return
 	}
-	result, err := h.assessmentService.CreateYear(c.Request.Context(), claims, operatorID, service.CreateAssessmentYearInput{Year: req.Year, YearName: strings.TrimSpace(req.YearName), Description: strings.TrimSpace(req.Description), StartDate: startDate, EndDate: endDate, CopyFromYearID: req.CopyFromYearID}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.assessmentService.CreateYear(c.Request.Context(), claims, operatorID, service.CreateAssessmentYearInput{Year: req.Year, Description: strings.TrimSpace(req.Description), StartDate: startDate, EndDate: endDate, CopyFromYearID: req.CopyFromYearID}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleAssessmentError(c, err, "failed to create assessment year")
 		return
