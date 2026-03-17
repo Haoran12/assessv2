@@ -6,17 +6,13 @@ import (
 
 	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/repository"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestCreateYearWithLegacyYearNameColumn(t *testing.T) {
 	t.Setenv("ASSESS_DATA_ROOT", "")
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	db := openIsolatedSQLiteTestDB(t)
 	if err := createLegacyAssessmentSchema(db); err != nil {
 		t.Fatalf("create legacy schema: %v", err)
 	}

@@ -7,17 +7,13 @@ import (
 
 	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/repository"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestCreateYearWithoutBusinessUserRecordStillSucceeds(t *testing.T) {
 	t.Setenv("ASSESS_DATA_ROOT", "")
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	db := openIsolatedSQLiteTestDB(t)
 	if err := createSplitBusinessSchema(db); err != nil {
 		t.Fatalf("create split-business schema: %v", err)
 	}
@@ -163,4 +159,3 @@ func createSplitBusinessSchema(db *gorm.DB) error {
 	}
 	return nil
 }
-
