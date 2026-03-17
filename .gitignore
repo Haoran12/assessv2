@@ -1,6 +1,8 @@
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
 
 # Backend
 backend/data/*.db
@@ -39,6 +41,12 @@ backend/coverage.out
 Thumbs.db
 .vscode/
 .claude/
+
+# Local env files (may include sensitive organization-specific values)
+.env.local
+.env.*.local
+backend/.env.local
+backend/.env.*.local
 
 # Desktop runtime data
 data/

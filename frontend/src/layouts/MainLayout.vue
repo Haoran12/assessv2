@@ -2,7 +2,7 @@
   <el-container class="app-shell">
     <el-aside width="250px" class="app-sidebar">
       <div class="brand">
-        <div class="brand-title">中新建物流集团</div>
+        <div class="brand-title">{{ appBrandName }}</div>
       </div>
       <el-menu :default-active="activePath" router>
         <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
@@ -88,6 +88,7 @@ import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
 import type { AssessmentPeriodCode, GlobalAssessmentObjectCategory } from "@/types/assessment";
 import { formatAssessmentYearLabel } from "@/utils/assessment";
+import { appBrandName } from "@/config/branding";
 
 interface NavItem {
   path: string;
