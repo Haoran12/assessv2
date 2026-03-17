@@ -141,7 +141,8 @@ func (s *BackupService) CreateManual(
 	ipAddress string,
 	userAgent string,
 ) (*BackupRecordDTO, error) {
-	record, err := s.createBackup(ctx, BackupTypeManual, &operatorID, description, ipAddress, userAgent)
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
+	record, err := s.createBackup(ctx, BackupTypeManual, operatorRef, description, ipAddress, userAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +241,7 @@ func (s *BackupService) Restore(
 	beforeRestore, err := s.createBackup(
 		ctx,
 		BackupTypeBeforeRestore,
-		&operatorID,
+		resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID),
 		fmt.Sprintf("before restore backup id=%d", backupID),
 		ipAddress,
 		userAgent,

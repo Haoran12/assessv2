@@ -52,9 +52,11 @@ func (s *AssessmentService) UpdatePeriodTemplates(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	var targetID uint
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		var setting model.SystemSetting
 		findErr := tx.Where("setting_key = ?", assessmentPeriodTemplatesSettingKey).First(&setting).Error
 		switch {
@@ -63,7 +65,7 @@ func (s *AssessmentService) UpdatePeriodTemplates(
 			setting.SettingType = "json"
 			setting.Description = "Assessment period templates for creating new years"
 			setting.IsSystem = true
-			setting.UpdatedBy = &operator
+			setting.UpdatedBy = operatorRef
 			setting.UpdatedAt = now
 			if err := tx.Save(&setting).Error; err != nil {
 				return fmt.Errorf("failed to update period template setting: %w", err)
@@ -76,7 +78,7 @@ func (s *AssessmentService) UpdatePeriodTemplates(
 				SettingType:  "json",
 				Description:  "Assessment period templates for creating new years",
 				IsSystem:     true,
-				UpdatedBy:    &operator,
+				UpdatedBy:    operatorRef,
 				UpdatedAt:    now,
 			}
 			if err := tx.Create(&setting).Error; err != nil {
@@ -91,7 +93,7 @@ func (s *AssessmentService) UpdatePeriodTemplates(
 		return nil, err
 	}
 
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "system_settings", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "system_settings", &targetID, map[string]any{
 		"event":      "update_assessment_period_templates",
 		"settingKey": assessmentPeriodTemplatesSettingKey,
 		"count":      len(items),

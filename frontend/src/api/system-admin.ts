@@ -5,7 +5,9 @@ import type {
   BackupListResponse,
   BackupRecordItem,
   BackupType,
+  ReplaceUserObjectLinkItem,
   SystemSettingsResponse,
+  UserObjectLinkItem,
 } from "@/types/system";
 
 interface BackupListQuery {
@@ -74,4 +76,21 @@ export async function getSystemSettings(): Promise<SystemSettingsResponse> {
 export async function updateSystemSettings(items: Array<{ settingKey: string; settingValue: unknown }>): Promise<SystemSettingsResponse> {
   const response = await http.put("/api/system/settings", { items });
   return response.data?.data as SystemSettingsResponse;
+}
+
+export async function listUserObjectLinks(userId: number, yearId?: number): Promise<UserObjectLinkItem[]> {
+  const response = await http.get(`/api/system/users/${userId}/object-links`, {
+    params: {
+      yearId,
+    },
+  });
+  return (response.data?.data?.items ?? []) as UserObjectLinkItem[];
+}
+
+export async function replaceUserObjectLinks(
+  userId: number,
+  items: ReplaceUserObjectLinkItem[],
+): Promise<UserObjectLinkItem[]> {
+  const response = await http.put(`/api/system/users/${userId}/object-links`, { items });
+  return (response.data?.data?.items ?? []) as UserObjectLinkItem[];
 }

@@ -89,6 +89,16 @@ func runMigrationsWithChecksumRepair(ctx context.Context, manager *migration.Man
 			return err
 		}
 
+		allowReconcile := strings.EqualFold(strings.TrimSpace(os.Getenv("ASSESS_ALLOW_MIGRATION_CHECKSUM_RECONCILE")), "true")
+		if !allowReconcile {
+			return fmt.Errorf(
+				"migration checksum mismatch detected for %s db (version=%d, file=%s); set ASSESS_ALLOW_MIGRATION_CHECKSUM_RECONCILE=true to reconcile explicitly",
+				databaseName,
+				checksumErr.Version,
+				checksumErr.File,
+			)
+		}
+
 		reconciledCount, reconcileErr := manager.ReconcileChecksums(ctx)
 		if reconcileErr != nil {
 			return fmt.Errorf("reconcile migration checksums for %s db failed: %w", databaseName, reconcileErr)

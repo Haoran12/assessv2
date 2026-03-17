@@ -72,8 +72,9 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 
 	operator := operatorID
 	result := &CreateAssessmentYearResult{}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		operatorRef := resolveBusinessWriteOperatorRefTx(tx, operator)
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		year, err := createAssessmentYearTx(tx, input, operatorRef)
 		if err != nil {
 			if isUniqueConstraintError(err) {
@@ -123,7 +124,7 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 	if input.CopyFromYearID != nil {
 		copyFrom = *input.CopyFromYearID
 	}
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "assessment_years", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "assessment_years", &targetID, map[string]any{
 		"event":        "create_assessment_year",
 		"year":         result.Year.Year,
 		"copyFromYear": copyFrom,
@@ -159,7 +160,8 @@ func (s *AssessmentService) UpdateYearStatus(ctx context.Context, claims *auth.C
 	}
 
 	operator := operatorID
-	if err := s.db.WithContext(ctx).Model(&model.AssessmentYear{}).Where("id = ?", yearID).Updates(map[string]any{"status": next, "updated_by": &operator, "updated_at": time.Now().Unix()}).Error; err != nil {
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	if err := s.db.WithContext(ctx).Model(&model.AssessmentYear{}).Where("id = ?", yearID).Updates(map[string]any{"status": next, "updated_by": operatorRef, "updated_at": time.Now().Unix()}).Error; err != nil {
 		return nil, fmt.Errorf("failed to update assessment year status: %w", err)
 	}
 	if err := s.db.WithContext(ctx).Where("id = ?", yearID).First(&year).Error; err != nil {
@@ -167,7 +169,7 @@ func (s *AssessmentService) UpdateYearStatus(ctx context.Context, claims *auth.C
 	}
 
 	targetID := year.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "assessment_years", &targetID, map[string]any{"event": "update_assessment_year_status", "status": next}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_years", &targetID, map[string]any{"event": "update_assessment_year_status", "status": next}, ipAddress, userAgent))
 	return &year, nil
 }
 
@@ -211,7 +213,8 @@ func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, claims *auth
 	}
 
 	operator := operatorID
-	if err := s.db.WithContext(ctx).Model(&model.AssessmentPeriod{}).Where("id = ?", periodID).Updates(map[string]any{"status": next, "updated_by": &operator, "updated_at": time.Now().Unix()}).Error; err != nil {
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	if err := s.db.WithContext(ctx).Model(&model.AssessmentPeriod{}).Where("id = ?", periodID).Updates(map[string]any{"status": next, "updated_by": operatorRef, "updated_at": time.Now().Unix()}).Error; err != nil {
 		return nil, fmt.Errorf("failed to update assessment period status: %w", err)
 	}
 	if err := s.db.WithContext(ctx).Where("id = ?", periodID).First(&period).Error; err != nil {
@@ -219,7 +222,7 @@ func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, claims *auth
 	}
 
 	targetID := period.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "assessment_periods", &targetID, map[string]any{"event": "update_assessment_period_status", "status": next}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_periods", &targetID, map[string]any{"event": "update_assessment_period_status", "status": next}, ipAddress, userAgent))
 	return &period, nil
 }
 
@@ -552,24 +555,6 @@ func canTransitionPeriodStatus(current, next string) bool {
 		return true
 	}
 	return isValidPeriodStatus(current) && isValidPeriodStatus(next)
-}
-
-func resolveBusinessWriteOperatorRefTx(tx *gorm.DB, operatorID uint) *uint {
-	if operatorID == 0 || tx == nil {
-		return nil
-	}
-	if !tx.Migrator().HasTable("users") {
-		return nil
-	}
-	var count int64
-	if err := tx.Table("users").Where("id = ?", operatorID).Count(&count).Error; err != nil {
-		return nil
-	}
-	if count == 0 {
-		return nil
-	}
-	value := operatorID
-	return &value
 }
 
 func createAssessmentYearTx(tx *gorm.DB, input CreateAssessmentYearInput, operatorID *uint) (*model.AssessmentYear, error) {

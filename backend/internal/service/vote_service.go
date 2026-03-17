@@ -121,9 +121,11 @@ func (s *VoteService) GenerateVoteTasks(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	result := &GenerateVoteTasksResult{}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -158,6 +160,9 @@ func (s *VoteService) GenerateVoteTasks(
 			if err != nil {
 				return err
 			}
+			if err := ensureBusinessUsersExistTx(tx, voters); err != nil {
+				return err
+			}
 			if len(voters) == 0 {
 				continue
 			}
@@ -173,7 +178,7 @@ func (s *VoteService) GenerateVoteTasks(
 						ObjectID:    object.ID,
 						VoterID:     voterID,
 						Status:      "pending",
-						CreatedBy:   &operator,
+						CreatedBy:   operatorRef,
 						CreatedAt:   now,
 						UpdatedAt:   now,
 					}
@@ -196,7 +201,7 @@ func (s *VoteService) GenerateVoteTasks(
 		return nil, err
 	}
 
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "vote_tasks", nil, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "vote_tasks", nil, map[string]any{
 		"event":       "generate_vote_tasks",
 		"yearId":      input.YearID,
 		"periodCode":  periodCode,
@@ -349,9 +354,11 @@ func (s *VoteService) ResetVoteTask(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	var task model.VoteTask
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", taskID).First(&task).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrVoteTaskNotFound
@@ -384,7 +391,7 @@ func (s *VoteService) ResetVoteTask(
 	}
 
 	targetID := task.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "vote_tasks", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "vote_tasks", &targetID, map[string]any{
 		"event": "reset_vote_task",
 	}, ipAddress, userAgent))
 	s.triggerAutoRecalculate(ctx, operatorID, task.YearID, task.PeriodCode, []uint{task.ObjectID})
@@ -520,9 +527,11 @@ func (s *VoteService) saveVoteRecord(
 	remark := strings.TrimSpace(input.Remark)
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	result := &VoteRecordResult{}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		var task model.VoteTask
 		if err := tx.Where("id = ?", taskID).First(&task).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
@@ -601,7 +610,7 @@ func (s *VoteService) saveVoteRecord(
 		event = "submit_vote"
 	}
 	targetID := result.Task.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "vote_tasks", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "vote_tasks", &targetID, map[string]any{
 		"event":       event,
 		"gradeOption": result.Record.GradeOption,
 	}, ipAddress, userAgent))

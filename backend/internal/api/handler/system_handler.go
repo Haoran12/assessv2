@@ -15,8 +15,9 @@ import (
 )
 
 type SystemHandler struct {
-	authService *service.AuthService
-	userService *service.UserService
+	authService       *service.AuthService
+	userService       *service.UserService
+	objectLinkService *service.AssessmentObjectUserLinkService
 }
 
 type resetPasswordRequest struct {
@@ -38,6 +39,20 @@ type updateUserGroupsRequest struct {
 	PrimaryRoleID uint   `json:"primaryRoleId"`
 }
 
+type replaceUserObjectLinksRequest struct {
+	Items []replaceUserObjectLinkItem `json:"items"`
+}
+
+type replaceUserObjectLinkItem struct {
+	AssessmentObjectID uint   `json:"assessmentObjectId"`
+	LinkType           string `json:"linkType"`
+	AccessLevel        string `json:"accessLevel"`
+	IsPrimary          bool   `json:"isPrimary"`
+	EffectiveFrom      *int64 `json:"effectiveFrom"`
+	EffectiveTo        *int64 `json:"effectiveTo"`
+	IsActive           *bool  `json:"isActive"`
+}
+
 type upsertUserRequest struct {
 	Username           string `json:"username"`
 	RealName           string `json:"realName"`
@@ -48,10 +63,15 @@ type upsertUserRequest struct {
 	PrimaryRoleID      uint   `json:"primaryRoleId"`
 }
 
-func NewSystemHandler(authService *service.AuthService, userService *service.UserService) *SystemHandler {
+func NewSystemHandler(
+	authService *service.AuthService,
+	userService *service.UserService,
+	objectLinkService *service.AssessmentObjectUserLinkService,
+) *SystemHandler {
 	return &SystemHandler{
-		authService: authService,
-		userService: userService,
+		authService:       authService,
+		userService:       userService,
+		objectLinkService: objectLinkService,
 	}
 }
 
@@ -479,6 +499,101 @@ func (h *SystemHandler) UpdateUserGroups(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"updated": true})
+}
+
+func (h *SystemHandler) ListUserObjectLinks(c *gin.Context) {
+	userID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
+		return
+	}
+	if err := h.userService.EnsureUserExists(c.Request.Context(), userID); err != nil {
+		if repository.IsRecordNotFound(err) {
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to verify user")
+		return
+	}
+
+	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
+		return
+	}
+
+	items, err := h.objectLinkService.ListUserLinks(c.Request.Context(), userID, yearID)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidParam) {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to query user object links")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *SystemHandler) ReplaceUserObjectLinks(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+
+	userID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
+		return
+	}
+	if err := h.userService.EnsureUserExists(c.Request.Context(), userID); err != nil {
+		if repository.IsRecordNotFound(err) {
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to verify user")
+		return
+	}
+
+	var req replaceUserObjectLinksRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid object links payload")
+		return
+	}
+
+	inputItems := make([]service.AssessmentObjectUserLinkUpsertItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		inputItems = append(inputItems, service.AssessmentObjectUserLinkUpsertItem{
+			AssessmentObjectID: item.AssessmentObjectID,
+			LinkType:           strings.TrimSpace(item.LinkType),
+			AccessLevel:        strings.TrimSpace(item.AccessLevel),
+			IsPrimary:          item.IsPrimary,
+			EffectiveFrom:      item.EffectiveFrom,
+			EffectiveTo:        item.EffectiveTo,
+			IsActive:           item.IsActive,
+		})
+	}
+
+	items, err := h.objectLinkService.ReplaceUserLinks(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		userID,
+		service.ReplaceAssessmentObjectUserLinksInput{Items: inputItems},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidParam):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+		case errors.Is(err, service.ErrAssessmentObjectNotFound):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to replace user object links")
+		}
+		return
+	}
+	response.Success(c, gin.H{"items": items})
 }
 
 func parseUserIDParam(c *gin.Context) (uint, error) {

@@ -153,8 +153,10 @@ func (s *RuleService) CreateRuleBinding(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	bindingID := uint(0)
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := ensurePeriodConfigWritableTx(tx, normalized.YearID, normalized.PeriodCode); err != nil {
 			return err
 		}
@@ -173,8 +175,8 @@ func (s *RuleService) CreateRuleBinding(
 			Priority:     normalized.Priority,
 			Description:  normalized.Description,
 			IsActive:     normalized.IsActive,
-			CreatedBy:    &operator,
-			UpdatedBy:    &operator,
+			CreatedBy:    operatorRef,
+			UpdatedBy:    operatorRef,
 		}
 		if err := tx.Create(&record).Error; err != nil {
 			return fmt.Errorf("failed to create rule binding: %w", err)
@@ -190,7 +192,7 @@ func (s *RuleService) CreateRuleBinding(
 	if err != nil {
 		return nil, err
 	}
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "rule_bindings", &bindingID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "rule_bindings", &bindingID, map[string]any{
 		"event":       "create_rule_binding",
 		"yearId":      result.YearID,
 		"periodCode":  result.PeriodCode,
@@ -234,7 +236,9 @@ func (s *RuleService) UpdateRuleBinding(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		var existing model.RuleBinding
 		if err := tx.Where("id = ?", bindingID).First(&existing).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
@@ -276,7 +280,7 @@ func (s *RuleService) UpdateRuleBinding(
 				"priority":       normalized.Priority,
 				"description":    normalized.Description,
 				"is_active":      normalized.IsActive,
-				"updated_by":     &operator,
+				"updated_by":     operatorRef,
 				"updated_at":     time.Now().Unix(),
 			}).Error; err != nil {
 			return fmt.Errorf("failed to update rule binding: %w", err)
@@ -291,7 +295,7 @@ func (s *RuleService) UpdateRuleBinding(
 	if err != nil {
 		return nil, err
 	}
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "rule_bindings", &bindingID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "rule_bindings", &bindingID, map[string]any{
 		"event":       "update_rule_binding",
 		"yearId":      result.YearID,
 		"periodCode":  result.PeriodCode,
@@ -319,7 +323,9 @@ func (s *RuleService) DeleteRuleBinding(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		var existing model.RuleBinding
 		if err := tx.Where("id = ?", bindingID).First(&existing).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
@@ -336,7 +342,7 @@ func (s *RuleService) DeleteRuleBinding(
 		if err := tx.Delete(&model.RuleBinding{}, bindingID).Error; err != nil {
 			return fmt.Errorf("failed to delete rule binding: %w", err)
 		}
-		_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "rule_bindings", &bindingID, map[string]any{
+		_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "rule_bindings", &bindingID, map[string]any{
 			"event":       "delete_rule_binding",
 			"yearId":      existing.YearID,
 			"periodCode":  existing.PeriodCode,

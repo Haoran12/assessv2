@@ -322,7 +322,8 @@ func (s *ImportExportService) ConfirmDirectScoreImport(
 		return nil, err
 	}
 
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operatorID, "import", "direct_scores", nil, map[string]any{
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "import", "direct_scores", nil, map[string]any{
 		"event":      "import_direct_score_excel",
 		"yearId":     input.YearID,
 		"periodCode": periodCode,
@@ -406,7 +407,8 @@ func (s *ImportExportService) ExportWorkbook(
 		return "", nil, fmt.Errorf("failed to render export workbook: %w", err)
 	}
 	fileName := fmt.Sprintf("assessment-export-%d-%s.xlsx", input.YearID, periodCode)
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operatorID, "export", "reports", nil, map[string]any{
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "export", "reports", nil, map[string]any{
 		"event":          "export_assessment_workbook",
 		"yearId":         input.YearID,
 		"periodCode":     periodCode,

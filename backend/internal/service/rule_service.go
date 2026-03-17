@@ -252,16 +252,18 @@ func (s *RuleService) CreateRule(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	baseRuleID := uint(0)
 	periods := targetPeriods(dimension.PeriodCode, input.SyncQuarterly)
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		for _, periodCode := range periods {
 			if err := ensurePeriodConfigWritableTx(tx, dimension.YearID, periodCode); err != nil {
 				return err
 			}
 			currentDimension := dimension
 			currentDimension.PeriodCode = periodCode
-			rule, err := s.upsertRuleByDimensionTx(tx, &operator, currentDimension, ruleName, strings.TrimSpace(input.Description), input.IsActive, modules, upsertRuleMode{
+			rule, err := s.upsertRuleByDimensionTx(tx, operatorRef, currentDimension, ruleName, strings.TrimSpace(input.Description), input.IsActive, modules, upsertRuleMode{
 				AllowCreate: true,
 				AllowUpdate: false,
 			})
@@ -283,7 +285,7 @@ func (s *RuleService) CreateRule(
 		return nil, err
 	}
 	targetID := result.Rule.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "assessment_rules", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "assessment_rules", &targetID, map[string]any{
 		"event":          "create_assessment_rule",
 		"yearId":         result.Rule.YearID,
 		"periodCode":     result.Rule.PeriodCode,
@@ -317,8 +319,10 @@ func (s *RuleService) UpdateRule(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	var baseRule model.AssessmentRule
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", ruleID).First(&baseRule).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrRuleNotFound
@@ -331,7 +335,7 @@ func (s *RuleService) UpdateRule(
 		if err := ensurePeriodConfigWritableTx(tx, baseRule.YearID, baseRule.PeriodCode); err != nil {
 			return err
 		}
-		if err := s.replaceRuleConfigTx(tx, &operator, baseRule.ID, ruleName, strings.TrimSpace(input.Description), input.IsActive, modules); err != nil {
+		if err := s.replaceRuleConfigTx(tx, operatorRef, baseRule.ID, ruleName, strings.TrimSpace(input.Description), input.IsActive, modules); err != nil {
 			return err
 		}
 
@@ -344,7 +348,7 @@ func (s *RuleService) UpdateRule(
 				if err := ensurePeriodConfigWritableTx(tx, baseRule.YearID, periodCode); err != nil {
 					return err
 				}
-				_, err := s.upsertRuleByDimensionTx(tx, &operator, ruleDimension{
+				_, err := s.upsertRuleByDimensionTx(tx, operatorRef, ruleDimension{
 					YearID:         baseRule.YearID,
 					PeriodCode:     periodCode,
 					ObjectType:     baseRule.ObjectType,
@@ -369,7 +373,7 @@ func (s *RuleService) UpdateRule(
 		return nil, err
 	}
 	targetID := result.Rule.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "assessment_rules", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_rules", &targetID, map[string]any{
 		"event":         "update_assessment_rule",
 		"syncQuarterly": input.SyncQuarterly,
 	}, ipAddress, userAgent))
@@ -449,6 +453,7 @@ func (s *RuleService) CreateTemplate(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	record := model.RuleTemplate{
 		TemplateName:   templateName,
 		ObjectType:     objectType,
@@ -456,15 +461,15 @@ func (s *RuleService) CreateTemplate(
 		TemplateConfig: string(rawConfig),
 		Description:    strings.TrimSpace(input.Description),
 		IsSystem:       false,
-		CreatedBy:      &operator,
-		UpdatedBy:      &operator,
+		CreatedBy:      operatorRef,
+		UpdatedBy:      operatorRef,
 	}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, fmt.Errorf("failed to create rule template: %w", err)
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "rule_templates", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "rule_templates", &targetID, map[string]any{
 		"event":          "create_rule_template",
 		"templateName":   record.TemplateName,
 		"objectType":     record.ObjectType,
@@ -566,16 +571,18 @@ func (s *RuleService) ApplyTemplate(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	baseRuleID := uint(0)
 	periods := targetPeriods(dimension.PeriodCode, input.SyncQuarterly)
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		for _, periodCode := range periods {
 			if err := ensurePeriodConfigWritableTx(tx, dimension.YearID, periodCode); err != nil {
 				return err
 			}
 			currentDimension := dimension
 			currentDimension.PeriodCode = periodCode
-			rule, err := s.upsertRuleByDimensionTx(tx, &operator, currentDimension, ruleName, description, input.IsActive, modules, upsertRuleMode{
+			rule, err := s.upsertRuleByDimensionTx(tx, operatorRef, currentDimension, ruleName, description, input.IsActive, modules, upsertRuleMode{
 				AllowCreate: true,
 				AllowUpdate: input.Overwrite,
 			})
@@ -597,7 +604,7 @@ func (s *RuleService) ApplyTemplate(
 		return nil, err
 	}
 	targetID := result.Rule.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "assessment_rules", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "assessment_rules", &targetID, map[string]any{
 		"event":         "apply_rule_template",
 		"templateId":    templateID,
 		"syncQuarterly": input.SyncQuarterly,

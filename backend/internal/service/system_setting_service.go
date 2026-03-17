@@ -118,6 +118,7 @@ func (s *SystemSettingService) Update(
 
 	now := time.Now().Unix()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef := resolveBusinessWriteOperatorRefTx(tx, operatorID)
 		for _, item := range items {
 			key := strings.TrimSpace(item.SettingKey)
 			if !settingKeyPattern.MatchString(key) {
@@ -147,7 +148,7 @@ func (s *SystemSettingService) Update(
 			}
 			record.SettingValue = value
 			record.SettingType = settingType
-			record.UpdatedBy = &operatorID
+			record.UpdatedBy = operatorRef
 			record.UpdatedAt = now
 
 			if isCreate {
@@ -167,7 +168,7 @@ func (s *SystemSettingService) Update(
 			}
 			after := serializeSettingForAudit(&record)
 			auditRecord := buildAuditRecord(
-				&operatorID,
+				operatorRef,
 				actionType,
 				"system_settings",
 				&targetID,

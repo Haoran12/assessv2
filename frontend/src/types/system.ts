@@ -46,6 +46,39 @@ export interface UserGroupListResponse {
   items: UserGroupItem[];
 }
 
+export type UserObjectLinkAccessLevel = "read" | "detail";
+
+export interface UserObjectLinkItem {
+  id: number;
+  userId: number;
+  assessmentObjectId: number;
+  assessmentObjectName: string;
+  assessmentObjectYear: number;
+  assessmentObjectType: string;
+  assessmentObjectCategory: string;
+  assessmentObjectActive: boolean;
+  linkType: string;
+  accessLevel: UserObjectLinkAccessLevel;
+  isPrimary: boolean;
+  effectiveFrom?: number;
+  effectiveTo?: number;
+  isActive: boolean;
+  createdBy?: number;
+  createdAt: number;
+  updatedBy?: number;
+  updatedAt: number;
+}
+
+export interface ReplaceUserObjectLinkItem {
+  assessmentObjectId: number;
+  linkType: string;
+  accessLevel: UserObjectLinkAccessLevel;
+  isPrimary: boolean;
+  effectiveFrom?: number;
+  effectiveTo?: number;
+  isActive?: boolean;
+}
+
 export type BackupType = "manual" | "auto" | "before_import" | "before_restore";
 
 export interface BackupRecordItem {

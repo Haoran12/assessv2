@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"assessv2/backend/internal/auth"
 	"gorm.io/gorm"
@@ -14,6 +15,16 @@ type assessmentAccessScope struct {
 	unrestricted      bool
 	readableObjectIDs map[uint]struct{}
 	detailObjectIDs   map[uint]struct{}
+}
+
+const (
+	assessmentObjectAccessRead   = "read"
+	assessmentObjectAccessDetail = "detail"
+)
+
+type assessmentObjectUserLink struct {
+	AssessmentObjectID uint   `gorm:"column:assessment_object_id"`
+	AccessLevel        string `gorm:"column:access_level"`
 }
 
 func buildAssessmentAccessScope(ctx context.Context, db *gorm.DB, claims *auth.Claims) (*assessmentAccessScope, error) {
@@ -61,6 +72,10 @@ func buildAssessmentAccessScope(ctx context.Context, db *gorm.DB, claims *auth.C
 				return nil, err
 			}
 		}
+	}
+
+	if err := applyUserObjectLinksToScope(ctx, db, scope, claims.UserID); err != nil {
+		return nil, err
 	}
 
 	return scope, nil
@@ -339,6 +354,48 @@ func addObjectIDs(set map[uint]struct{}, objectIDs []uint) {
 		}
 		set[objectID] = struct{}{}
 	}
+}
+
+func applyUserObjectLinksToScope(
+	ctx context.Context,
+	db *gorm.DB,
+	scope *assessmentAccessScope,
+	userID uint,
+) error {
+	if scope == nil || userID == 0 {
+		return nil
+	}
+
+	now := time.Now().Unix()
+	links := make([]assessmentObjectUserLink, 0, 16)
+	if err := db.WithContext(ctx).
+		Table("assessment_object_user_links AS l").
+		Select("l.assessment_object_id, l.access_level").
+		Joins("JOIN assessment_objects AS ao ON ao.id = l.assessment_object_id").
+		Where("l.user_id = ? AND l.is_active = 1", userID).
+		Where("ao.is_active = 1").
+		Where("(l.effective_from IS NULL OR l.effective_from <= ?)", now).
+		Where("(l.effective_to IS NULL OR l.effective_to >= ?)", now).
+		Find(&links).Error; err != nil {
+		return fmt.Errorf("failed to load assessment object user links: %w", err)
+	}
+
+	for _, link := range links {
+		if link.AssessmentObjectID == 0 {
+			continue
+		}
+		scope.readableObjectIDs[link.AssessmentObjectID] = struct{}{}
+		switch strings.ToLower(strings.TrimSpace(link.AccessLevel)) {
+		case assessmentObjectAccessRead:
+			continue
+		case assessmentObjectAccessDetail:
+			scope.detailObjectIDs[link.AssessmentObjectID] = struct{}{}
+		default:
+			// Unknown access_level falls back to detail to avoid silently dropping access.
+			scope.detailObjectIDs[link.AssessmentObjectID] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func setToSortedUintSlice(set map[uint]struct{}) []uint {

@@ -242,13 +242,14 @@ func (s *OrgService) CreateOrganization(ctx context.Context, claims *auth.Claims
 	}
 
 	operator := operatorID
-	record := model.Organization{OrgName: strings.TrimSpace(input.OrgName), OrgType: strings.TrimSpace(input.OrgType), ParentID: input.ParentID, LeaderID: input.LeaderID, SortOrder: input.SortOrder, Status: status, CreatedBy: &operator, UpdatedBy: &operator}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	record := model.Organization{OrgName: strings.TrimSpace(input.OrgName), OrgType: strings.TrimSpace(input.OrgType), ParentID: input.ParentID, LeaderID: input.LeaderID, SortOrder: input.SortOrder, Status: status, CreatedBy: operatorRef, UpdatedBy: operatorRef}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, fmt.Errorf("failed to create organization: %w", err)
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "organizations", &targetID, map[string]any{"event": "create_organization"}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "organizations", &targetID, map[string]any{"event": "create_organization"}, ipAddress, userAgent))
 	return &record, nil
 }
 
@@ -294,7 +295,8 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, claims *auth.Claims
 	}
 
 	operator := operatorID
-	updates := map[string]any{"org_name": strings.TrimSpace(input.OrgName), "org_type": strings.TrimSpace(input.OrgType), "parent_id": input.ParentID, "leader_id": input.LeaderID, "sort_order": input.SortOrder, "status": status, "updated_by": &operator, "updated_at": time.Now().Unix()}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	updates := map[string]any{"org_name": strings.TrimSpace(input.OrgName), "org_type": strings.TrimSpace(input.OrgType), "parent_id": input.ParentID, "leader_id": input.LeaderID, "sort_order": input.SortOrder, "status": status, "updated_by": operatorRef, "updated_at": time.Now().Unix()}
 	if err := s.db.WithContext(ctx).Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL", organizationID).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update organization: %w", err)
 	}
@@ -302,7 +304,7 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, claims *auth.Claims
 		return nil, fmt.Errorf("failed to reload organization: %w", err)
 	}
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "organizations", &targetID, map[string]any{"event": "update_organization", "status": existing.Status}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "organizations", &targetID, map[string]any{"event": "update_organization", "status": existing.Status}, ipAddress, userAgent))
 	return &existing, nil
 }
 
@@ -330,10 +332,11 @@ func (s *OrgService) DeleteOrganization(ctx context.Context, claims *auth.Claims
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	updates := map[string]any{
 		"deleted_at": now,
-		"updated_by": &operator,
+		"updated_by": operatorRef,
 		"updated_at": now,
 	}
 	if err := s.db.WithContext(ctx).Model(&model.Organization{}).Where("id = ? AND deleted_at IS NULL", organizationID).Updates(updates).Error; err != nil {
@@ -341,7 +344,7 @@ func (s *OrgService) DeleteOrganization(ctx context.Context, claims *auth.Claims
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "organizations", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "organizations", &targetID, map[string]any{
 		"event":   "delete_organization",
 		"orgName": existing.OrgName,
 	}, ipAddress, userAgent))
@@ -403,12 +406,13 @@ func (s *OrgService) CreateDepartment(ctx context.Context, claims *auth.Claims, 
 	}
 
 	operator := operatorID
-	record := model.Department{DeptName: strings.TrimSpace(input.DeptName), OrganizationID: input.OrganizationID, ParentDeptID: input.ParentDeptID, LeaderID: input.LeaderID, SortOrder: input.SortOrder, Status: status, CreatedBy: &operator, UpdatedBy: &operator}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	record := model.Department{DeptName: strings.TrimSpace(input.DeptName), OrganizationID: input.OrganizationID, ParentDeptID: input.ParentDeptID, LeaderID: input.LeaderID, SortOrder: input.SortOrder, Status: status, CreatedBy: operatorRef, UpdatedBy: operatorRef}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, fmt.Errorf("failed to create department: %w", err)
 	}
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "departments", &targetID, map[string]any{"event": "create_department"}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "departments", &targetID, map[string]any{"event": "create_department"}, ipAddress, userAgent))
 	return &record, nil
 }
 
@@ -461,7 +465,8 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, claims *auth.Claims, 
 	}
 
 	operator := operatorID
-	updates := map[string]any{"dept_name": strings.TrimSpace(input.DeptName), "organization_id": input.OrganizationID, "parent_dept_id": input.ParentDeptID, "leader_id": input.LeaderID, "sort_order": input.SortOrder, "status": status, "updated_by": &operator, "updated_at": time.Now().Unix()}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	updates := map[string]any{"dept_name": strings.TrimSpace(input.DeptName), "organization_id": input.OrganizationID, "parent_dept_id": input.ParentDeptID, "leader_id": input.LeaderID, "sort_order": input.SortOrder, "status": status, "updated_by": operatorRef, "updated_at": time.Now().Unix()}
 	if err := s.db.WithContext(ctx).Model(&model.Department{}).Where("id = ? AND deleted_at IS NULL", departmentID).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update department: %w", err)
 	}
@@ -469,7 +474,7 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, claims *auth.Claims, 
 		return nil, fmt.Errorf("failed to reload department: %w", err)
 	}
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "departments", &targetID, map[string]any{"event": "update_department", "status": existing.Status}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "departments", &targetID, map[string]any{"event": "update_department", "status": existing.Status}, ipAddress, userAgent))
 	return &existing, nil
 }
 
@@ -496,10 +501,11 @@ func (s *OrgService) DeleteDepartment(ctx context.Context, claims *auth.Claims, 
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	updates := map[string]any{
 		"deleted_at": now,
-		"updated_by": &operator,
+		"updated_by": operatorRef,
 		"updated_at": now,
 	}
 	if err := s.db.WithContext(ctx).Model(&model.Department{}).Where("id = ? AND deleted_at IS NULL", departmentID).Updates(updates).Error; err != nil {
@@ -507,7 +513,7 @@ func (s *OrgService) DeleteDepartment(ctx context.Context, claims *auth.Claims, 
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "departments", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "departments", &targetID, map[string]any{
 		"event":    "delete_department",
 		"deptName": existing.DeptName,
 	}, ipAddress, userAgent))
@@ -600,6 +606,7 @@ func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, i
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	record := model.PositionLevel{
 		LevelCode:       levelCode,
 		LevelName:       levelName,
@@ -608,8 +615,8 @@ func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, i
 		IsForAssessment: isForAssessment,
 		SortOrder:       input.SortOrder,
 		Status:          status,
-		CreatedBy:       &operator,
-		UpdatedBy:       &operator,
+		CreatedBy:       operatorRef,
+		UpdatedBy:       operatorRef,
 	}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		if isUniqueConstraintError(err) {
@@ -619,7 +626,7 @@ func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, i
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "position_levels", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "position_levels", &targetID, map[string]any{
 		"event":           "create_position_level",
 		"levelCode":       record.LevelCode,
 		"isForAssessment": record.IsForAssessment,
@@ -670,6 +677,7 @@ func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positi
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	updates := map[string]any{
 		"level_code":        levelCode,
 		"level_name":        levelName,
@@ -677,7 +685,7 @@ func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positi
 		"is_for_assessment": isForAssessment,
 		"sort_order":        input.SortOrder,
 		"status":            status,
-		"updated_by":        &operator,
+		"updated_by":        operatorRef,
 		"updated_at":        time.Now().Unix(),
 	}
 	if err := s.db.WithContext(ctx).Model(&model.PositionLevel{}).Where("id = ?", positionLevelID).Updates(updates).Error; err != nil {
@@ -691,7 +699,7 @@ func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positi
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "position_levels", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "position_levels", &targetID, map[string]any{
 		"event":           "update_position_level",
 		"levelCode":       existing.LevelCode,
 		"isForAssessment": existing.IsForAssessment,
@@ -723,8 +731,9 @@ func (s *OrgService) DeletePositionLevel(ctx context.Context, operatorID, positi
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "position_levels", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "position_levels", &targetID, map[string]any{
 		"event":     "delete_position_level",
 		"levelCode": existing.LevelCode,
 	}, ipAddress, userAgent))
@@ -785,12 +794,13 @@ func (s *OrgService) CreateEmployee(ctx context.Context, claims *auth.Claims, op
 	}
 
 	operator := operatorID
-	record := model.Employee{EmpName: strings.TrimSpace(input.EmpName), OrganizationID: input.OrganizationID, DepartmentID: input.DepartmentID, PositionLevelID: input.PositionLevelID, PositionTitle: strings.TrimSpace(input.PositionTitle), HireDate: input.HireDate, Status: status, CreatedBy: &operator, UpdatedBy: &operator}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	record := model.Employee{EmpName: strings.TrimSpace(input.EmpName), OrganizationID: input.OrganizationID, DepartmentID: input.DepartmentID, PositionLevelID: input.PositionLevelID, PositionTitle: strings.TrimSpace(input.PositionTitle), HireDate: input.HireDate, Status: status, CreatedBy: operatorRef, UpdatedBy: operatorRef}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, fmt.Errorf("failed to create employee: %w", err)
 	}
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "employees", &targetID, map[string]any{"event": "create_employee"}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "employees", &targetID, map[string]any{"event": "create_employee"}, ipAddress, userAgent))
 	return &record, nil
 }
 
@@ -836,7 +846,8 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, claims *auth.Claims, op
 	}
 
 	operator := operatorID
-	updates := map[string]any{"emp_name": strings.TrimSpace(input.EmpName), "organization_id": input.OrganizationID, "department_id": input.DepartmentID, "position_level_id": input.PositionLevelID, "position_title": strings.TrimSpace(input.PositionTitle), "hire_date": input.HireDate, "status": status, "updated_by": &operator, "updated_at": time.Now().Unix()}
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	updates := map[string]any{"emp_name": strings.TrimSpace(input.EmpName), "organization_id": input.OrganizationID, "department_id": input.DepartmentID, "position_level_id": input.PositionLevelID, "position_title": strings.TrimSpace(input.PositionTitle), "hire_date": input.HireDate, "status": status, "updated_by": operatorRef, "updated_at": time.Now().Unix()}
 	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("id = ? AND deleted_at IS NULL", employeeID).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update employee: %w", err)
 	}
@@ -844,7 +855,7 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, claims *auth.Claims, op
 		return nil, fmt.Errorf("failed to reload employee: %w", err)
 	}
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "employees", &targetID, map[string]any{"event": "update_employee", "status": existing.Status}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "employees", &targetID, map[string]any{"event": "update_employee", "status": existing.Status}, ipAddress, userAgent))
 	return &existing, nil
 }
 
@@ -868,10 +879,11 @@ func (s *OrgService) DeleteEmployee(ctx context.Context, claims *auth.Claims, op
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	updates := map[string]any{
 		"deleted_at": now,
-		"updated_by": &operator,
+		"updated_by": operatorRef,
 		"updated_at": now,
 	}
 	if err := s.db.WithContext(ctx).Model(&model.Employee{}).Where("id = ? AND deleted_at IS NULL", employeeID).Updates(updates).Error; err != nil {
@@ -879,7 +891,7 @@ func (s *OrgService) DeleteEmployee(ctx context.Context, claims *auth.Claims, op
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "employees", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "employees", &targetID, map[string]any{
 		"event":   "delete_employee",
 		"empName": existing.EmpName,
 	}, ipAddress, userAgent))
@@ -958,13 +970,14 @@ func (s *OrgService) TransferEmployee(ctx context.Context, claims *auth.Claims, 
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		history := model.EmployeeHistory{EmployeeID: employee.ID, ChangeType: strings.TrimSpace(input.ChangeType), OldOrganizationID: uintPtr(employee.OrganizationID), NewOrganizationID: uintPtr(newOrgID), OldDepartmentID: employee.DepartmentID, NewDepartmentID: newDeptID, OldPositionLevelID: uintPtr(employee.PositionLevelID), NewPositionLevelID: uintPtr(newPositionLevelID), OldPositionTitle: employee.PositionTitle, NewPositionTitle: newPositionTitle, ChangeReason: strings.TrimSpace(input.ChangeReason), EffectiveDate: *input.EffectiveDate, CreatedBy: &operator}
+		history := model.EmployeeHistory{EmployeeID: employee.ID, ChangeType: strings.TrimSpace(input.ChangeType), OldOrganizationID: uintPtr(employee.OrganizationID), NewOrganizationID: uintPtr(newOrgID), OldDepartmentID: employee.DepartmentID, NewDepartmentID: newDeptID, OldPositionLevelID: uintPtr(employee.PositionLevelID), NewPositionLevelID: uintPtr(newPositionLevelID), OldPositionTitle: employee.PositionTitle, NewPositionTitle: newPositionTitle, ChangeReason: strings.TrimSpace(input.ChangeReason), EffectiveDate: *input.EffectiveDate, CreatedBy: operatorRef}
 		if err := tx.Create(&history).Error; err != nil {
 			return fmt.Errorf("failed to create employee history: %w", err)
 		}
 
-		updates := map[string]any{"organization_id": newOrgID, "department_id": newDeptID, "position_level_id": newPositionLevelID, "position_title": newPositionTitle, "updated_by": &operator, "updated_at": time.Now().Unix()}
+		updates := map[string]any{"organization_id": newOrgID, "department_id": newDeptID, "position_level_id": newPositionLevelID, "position_title": newPositionTitle, "updated_by": operatorRef, "updated_at": time.Now().Unix()}
 		if err := tx.Model(&model.Employee{}).Where("id = ? AND deleted_at IS NULL", employeeID).Updates(updates).Error; err != nil {
 			return fmt.Errorf("failed to update employee for transfer: %w", err)
 		}
@@ -978,7 +991,7 @@ func (s *OrgService) TransferEmployee(ctx context.Context, claims *auth.Claims, 
 	}
 
 	targetID := employee.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "employees", &targetID, map[string]any{"event": "transfer_employee", "changeType": strings.TrimSpace(input.ChangeType), "newOrganizationId": newOrgID, "effectiveDate": input.EffectiveDate.Format("2006-01-02")}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "employees", &targetID, map[string]any{"event": "transfer_employee", "changeType": strings.TrimSpace(input.ChangeType), "newOrganizationId": newOrgID, "effectiveDate": input.EffectiveDate.Format("2006-01-02")}, ipAddress, userAgent))
 	return &employee, nil
 }
 

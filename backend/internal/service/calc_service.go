@@ -169,7 +169,11 @@ func (s *CalculationService) Recalculate(
 	result.PeriodCode = periodCode
 	result.TriggerMode = triggerMode
 
+	auditOperatorRef := operatorID
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if operatorID != nil {
+			auditOperatorRef = resolveBusinessWriteOperatorRefTx(tx, *operatorID)
+		}
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -265,7 +269,7 @@ func (s *CalculationService) Recalculate(
 			if err != nil {
 				return err
 			}
-			if err := s.persistObjectCalculationTx(tx, operatorID, triggerMode, now, periodCode, calcResult); err != nil {
+			if err := s.persistObjectCalculationTx(tx, auditOperatorRef, triggerMode, now, periodCode, calcResult); err != nil {
 				return err
 			}
 			parentScoreMap[objectID] = calcResult.FinalScore
@@ -282,8 +286,8 @@ func (s *CalculationService) Recalculate(
 	}
 
 	result.DurationMs = time.Since(startedAt).Milliseconds()
-	if operatorID != nil {
-		_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorID, "update", "calculated_scores", nil, map[string]any{
+	if auditOperatorRef != nil {
+		_ = s.auditRepo.Create(ctx, buildAuditRecord(auditOperatorRef, "update", "calculated_scores", nil, map[string]any{
 			"event":             "recalculate_scores",
 			"yearId":            result.YearID,
 			"periodCode":        result.PeriodCode,

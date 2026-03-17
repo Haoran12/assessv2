@@ -139,9 +139,17 @@ func (s *ScoreService) CreateDirectScore(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	requiredOperatorID := operator
 	now := time.Now().Unix()
 	record := &model.DirectScore{}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ensureErr error
+		requiredOperatorID, ensureErr = resolveRequiredBusinessUserIDTx(tx, operator)
+		if ensureErr != nil {
+			return ensureErr
+		}
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, requiredOperatorID)
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -179,7 +187,7 @@ func (s *ScoreService) CreateDirectScore(
 			ObjectID:   input.ObjectID,
 			Score:      roundToScale(input.Score, 6),
 			Remark:     strings.TrimSpace(input.Remark),
-			InputBy:    operator,
+			InputBy:    requiredOperatorID,
 			InputAt:    now,
 		}
 		if err := tx.Create(record).Error; err != nil {
@@ -195,7 +203,7 @@ func (s *ScoreService) CreateDirectScore(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "direct_scores", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "direct_scores", &targetID, map[string]any{
 		"event":      "create_direct_score",
 		"yearId":     record.YearID,
 		"periodCode": record.PeriodCode,
@@ -247,9 +255,17 @@ func (s *ScoreService) BatchUpsertDirectScores(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	requiredOperatorID := operator
 	now := time.Now().Unix()
 	result := &BatchDirectScoreResult{}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ensureErr error
+		requiredOperatorID, ensureErr = resolveRequiredBusinessUserIDTx(tx, operator)
+		if ensureErr != nil {
+			return ensureErr
+		}
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, requiredOperatorID)
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -300,7 +316,7 @@ func (s *ScoreService) BatchUpsertDirectScores(
 					ObjectID:   objectID,
 					Score:      entry.Score,
 					Remark:     entry.Remark,
-					InputBy:    operator,
+					InputBy:    requiredOperatorID,
 					InputAt:    now,
 				}
 				if err := tx.Create(&record).Error; err != nil {
@@ -319,7 +335,7 @@ func (s *ScoreService) BatchUpsertDirectScores(
 				Updates(map[string]any{
 					"score":      entry.Score,
 					"remark":     entry.Remark,
-					"updated_by": &operator,
+					"updated_by": operatorRef,
 					"updated_at": now,
 				}).Error; err != nil {
 				return fmt.Errorf("failed to update direct score in batch: %w", err)
@@ -332,7 +348,7 @@ func (s *ScoreService) BatchUpsertDirectScores(
 		return nil, err
 	}
 
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "direct_scores", nil, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "direct_scores", nil, map[string]any{
 		"event":      "batch_upsert_direct_scores",
 		"yearId":     input.YearID,
 		"periodCode": periodCode,
@@ -364,9 +380,11 @@ func (s *ScoreService) UpdateDirectScore(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	var record model.DirectScore
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", scoreID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrDirectScoreNotFound
@@ -396,7 +414,7 @@ func (s *ScoreService) UpdateDirectScore(
 		if err := tx.Model(&model.DirectScore{}).Where("id = ?", scoreID).Updates(map[string]any{
 			"score":      scoreValue,
 			"remark":     strings.TrimSpace(input.Remark),
-			"updated_by": &operator,
+			"updated_by": operatorRef,
 			"updated_at": now,
 		}).Error; err != nil {
 			return fmt.Errorf("failed to update direct score: %w", err)
@@ -411,7 +429,7 @@ func (s *ScoreService) UpdateDirectScore(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "direct_scores", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "direct_scores", &targetID, map[string]any{
 		"event": "update_direct_score",
 		"score": record.Score,
 	}, ipAddress, userAgent))
@@ -436,8 +454,10 @@ func (s *ScoreService) DeleteDirectScore(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	var record model.DirectScore
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", scoreID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrDirectScoreNotFound
@@ -459,7 +479,7 @@ func (s *ScoreService) DeleteDirectScore(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "direct_scores", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "direct_scores", &targetID, map[string]any{
 		"event":      "delete_direct_score",
 		"yearId":     record.YearID,
 		"periodCode": record.PeriodCode,
@@ -527,9 +547,17 @@ func (s *ScoreService) CreateExtraPoint(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
+	requiredOperatorID := operator
 	now := time.Now().Unix()
 	record := &model.ExtraPoint{}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var ensureErr error
+		requiredOperatorID, ensureErr = resolveRequiredBusinessUserIDTx(tx, operator)
+		if ensureErr != nil {
+			return ensureErr
+		}
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, requiredOperatorID)
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -545,11 +573,11 @@ func (s *ScoreService) CreateExtraPoint(
 			Points:     points,
 			Reason:     reason,
 			Evidence:   strings.TrimSpace(input.Evidence),
-			InputBy:    operator,
+			InputBy:    requiredOperatorID,
 			InputAt:    now,
 		}
 		if input.Approve {
-			record.ApprovedBy = &operator
+			record.ApprovedBy = operatorRef
 			record.ApprovedAt = &now
 		}
 		if err := tx.Create(record).Error; err != nil {
@@ -562,7 +590,7 @@ func (s *ScoreService) CreateExtraPoint(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "extra_points", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "extra_points", &targetID, map[string]any{
 		"event":        "create_extra_point",
 		"yearId":       record.YearID,
 		"periodCode":   record.PeriodCode,
@@ -602,9 +630,11 @@ func (s *ScoreService) UpdateExtraPoint(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	var record model.ExtraPoint
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", extraPointID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrExtraPointNotFound
@@ -623,12 +653,12 @@ func (s *ScoreService) UpdateExtraPoint(
 			"points":     points,
 			"reason":     reason,
 			"evidence":   strings.TrimSpace(input.Evidence),
-			"updated_by": &operator,
+			"updated_by": operatorRef,
 			"updated_at": now,
 		}
 		if input.Approve != nil {
 			if *input.Approve {
-				updates["approved_by"] = &operator
+				updates["approved_by"] = operatorRef
 				updates["approved_at"] = now
 			} else {
 				updates["approved_by"] = nil
@@ -648,7 +678,7 @@ func (s *ScoreService) UpdateExtraPoint(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "extra_points", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "extra_points", &targetID, map[string]any{
 		"event":        "update_extra_point",
 		"pointType":    record.PointType,
 		"points":       record.Points,
@@ -676,9 +706,11 @@ func (s *ScoreService) ApproveExtraPoint(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	now := time.Now().Unix()
 	var record model.ExtraPoint
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", extraPointID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrExtraPointNotFound
@@ -692,9 +724,9 @@ func (s *ScoreService) ApproveExtraPoint(
 			return err
 		}
 		if err := tx.Model(&model.ExtraPoint{}).Where("id = ?", extraPointID).Updates(map[string]any{
-			"approved_by": &operator,
+			"approved_by": operatorRef,
 			"approved_at": now,
-			"updated_by":  &operator,
+			"updated_by":  operatorRef,
 			"updated_at":  now,
 		}).Error; err != nil {
 			return fmt.Errorf("failed to approve extra point: %w", err)
@@ -709,7 +741,7 @@ func (s *ScoreService) ApproveExtraPoint(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "extra_points", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "extra_points", &targetID, map[string]any{
 		"event": "approve_extra_point",
 	}, ipAddress, userAgent))
 	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})
@@ -733,8 +765,10 @@ func (s *ScoreService) DeleteExtraPoint(
 	}
 
 	operator := operatorID
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	var record model.ExtraPoint
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operator)
 		if err := tx.Where("id = ?", extraPointID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrExtraPointNotFound
@@ -756,7 +790,7 @@ func (s *ScoreService) DeleteExtraPoint(
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "extra_points", &targetID, map[string]any{
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "extra_points", &targetID, map[string]any{
 		"event": "delete_extra_point",
 	}, ipAddress, userAgent))
 	s.triggerAutoRecalculate(ctx, operatorID, record.YearID, record.PeriodCode, []uint{record.ObjectID})

@@ -827,3 +827,7 @@ func containsUint(list []uint, target uint) bool {
 	}
 	return false
 }
+
+func (s *UserService) EnsureUserExists(ctx context.Context, userID uint) error {
+	return s.userRepo.EnsureExists(ctx, userID)
+}
