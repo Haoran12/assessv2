@@ -18,26 +18,46 @@ import (
 func main() {
 	cfg := config.Load()
 
-	db, err := database.NewSQLite(cfg.Database)
+	businessDB, err := database.NewSQLite(cfg.Database)
 	if err != nil {
-		log.Fatalf("failed to initialize database: %v", err)
+		log.Fatalf("failed to initialize business database: %v", err)
 	}
 
-	migrationManager, err := migration.NewManager(db, cfg.MigrationsDir)
+	accountsDBConfig := cfg.Database
+	accountsDBConfig.Path = cfg.AccountsDatabasePath
+	accountsDB, err := database.NewSQLite(accountsDBConfig)
 	if err != nil {
-		log.Fatalf("failed to initialize migration manager: %v", err)
-	}
-	applied, err := migrationManager.Up(context.Background())
-	if err != nil {
-		log.Fatalf("failed to apply database migrations: %v", err)
-	}
-	log.Printf("database migrations applied=%d", applied)
-
-	if err := database.SeedBaselineData(db, cfg.DefaultPassword); err != nil {
-		log.Fatalf("failed to seed baseline data: %v", err)
+		log.Fatalf("failed to initialize accounts database: %v", err)
 	}
 
-	engine := router.New(cfg, db)
+	businessMigrationManager, err := migration.NewManager(businessDB, cfg.BusinessMigrationsDir)
+	if err != nil {
+		log.Fatalf("failed to initialize business migration manager: %v", err)
+	}
+	applied, err := businessMigrationManager.Up(context.Background())
+	if err != nil {
+		log.Fatalf("failed to apply business database migrations: %v", err)
+	}
+	log.Printf("business database migrations applied=%d", applied)
+
+	accountsMigrationManager, err := migration.NewManager(accountsDB, cfg.AccountsMigrationsDir)
+	if err != nil {
+		log.Fatalf("failed to initialize accounts migration manager: %v", err)
+	}
+	applied, err = accountsMigrationManager.Up(context.Background())
+	if err != nil {
+		log.Fatalf("failed to apply accounts database migrations: %v", err)
+	}
+	log.Printf("accounts database migrations applied=%d", applied)
+
+	if err := database.SeedAssessmentData(businessDB); err != nil {
+		log.Fatalf("failed to seed assessment baseline data: %v", err)
+	}
+	if err := database.SeedAccountsData(accountsDB, cfg.DefaultPassword); err != nil {
+		log.Fatalf("failed to seed accounts baseline data: %v", err)
+	}
+
+	engine := router.NewWithDatabases(cfg, businessDB, accountsDB)
 
 	server := &http.Server{
 		Addr:              cfg.Server.Address(),

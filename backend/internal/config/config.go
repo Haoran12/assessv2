@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -31,13 +32,17 @@ type DatabaseConfig struct {
 type Config struct {
 	Server                    ServerConfig
 	Database                  DatabaseConfig
+	AccountsDatabasePath      string
 	MigrationsDir             string
+	BusinessMigrationsDir     string
+	AccountsMigrationsDir     string
 	JWTSecret                 string
 	DefaultPassword           string
 	EnforceMustChangePassword bool
 }
 
 func Load() Config {
+	migrationsRoot := getEnv("ASSESS_MIGRATIONS_DIR", "migrations")
 	return Config{
 		Server: ServerConfig{
 			Host: getEnv("ASSESS_SERVER_HOST", "127.0.0.1"),
@@ -55,7 +60,10 @@ func Load() Config {
 			MaxIdleConns:           getEnvAsInt("ASSESS_SQLITE_MAX_IDLE_CONNS", 1),
 			ConnMaxLifetimeSeconds: getEnvAsInt("ASSESS_SQLITE_CONN_MAX_LIFETIME_SECONDS", 0),
 		},
-		MigrationsDir:             getEnv("ASSESS_MIGRATIONS_DIR", "migrations"),
+		AccountsDatabasePath:      getEnv("ASSESS_ACCOUNTS_SQLITE_PATH", "./data/accounts/accounts.db"),
+		MigrationsDir:             migrationsRoot,
+		BusinessMigrationsDir:     getEnv("ASSESS_BUSINESS_MIGRATIONS_DIR", filepath.Join(migrationsRoot, "business")),
+		AccountsMigrationsDir:     getEnv("ASSESS_ACCOUNTS_MIGRATIONS_DIR", filepath.Join(migrationsRoot, "accounts")),
 		JWTSecret:                 getEnv("ASSESS_JWT_SECRET", "assessv2-dev-secret"),
 		DefaultPassword:           getEnv("ASSESS_DEFAULT_PASSWORD", "#AssessV2@Init"),
 		EnforceMustChangePassword: getEnvAsBool("ASSESS_ENFORCE_MUST_CHANGE_PASSWORD", false),

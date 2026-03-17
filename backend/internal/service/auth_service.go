@@ -244,17 +244,6 @@ func extractIdentity(user *model.User) (string, []string, []string, []auth.Organ
 			IsPrimary:      item.IsPrimary,
 		})
 	}
-	if len(bindings) == 0 {
-		for _, item := range user.UserOrganizations {
-			scopeID := item.OrganizationID
-			bindings = append(bindings, auth.PermissionBinding{
-				RoleCode:     primaryRole,
-				ScopeOrgType: item.OrganizationType,
-				ScopeOrgID:   &scopeID,
-				IsPrimary:    item.IsPrimary,
-			})
-		}
-	}
 
 	if primaryRole == "" && len(roleCodes) > 0 {
 		primaryRole = roleCodes[0]

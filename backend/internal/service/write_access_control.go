@@ -65,21 +65,7 @@ func collectBindingsForRole(claims *auth.Claims, roleCode string) []auth.Permiss
 			result = append(result, item)
 		}
 	}
-	if len(result) > 0 {
-		return result
-	}
-
-	legacy := make([]auth.PermissionBinding, 0, len(claims.OrgScopes))
-	for _, orgScope := range claims.OrgScopes {
-		scopeID := orgScope.OrganizationID
-		legacy = append(legacy, auth.PermissionBinding{
-			RoleCode:     roleCode,
-			ScopeOrgType: orgScope.OrganizationType,
-			ScopeOrgID:   &scopeID,
-			IsPrimary:    orgScope.IsPrimary,
-		})
-	}
-	return legacy
+	return result
 }
 
 func resolveGroupScopedOrganizationIDs(ctx context.Context, db *gorm.DB, claims *auth.Claims) (map[uint]struct{}, error) {

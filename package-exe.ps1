@@ -187,7 +187,16 @@ function Sync-DesktopEmbeddedAssets {
         Remove-Item -Path $migrationsTarget -Recurse -Force
     }
     New-Item -ItemType Directory -Path $migrationsTarget -Force | Out-Null
-    Copy-Item -Path (Join-Path $migrationsSource "*.sql") -Destination $migrationsTarget -Force
+    foreach ($domain in @("business", "accounts")) {
+        $sourceDir = Join-Path $migrationsSource $domain
+        if (-not (Test-Path $sourceDir -PathType Container)) {
+            throw "Missing migration domain directory: $sourceDir"
+        }
+        $targetDir = Join-Path $migrationsTarget $domain
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        Copy-Item -Path (Join-Path $sourceDir "*.sql") -Destination $targetDir -Force
+        Set-Content -Path (Join-Path $targetDir ".gitkeep") -Value "" -NoNewline
+    }
     Set-Content -Path (Join-Path $migrationsTarget ".gitkeep") -Value "" -NoNewline
 
     $frontendDist = Resolve-Path (Join-Path $ProjectRoot "frontend/dist")

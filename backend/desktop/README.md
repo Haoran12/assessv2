@@ -19,4 +19,4 @@ wails build -clean -s
 The desktop runtime reads:
 
 - Frontend assets from `build/bin/frontend/dist` (release artifact layout), or `../../frontend/dist` during local development.
-- SQL migrations from `build/bin/migrations` (release artifact layout), or `../migrations` during local development.
+- Split SQL migrations from `build/bin/migrations/business` and `build/bin/migrations/accounts` (release artifact layout), or `../migrations/business` + `../migrations/accounts` during local development.

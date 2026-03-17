@@ -17,6 +17,11 @@ import (
 
 var settingKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{2,100}$`)
 
+const (
+	objectLinkTypeMaxLength = 30
+	objectLinkTypeMaxCount  = 20
+)
+
 type SystemSettingService struct {
 	db        *gorm.DB
 	auditRepo *repository.AuditRepository
@@ -274,6 +279,10 @@ func validateSettingValue(settingKey, settingType, value string) error {
 		if _, err := time.LoadLocation(value); err != nil {
 			return ErrInvalidSettingValue
 		}
+	case "assessment.object_link_types":
+		if err := validateObjectLinkTypeSetting(value); err != nil {
+			return ErrInvalidSettingValue
+		}
 	}
 
 	switch settingType {
@@ -291,6 +300,35 @@ func validateSettingValue(settingKey, settingType, value string) error {
 		}
 	}
 
+	return nil
+}
+
+func validateObjectLinkTypeSetting(value string) error {
+	var raw any
+	if err := json.Unmarshal([]byte(value), &raw); err != nil {
+		return err
+	}
+
+	items, ok := raw.([]any)
+	if !ok || len(items) == 0 || len(items) > objectLinkTypeMaxCount {
+		return ErrInvalidSettingValue
+	}
+
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			return ErrInvalidSettingValue
+		}
+		normalized := strings.ToLower(strings.TrimSpace(text))
+		if normalized == "" || len(normalized) > objectLinkTypeMaxLength {
+			return ErrInvalidSettingValue
+		}
+		if _, exists := seen[normalized]; exists {
+			return ErrInvalidSettingValue
+		}
+		seen[normalized] = struct{}{}
+	}
 	return nil
 }
 

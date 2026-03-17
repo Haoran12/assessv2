@@ -46,16 +46,6 @@ func buildAssessmentAccessScope(ctx context.Context, db *gorm.DB, claims *auth.C
 
 	bindings := make([]auth.PermissionBinding, 0, len(claims.PermissionBindings))
 	bindings = append(bindings, claims.PermissionBindings...)
-	if len(bindings) == 0 {
-		for _, orgScope := range claims.OrgScopes {
-			scopeID := orgScope.OrganizationID
-			bindings = append(bindings, auth.PermissionBinding{
-				ScopeOrgType: orgScope.OrganizationType,
-				ScopeOrgID:   &scopeID,
-				IsPrimary:    orgScope.IsPrimary,
-			})
-		}
-	}
 
 	for _, binding := range bindings {
 		applyRoles := normalizedRoles

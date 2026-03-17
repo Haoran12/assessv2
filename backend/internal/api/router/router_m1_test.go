@@ -387,6 +387,8 @@ func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 			Path: filepath.Join(t.TempDir(), "test.db"),
 		},
 		MigrationsDir:             "migrations",
+		BusinessMigrationsDir:     filepath.Join("migrations", "business"),
+		AccountsMigrationsDir:     filepath.Join("migrations", "accounts"),
 		JWTSecret:                 "test-secret",
 		DefaultPassword:           testDefaultPassword,
 		EnforceMustChangePassword: true,
@@ -396,15 +398,26 @@ func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 	if err != nil {
 		t.Fatalf("failed to init sqlite: %v", err)
 	}
-	manager, err := migration.NewManager(db, cfg.MigrationsDir)
+	manager, err := migration.NewManager(db, cfg.BusinessMigrationsDir)
 	if err != nil {
-		t.Fatalf("failed to init migration manager: %v", err)
+		t.Fatalf("failed to init business migration manager: %v", err)
 	}
 	if _, err := manager.Up(t.Context()); err != nil {
-		t.Fatalf("failed to apply schema migrations: %v", err)
+		t.Fatalf("failed to apply business schema migrations: %v", err)
 	}
-	if err := database.SeedBaselineData(db, cfg.DefaultPassword); err != nil {
-		t.Fatalf("failed to init seed data: %v", err)
+
+	accountsManager, err := migration.NewManager(db, cfg.AccountsMigrationsDir)
+	if err != nil {
+		t.Fatalf("failed to init accounts migration manager: %v", err)
+	}
+	if _, err := accountsManager.Up(t.Context()); err != nil {
+		t.Fatalf("failed to apply accounts schema migrations: %v", err)
+	}
+	if err := database.SeedAssessmentData(db); err != nil {
+		t.Fatalf("failed to init assessment seed data: %v", err)
+	}
+	if err := database.SeedAccountsData(db, cfg.DefaultPassword); err != nil {
+		t.Fatalf("failed to init accounts seed data: %v", err)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {

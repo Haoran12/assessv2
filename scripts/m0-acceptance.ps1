@@ -13,10 +13,13 @@ function Step([string]$Message) {
 Step "Initialize database schema and baseline data"
 Push-Location "backend"
 try {
-    go run ./cmd/migrate -action up -seed=true
+    go run ./cmd/migrate -action up -target all -seed=true
 } finally {
     Pop-Location
 }
+
+Step "Run schema gate checks"
+& (Join-Path $PSScriptRoot "schema-gate.ps1")
 
 Step "Run backend tests (unit + API integration)"
 Push-Location "backend"

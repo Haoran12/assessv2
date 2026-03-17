@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -55,19 +53,19 @@ func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 		return config.Config{}, nil, nil, fmt.Errorf("get accounts sql db handle: %w", err)
 	}
 
-	migrationManager, err := migration.NewManager(yearDB, cfg.MigrationsDir)
+	migrationManager, err := migration.NewManager(yearDB, cfg.BusinessMigrationsDir)
 	if err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("initialize assessment migration manager: %w", err)
 	}
-	if err := runMigrationsWithChecksumRepair(context.Background(), migrationManager, "assessment"); err != nil {
+	if _, err := migrationManager.Up(context.Background()); err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("apply assessment migrations: %w", err)
 	}
 
-	accountMigrationManager, err := migration.NewManager(accountDB, cfg.MigrationsDir)
+	accountMigrationManager, err := migration.NewManager(accountDB, cfg.AccountsMigrationsDir)
 	if err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("initialize accounts migration manager: %w", err)
 	}
-	if err := runMigrationsWithChecksumRepair(context.Background(), accountMigrationManager, "accounts"); err != nil {
+	if _, err := accountMigrationManager.Up(context.Background()); err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("apply accounts migrations: %w", err)
 	}
 
@@ -80,38 +78,6 @@ func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 
 	engine := router.NewWithDatabases(cfg, yearDB, accountDB)
 	return cfg, []*sql.DB{yearSQLDB, accountSQLDB}, engine, nil
-}
-
-func runMigrationsWithChecksumRepair(ctx context.Context, manager *migration.Manager, databaseName string) error {
-	if _, err := manager.Up(ctx); err != nil {
-		var checksumErr *migration.ChecksumMismatchError
-		if !errors.As(err, &checksumErr) {
-			return err
-		}
-
-		allowReconcile := strings.EqualFold(strings.TrimSpace(os.Getenv("ASSESS_ALLOW_MIGRATION_CHECKSUM_RECONCILE")), "true")
-		if !allowReconcile {
-			return fmt.Errorf(
-				"migration checksum mismatch detected for %s db (version=%d, file=%s); set ASSESS_ALLOW_MIGRATION_CHECKSUM_RECONCILE=true to reconcile explicitly",
-				databaseName,
-				checksumErr.Version,
-				checksumErr.File,
-			)
-		}
-
-		reconciledCount, reconcileErr := manager.ReconcileChecksums(ctx)
-		if reconcileErr != nil {
-			return fmt.Errorf("reconcile migration checksums for %s db failed: %w", databaseName, reconcileErr)
-		}
-		if reconciledCount == 0 {
-			return err
-		}
-
-		if _, retryErr := manager.Up(ctx); retryErr != nil {
-			return fmt.Errorf("retry migrations after checksum reconcile for %s db failed: %w", databaseName, retryErr)
-		}
-	}
-	return nil
 }
 
 func prepareDesktopEnv() error {
@@ -155,16 +121,38 @@ func prepareDesktopEnv() error {
 		}
 	}
 
-	if os.Getenv("ASSESS_MIGRATIONS_DIR") == "" {
-		migrationsDir, err := ensureEmbeddedMigrationsDir()
+	if os.Getenv("ASSESS_BUSINESS_MIGRATIONS_DIR") == "" || os.Getenv("ASSESS_ACCOUNTS_MIGRATIONS_DIR") == "" {
+		migrationsRoot, err := ensureEmbeddedMigrationsDir()
 		if err != nil {
 			// Development fallback when embedded runtime assets are unavailable.
-			migrationsDir, err = resolveMigrationsDir()
+			migrationsRoot, err = resolveMigrationsRoot()
 			if err != nil {
 				return err
 			}
 		}
-		if err := os.Setenv("ASSESS_MIGRATIONS_DIR", migrationsDir); err != nil {
+		if os.Getenv("ASSESS_MIGRATIONS_DIR") == "" {
+			if err := os.Setenv("ASSESS_MIGRATIONS_DIR", migrationsRoot); err != nil {
+				return err
+			}
+		}
+		if os.Getenv("ASSESS_BUSINESS_MIGRATIONS_DIR") == "" {
+			if err := os.Setenv("ASSESS_BUSINESS_MIGRATIONS_DIR", filepath.Join(migrationsRoot, "business")); err != nil {
+				return err
+			}
+		}
+		if os.Getenv("ASSESS_ACCOUNTS_MIGRATIONS_DIR") == "" {
+			if err := os.Setenv("ASSESS_ACCOUNTS_MIGRATIONS_DIR", filepath.Join(migrationsRoot, "accounts")); err != nil {
+				return err
+			}
+		}
+	}
+
+	if os.Getenv("ASSESS_ACCOUNTS_SQLITE_PATH") == "" {
+		accountsPath, err := defaultAccountsSQLitePath()
+		if err != nil {
+			return err
+		}
+		if err := os.Setenv("ASSESS_ACCOUNTS_SQLITE_PATH", accountsPath); err != nil {
 			return err
 		}
 	}
@@ -478,26 +466,42 @@ func ensureEmbeddedMigrationsDir() (string, error) {
 		return "", fmt.Errorf("create migration runtime dir: %w", err)
 	}
 
-	entries, err := fs.ReadDir(embeddedRuntimeAssets, "runtime/migrations")
-	if err != nil {
-		return "", fmt.Errorf("read embedded migrations: %w", err)
-	}
-
 	sqlCount := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
-			continue
+	err = fs.WalkDir(embeddedRuntimeAssets, "runtime/migrations", func(assetPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		content, err := fs.ReadFile(embeddedRuntimeAssets, path.Join("runtime/migrations", entry.Name()))
-		if err != nil {
-			return "", fmt.Errorf("read embedded migration %s: %w", entry.Name(), err)
+		if d.IsDir() {
+			relativeDir := strings.TrimPrefix(assetPath, "runtime/migrations")
+			relativeDir = strings.TrimPrefix(relativeDir, "/")
+			relativeDir = strings.TrimPrefix(relativeDir, "\\")
+			if relativeDir == "" {
+				return nil
+			}
+			return os.MkdirAll(filepath.Join(targetDir, filepath.FromSlash(relativeDir)), 0o755)
+		}
+		if filepath.Ext(d.Name()) != ".sql" {
+			return nil
 		}
 
-		targetFile := filepath.Join(targetDir, entry.Name())
+		content, err := fs.ReadFile(embeddedRuntimeAssets, assetPath)
+		if err != nil {
+			return fmt.Errorf("read embedded migration %s: %w", assetPath, err)
+		}
+
+		relativeFile := strings.TrimPrefix(assetPath, "runtime/migrations/")
+		targetFile := filepath.Join(targetDir, filepath.FromSlash(relativeFile))
+		if err := os.MkdirAll(filepath.Dir(targetFile), 0o755); err != nil {
+			return fmt.Errorf("create runtime migration dir: %w", err)
+		}
 		if err := os.WriteFile(targetFile, content, 0o644); err != nil {
-			return "", fmt.Errorf("write runtime migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("write runtime migration %s: %w", relativeFile, err)
 		}
 		sqlCount++
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("walk embedded migrations: %w", err)
 	}
 
 	if sqlCount == 0 {
@@ -507,7 +511,7 @@ func ensureEmbeddedMigrationsDir() (string, error) {
 	return targetDir, nil
 }
 
-func resolveMigrationsDir() (string, error) {
+func resolveMigrationsRoot() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("resolve working dir: %w", err)
@@ -530,12 +534,18 @@ func resolveMigrationsDir() (string, error) {
 
 	for _, candidate := range candidates {
 		resolved, ok := existingDir(candidate)
-		if ok {
+		if ok && hasSplitMigrationDirs(resolved) {
 			return resolved, nil
 		}
 	}
 
-	return "", fmt.Errorf("unable to locate migrations directory")
+	return "", fmt.Errorf("unable to locate split migrations root directory")
+}
+
+func hasSplitMigrationDirs(root string) bool {
+	_, businessExists := existingDir(filepath.Join(root, "business"))
+	_, accountsExists := existingDir(filepath.Join(root, "accounts"))
+	return businessExists && accountsExists
 }
 
 func existingDir(path string) (string, bool) {

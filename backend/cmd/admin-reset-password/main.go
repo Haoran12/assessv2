@@ -20,9 +20,11 @@ func main() {
 	mustChange := flag.Bool("must-change", false, "force user to change password on next login")
 	flag.Parse()
 
-	db, err := database.NewSQLite(cfg.Database)
+	accountDBConfig := cfg.Database
+	accountDBConfig.Path = cfg.AccountsDatabasePath
+	db, err := database.NewSQLite(accountDBConfig)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		log.Fatalf("failed to open accounts database: %v", err)
 	}
 
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
