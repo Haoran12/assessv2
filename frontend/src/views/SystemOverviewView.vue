@@ -92,7 +92,7 @@ import type {
 } from "@/types/assessment";
 import type { DepartmentItem, EmployeeItem, OrganizationItem } from "@/types/org";
 import type { ScorePeriodCode } from "@/types/score";
-import { formatAssessmentYearLabel, formatFloat, periodStatusText } from "@/utils/assessment";
+import { formatAssessmentYearLabel, formatFloat, periodDisplayLabel, periodStatusText } from "@/utils/assessment";
 
 interface ObjectScoreRow {
   objectId: number;
@@ -142,7 +142,7 @@ const currentPeriodStatusText = computed(() => {
 
 const contextText = computed(() => {
   const yearText = formatAssessmentYearLabel(contextStore.currentYear);
-  const periodText = contextStore.periodCode;
+  const periodText = periodDisplayLabel(contextStore.periodCode, contextStore.currentPeriod?.periodName);
   const objectCategoryTextValue = objectCategoryText(contextStore.objectCategory);
   return `${yearText} / ${periodText} / ${objectCategoryTextValue}`;
 });

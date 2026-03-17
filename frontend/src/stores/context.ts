@@ -21,9 +21,8 @@ const PERIOD_KEY = "assessv2_context_period_code";
 const OBJECT_CATEGORY_KEY = "assessv2_context_object_category";
 const LEGACY_OBJECT_TYPE_KEY = "assessv2_context_object_type";
 
-const DEFAULT_PERIOD: AssessmentPeriodCode = "Q1";
+const DEFAULT_PERIOD: AssessmentPeriodCode = "";
 const DEFAULT_OBJECT_CATEGORY: GlobalAssessmentObjectCategory = "all";
-const PERIOD_SET = new Set<AssessmentPeriodCode>(["Q1", "Q2", "Q3", "Q4", "YEAR_END"]);
 
 function objectCategorySet(): Set<GlobalAssessmentObjectCategory> {
   const result = new Set<GlobalAssessmentObjectCategory>(["all"]);
@@ -46,9 +45,9 @@ function readStoredYearId(): number | undefined {
 }
 
 function readStoredPeriodCode(): AssessmentPeriodCode {
-  const value = localStorage.getItem(PERIOD_KEY) as AssessmentPeriodCode | null;
-  if (value && PERIOD_SET.has(value)) {
-    return value;
+  const value = (localStorage.getItem(PERIOD_KEY) || "").trim().toUpperCase();
+  if (value) {
+    return value as AssessmentPeriodCode;
   }
   return DEFAULT_PERIOD;
 }
@@ -111,9 +110,17 @@ export const useContextStore = defineStore("context", () => {
   });
 
   function setPeriodCode(value: AssessmentPeriodCode): void {
-    const nextValue = PERIOD_SET.has(value) ? value : DEFAULT_PERIOD;
+    const normalized = String(value || "").trim().toUpperCase() as AssessmentPeriodCode;
+    const nextValue =
+      periods.value.length > 0 && !periods.value.some((item) => item.periodCode === normalized)
+        ? periods.value[0].periodCode
+        : normalized;
     periodCode.value = nextValue;
-    localStorage.setItem(PERIOD_KEY, nextValue);
+    if (nextValue) {
+      localStorage.setItem(PERIOD_KEY, nextValue);
+      return;
+    }
+    localStorage.removeItem(PERIOD_KEY);
   }
 
   function setObjectCategory(value: GlobalAssessmentObjectCategory | string): void {
@@ -209,9 +216,6 @@ export const useContextStore = defineStore("context", () => {
         await loadPeriodsForYear(yearId.value);
       }
 
-      if (!PERIOD_SET.has(periodCode.value)) {
-        setPeriodCode(DEFAULT_PERIOD);
-      }
       if (!objectCategorySet().has(objectCategory.value)) {
         setObjectCategory(DEFAULT_OBJECT_CATEGORY);
       }

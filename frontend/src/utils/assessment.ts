@@ -1,6 +1,26 @@
-﻿import type { AssessmentObjectItem, AssessmentPeriodStatus, AssessmentYearItem } from "@/types/assessment";
+import type {
+  AssessmentObjectItem,
+  AssessmentPeriodCode,
+  AssessmentPeriodStatus,
+  AssessmentYearItem,
+} from "@/types/assessment";
 
-export const PERIOD_OPTIONS = ["Q1", "Q2", "Q3", "Q4", "YEAR_END"] as const;
+const PERIOD_DISPLAY_LABELS: Record<string, string> = {
+  Q1: "一季度",
+  Q2: "二季度",
+  Q3: "三季度",
+  Q4: "四季度",
+  YEAR_END: "年终",
+};
+
+export function periodDisplayLabel(code: AssessmentPeriodCode, name?: string): string {
+  const periodName = name?.trim();
+  if (periodName) {
+    return periodName;
+  }
+  const normalizedCode = String(code || "").trim().toUpperCase();
+  return PERIOD_DISPLAY_LABELS[normalizedCode] ?? code;
+}
 
 export function formatAssessmentYearLabel(year?: Pick<AssessmentYearItem, "year" | "yearName">): string {
   if (!year) {

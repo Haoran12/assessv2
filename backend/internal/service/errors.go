@@ -59,6 +59,7 @@ var (
 	ErrInvalidPeriodStatus     = errors.New("invalid period status")
 	ErrPeriodNotFound          = errors.New("assessment period not found")
 	ErrInvalidPeriodTransition = errors.New("invalid period status transition")
+	ErrInvalidPeriodTemplate   = errors.New("invalid assessment period template")
 	ErrPeriodLocked            = errors.New("assessment period is locked")
 	ErrPeriodNotActive         = errors.New("assessment period is not active")
 

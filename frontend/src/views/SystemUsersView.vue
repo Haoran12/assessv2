@@ -73,7 +73,7 @@
             {{ formatTimestamp(row.lastLoginAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="560" fixed="right">
+        <el-table-column label="操作" min-width="220" fixed="right">
           <template #default="{ row }">
             <div class="action-row">
               <el-button
@@ -85,30 +85,6 @@
                 @click="openEditUserDialog(row)"
               >
                 修改
-              </el-button>
-              <el-button size="small" :disabled="!canManageUsers" @click="handleResetPassword(row.id)">
-                重置密码
-              </el-button>
-              <el-select
-                :model-value="row.status"
-                size="small"
-                style="width: 120px"
-                :disabled="!canManageUsers"
-                @change="(value) => handleStatusChange(row.id, String(value))"
-              >
-                <el-option label="正常" value="active" />
-                <el-option label="停用" value="inactive" />
-                <el-option label="锁定" value="locked" />
-              </el-select>
-              <el-button
-                v-if="isRoot"
-                size="small"
-                type="primary"
-                plain
-                :disabled="loadingGroups"
-                @click="openUserGroupDialog(row)"
-              >
-                编辑用户组
               </el-button>
               <el-button
                 v-if="isRoot"
@@ -241,40 +217,6 @@
         <el-button type="primary" :loading="savingUser" @click="handleSubmitUserForm">保存</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog
-      v-model="userGroupDialogVisible"
-      width="560px"
-      :title="`编辑用户组 - ${activeUser?.username ?? ''}`"
-      destroy-on-close
-    >
-      <div v-if="userGroups.length === 0" class="empty-tip">
-        暂无可选用户组
-      </div>
-      <template v-else>
-        <el-form label-width="86px">
-          <el-form-item label="用户组" required>
-            <el-checkbox-group v-model="selectedRoleIDs" class="role-checkbox-group">
-              <el-checkbox v-for="group in userGroups" :key="group.id" :label="group.id" border>
-                {{ group.roleName }} ({{ group.roleCode }})
-              </el-checkbox>
-            </el-checkbox-group>
-          </el-form-item>
-          <el-form-item label="主角色" required>
-            <el-radio-group v-model="primaryRoleID">
-              <el-radio v-for="roleId in selectedRoleIDs" :key="`primary-${roleId}`" :label="roleId">
-                {{ userGroupName(roleId) }}
-              </el-radio>
-            </el-radio-group>
-          </el-form-item>
-        </el-form>
-      </template>
-      <template #footer>
-        <el-button @click="userGroupDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="updatingUserGroups" @click="handleSubmitUserGroups">保存</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog
       v-model="groupFormVisible"
       width="540px"
@@ -328,14 +270,12 @@ type UserFormMode = "create" | "edit";
 
 const appStore = useAppStore();
 const unsavedStore = useUnsavedStore();
-const userGroupDirtySourceId = "system-users:user-groups";
 const groupFormDirtySourceId = "system-users:group-form";
 
 const loadingUsers = ref(false);
 const loadingGroups = ref(false);
 const savingGroup = ref(false);
 const savingUser = ref(false);
-const updatingUserGroups = ref(false);
 
 const rows = ref<UserListItem[]>([]);
 const total = ref(0);
@@ -349,7 +289,6 @@ const query = reactive({
 });
 
 const isRoot = computed(() => appStore.roles.includes("root") || appStore.primaryRole === "root");
-const canManageUsers = computed(() => isRoot.value || appStore.hasPermission("user:update"));
 const currentUserID = computed(() => appStore.currentUser?.id ?? 0);
 
 const userFormVisible = ref(false);
@@ -365,12 +304,6 @@ const userForm = reactive({
   primaryRoleId: null as number | null,
 });
 
-const userGroupDialogVisible = ref(false);
-const activeUser = ref<UserListItem | null>(null);
-const selectedRoleIDs = ref<number[]>([]);
-const primaryRoleID = ref<number | null>(null);
-const userGroupBaseline = ref("");
-
 const groupFormVisible = ref(false);
 const editingGroupID = ref<number | null>(null);
 const groupForm = reactive({
@@ -384,15 +317,6 @@ const isEditingRootUser = computed(
   () => userFormMode.value === "edit" && editingUserRow.value?.username === "root",
 );
 
-function userGroupSignature(): string {
-  const roleIds = [...selectedRoleIDs.value].sort((a, b) => a - b);
-  return JSON.stringify({
-    userId: activeUser.value?.id ?? null,
-    roleIds,
-    primaryRoleId: primaryRoleID.value,
-  });
-}
-
 function groupFormSignature(): string {
   return JSON.stringify({
     id: editingGroupID.value,
@@ -400,11 +324,6 @@ function groupFormSignature(): string {
     roleCode: groupForm.roleCode,
     description: groupForm.description,
   });
-}
-
-function resetUserGroupBaseline(): void {
-  userGroupBaseline.value = userGroupSignature();
-  unsavedStore.clearDirty(userGroupDirtySourceId);
 }
 
 function resetGroupFormBaseline(): void {
@@ -452,16 +371,6 @@ watch(
   },
   { deep: true },
 );
-
-watch(selectedRoleIDs, (roleIds) => {
-  if (roleIds.length === 0) {
-    primaryRoleID.value = null;
-    return;
-  }
-  if (!primaryRoleID.value || !roleIds.includes(primaryRoleID.value)) {
-    primaryRoleID.value = roleIds[0];
-  }
-});
 
 async function loadUsers(): Promise<void> {
   loadingUsers.value = true;
@@ -647,59 +556,6 @@ async function handleDeleteUser(row: UserListItem): Promise<void> {
   }
 }
 
-async function handleResetPassword(userID: number): Promise<void> {
-  if (!canManageUsers.value) {
-    return;
-  }
-  try {
-    const { value } = await ElMessageBox.prompt(
-      "请输入新密码，留空则使用系统默认密码",
-      "重置密码",
-      {
-        confirmButtonText: "确认",
-        cancelButtonText: "取消",
-        inputType: "password",
-        inputValue: "",
-      },
-    );
-
-    await http.post(`/api/system/users/${userID}/reset-password`, {
-      newPassword: value?.trim() ? value.trim() : undefined,
-    });
-    ElMessage.success("密码已重置");
-    await loadUsers();
-  } catch (error) {
-    if (String(error).includes("cancel")) {
-      return;
-    }
-    ElMessage.error("密码重置失败");
-  }
-}
-
-async function handleStatusChange(userID: number, status: string): Promise<void> {
-  if (!canManageUsers.value) {
-    return;
-  }
-  const nextStatus = status as UserStatus;
-  try {
-    await ElMessageBox.confirm(
-      `确认将用户 #${userID} 状态设置为「${statusText(nextStatus)}」？`,
-      "更新状态",
-      { type: "warning" },
-    );
-    await http.put(`/api/system/users/${userID}/status`, { status: nextStatus });
-    ElMessage.success("状态已更新");
-    await loadUsers();
-  } catch (error) {
-    if (String(error).includes("cancel")) {
-      await loadUsers();
-      return;
-    }
-    ElMessage.error("状态更新失败");
-    await loadUsers();
-  }
-}
-
 function displayRoleNames(row: UserListItem): string[] {
   if (Array.isArray(row.roleNames) && row.roleNames.length > 0) {
     return row.roleNames;
@@ -719,58 +575,6 @@ function roleDisplayName(roleCode: string, row: UserListItem): string {
     return row.roleNames[codeIndex];
   }
   return roleCode;
-}
-
-function openUserGroupDialog(row: UserListItem): void {
-  if (!isRoot.value) {
-    return;
-  }
-  activeUser.value = row;
-  const roleIDMap = new Map(userGroups.value.map((item) => [item.roleCode, item.id]));
-  selectedRoleIDs.value = row.roles
-    .map((roleCode) => roleIDMap.get(roleCode))
-    .filter((value): value is number => typeof value === "number");
-  const primary = roleIDMap.get(row.primaryRole || "");
-  primaryRoleID.value = primary || selectedRoleIDs.value[0] || null;
-  userGroupDialogVisible.value = true;
-}
-
-function userGroupName(roleId: number): string {
-  const item = userGroups.value.find((group) => group.id === roleId);
-  return item ? `${item.roleName} (${item.roleCode})` : `#${roleId}`;
-}
-
-async function handleSubmitUserGroups(): Promise<void> {
-  if (!activeUser.value) {
-    return;
-  }
-  if (selectedRoleIDs.value.length === 0) {
-    ElMessage.warning("请至少选择一个用户组");
-    return;
-  }
-  const primary =
-    primaryRoleID.value && selectedRoleIDs.value.includes(primaryRoleID.value)
-      ? primaryRoleID.value
-      : selectedRoleIDs.value[0];
-  if (!primary) {
-    ElMessage.warning("请选择主角色");
-    return;
-  }
-
-  updatingUserGroups.value = true;
-  try {
-    await http.put(`/api/system/users/${activeUser.value.id}/groups`, {
-      roleIds: selectedRoleIDs.value,
-      primaryRoleId: primary,
-    });
-    ElMessage.success("用户组已更新");
-    userGroupDialogVisible.value = false;
-    await loadUsers();
-  } catch (_error) {
-    ElMessage.error("用户组更新失败");
-  } finally {
-    updatingUserGroups.value = false;
-  }
 }
 
 function openGroupForm(item?: UserGroupItem): void {
@@ -874,10 +678,6 @@ function statusText(status: UserStatus): string {
 }
 
 onMounted(async () => {
-  unsavedStore.setSourceMeta(userGroupDirtySourceId, {
-    label: "用户组分配",
-    save: handleSubmitUserGroups,
-  });
   unsavedStore.setSourceMeta(groupFormDirtySourceId, {
     label: "用户组编辑",
     save: handleSaveGroup,
@@ -886,28 +686,6 @@ onMounted(async () => {
   if (isRoot.value) {
     await loadUserGroups();
   }
-});
-
-watch(userGroupDialogVisible, (visible) => {
-  if (visible) {
-    resetUserGroupBaseline();
-    return;
-  }
-  userGroupBaseline.value = "";
-  unsavedStore.clearDirty(userGroupDirtySourceId);
-});
-
-watch([selectedRoleIDs, primaryRoleID], () => {
-  if (!userGroupDialogVisible.value) {
-    unsavedStore.clearDirty(userGroupDirtySourceId);
-    return;
-  }
-  const current = userGroupSignature();
-  if (!userGroupBaseline.value || current === userGroupBaseline.value) {
-    unsavedStore.clearDirty(userGroupDirtySourceId);
-    return;
-  }
-  unsavedStore.markDirty(userGroupDirtySourceId);
 });
 
 watch(groupFormVisible, (visible) => {
@@ -943,7 +721,6 @@ watch(editingGroupID, () => {
 });
 
 onBeforeUnmount(() => {
-  unsavedStore.unregisterSource(userGroupDirtySourceId);
   unsavedStore.unregisterSource(groupFormDirtySourceId);
 });
 </script>
@@ -1009,3 +786,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+

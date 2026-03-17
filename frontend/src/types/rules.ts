@@ -1,4 +1,4 @@
-export type AssessmentPeriodCode = "Q1" | "Q2" | "Q3" | "Q4" | "YEAR_END";
+export type AssessmentPeriodCode = string;
 export type RuleObjectType = "team" | "individual";
 export type RuleModuleCode = "direct" | "vote" | "custom" | "extra";
 

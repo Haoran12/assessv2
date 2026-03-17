@@ -104,6 +104,8 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		assessment.PUT("/years/:id/status", middleware.RequirePermission("assessment:update"), assessmentHandler.UpdateYearStatus)
 		assessment.GET("/years/:id/periods", middleware.RequirePermission("assessment:view"), assessmentHandler.ListPeriods)
 		assessment.GET("/years/:id/objects", middleware.RequirePermission("assessment:view"), assessmentHandler.ListObjects)
+		assessment.GET("/period-templates", middleware.RequirePermission("assessment:view"), assessmentHandler.ListPeriodTemplates)
+		assessment.PUT("/period-templates", middleware.RequirePermission("assessment:update"), assessmentHandler.UpdatePeriodTemplates)
 		assessment.PUT("/periods/:id/status", middleware.RequirePermission("assessment:update"), assessmentHandler.UpdatePeriodStatus)
 
 		rules := api.Group("/rules")

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"regexp"
 	"strings"
 
 	"assessv2/backend/internal/model"
@@ -9,9 +10,7 @@ import (
 )
 
 var (
-	scorePeriodCodeSet = map[string]struct{}{
-		"Q1": {}, "Q2": {}, "Q3": {}, "Q4": {}, "YEAR_END": {},
-	}
+	periodCodePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,19}$`)
 	voteTaskStatusSet = map[string]struct{}{
 		"pending": {}, "completed": {}, "expired": {},
 	}
@@ -25,8 +24,7 @@ func normalizePeriodCode(value string) string {
 }
 
 func isValidPeriodCode(value string) bool {
-	_, ok := scorePeriodCodeSet[value]
-	return ok
+	return periodCodePattern.MatchString(strings.TrimSpace(value))
 }
 
 func ensurePeriodWritableTx(tx *gorm.DB, yearID uint, periodCode string) error {

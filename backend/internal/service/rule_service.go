@@ -136,9 +136,6 @@ type ruleDimension struct {
 }
 
 var (
-	rulePeriodCodeSet = map[string]struct{}{
-		"Q1": {}, "Q2": {}, "Q3": {}, "Q4": {}, "YEAR_END": {},
-	}
 	ruleObjectTypeSet = categorySetByObjectType
 	moduleCodeSet     = map[string]struct{}{
 		"direct": {}, "vote": {}, "custom": {}, "extra": {},
@@ -788,8 +785,8 @@ func normalizeRuleDimension(yearID uint, periodCode, objectType, objectCategory 
 	if yearID == 0 {
 		return ruleDimension{}, ErrInvalidParam
 	}
-	periodCode = strings.TrimSpace(periodCode)
-	if _, ok := rulePeriodCodeSet[periodCode]; !ok {
+	periodCode = normalizePeriodCode(periodCode)
+	if !isValidPeriodCode(periodCode) {
 		return ruleDimension{}, ErrInvalidRulePeriodCode
 	}
 	normalizedType, ok := normalizeObjectType(objectType)
@@ -1022,7 +1019,7 @@ func targetPeriods(periodCode string, syncQuarterly bool) []string {
 }
 
 func isQuarterPeriod(periodCode string) bool {
-	switch periodCode {
+	switch normalizePeriodCode(periodCode) {
 	case "Q1", "Q2", "Q3", "Q4":
 		return true
 	default:

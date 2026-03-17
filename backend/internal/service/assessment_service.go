@@ -96,7 +96,14 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 			return fmt.Errorf("failed to create assessment year: %w", err)
 		}
 
-		periods := defaultPeriods(year.ID, &operator)
+		templates, err := s.loadPeriodTemplatesTx(tx)
+		if err != nil {
+			return fmt.Errorf("failed to load assessment period templates: %w", err)
+		}
+		periods, err := buildPeriodsFromTemplates(year.ID, year.Year, &operator, templates)
+		if err != nil {
+			return err
+		}
 		if err := tx.Create(&periods).Error; err != nil {
 			return fmt.Errorf("failed to create assessment periods: %w", err)
 		}

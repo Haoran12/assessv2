@@ -67,17 +67,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { getSystemSettings, updateSystemSettings } from "@/api/system-admin";
 import { useAppStore } from "@/stores/app";
+import { useUnsavedStore } from "@/stores/unsaved";
 import type { SystemSettingItem, SystemSettingsResponse } from "@/types/system";
 
 const appStore = useAppStore();
+const unsavedStore = useUnsavedStore();
 const canUpdate = computed(() => appStore.hasPermission("setting:update"));
+const dirtySourceId = "system-settings";
 
 const loading = ref(false);
 const saving = ref(false);
+const formBaseline = ref("");
 
 const form = reactive({
   systemName: "",
@@ -97,6 +101,30 @@ const form = reactive({
 });
 
 let latestSettings: SystemSettingItem[] = [];
+
+function formSignature(): string {
+  return JSON.stringify({
+    systemName: form.systemName,
+    systemLogo: form.systemLogo,
+    systemTimezone: form.systemTimezone,
+    scoreDecimalPlaces: form.scoreDecimalPlaces,
+    assessmentDefaultPeriodRange: form.assessmentDefaultPeriodRange,
+    assessmentRankingRule: form.assessmentRankingRule,
+    voteDeadlineTime: form.voteDeadlineTime,
+    securityPasswordPolicy: form.securityPasswordPolicy,
+    securitySessionTimeoutMinutes: form.securitySessionTimeoutMinutes,
+    auditRetentionDays: form.auditRetentionDays,
+    backupAutoEnabled: form.backupAutoEnabled,
+    backupAutoTime: form.backupAutoTime,
+    backupRetentionDays: form.backupRetentionDays,
+    backupMaxCount: form.backupMaxCount,
+  });
+}
+
+function resetBaseline(): void {
+  formBaseline.value = formSignature();
+  unsavedStore.clearDirty(dirtySourceId);
+}
 
 async function loadSettings(): Promise<void> {
   loading.value = true;
@@ -126,6 +154,7 @@ function applySettings(result: SystemSettingsResponse): void {
   form.backupAutoTime = settingString(result, "backup.auto_time", "02:00");
   form.backupRetentionDays = settingNumber(result, "backup.retention_days", 7);
   form.backupMaxCount = settingNumber(result, "backup.max_count", 30);
+  resetBaseline();
 }
 
 async function handleSave(): Promise<void> {
@@ -222,7 +251,31 @@ function isTimeText(value: string): boolean {
 }
 
 onMounted(async () => {
+  unsavedStore.setSourceMeta(dirtySourceId, {
+    label: "系统设置",
+    save: handleSave,
+  });
   await loadSettings();
+});
+
+watch(
+  form,
+  () => {
+    if (!formBaseline.value) {
+      return;
+    }
+    const current = formSignature();
+    if (current === formBaseline.value) {
+      unsavedStore.clearDirty(dirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(dirtySourceId);
+  },
+  { deep: true },
+);
+
+onBeforeUnmount(() => {
+  unsavedStore.unregisterSource(dirtySourceId);
 });
 </script>
 

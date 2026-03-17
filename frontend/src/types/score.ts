@@ -1,4 +1,4 @@
-export type ScorePeriodCode = "Q1" | "Q2" | "Q3" | "Q4" | "YEAR_END";
+export type ScorePeriodCode = string;
 export type ExtraPointType = "add" | "deduct";
 
 export interface DirectScoreItem {

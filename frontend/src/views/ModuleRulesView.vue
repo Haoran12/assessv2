@@ -243,7 +243,7 @@ import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
 import { assessmentCategoryLabel } from "@/constants/assessmentCategories";
 import { getRule, listRules, updateRule } from "@/api/rules";
-import { periodStatusText } from "@/utils/assessment";
+import { periodDisplayLabel, periodStatusText } from "@/utils/assessment";
 import type {
   RuleDetail,
   RuleModule,
@@ -579,7 +579,7 @@ async function loadData(): Promise<void> {
     }
 
     const yearId = contextStore.yearId;
-    contextText.value = `当前位置：年度编号 ${yearId} / 周期=${targetPeriod.periodCode} / 状态=${periodStatusText(targetPeriod.status)}`;
+    contextText.value = `当前位置：年度编号 ${yearId} / 周期=${periodDisplayLabel(targetPeriod.periodCode, targetPeriod.periodName)} / 状态=${periodStatusText(targetPeriod.status)}`;
 
     const rows = await listRules({
       yearId,

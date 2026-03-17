@@ -32,6 +32,18 @@ type updateStatusRequest struct {
 	Status string `json:"status"`
 }
 
+type assessmentPeriodTemplateItemRequest struct {
+	PeriodCode string `json:"periodCode"`
+	PeriodName string `json:"periodName"`
+	StartDay   string `json:"startDay"`
+	EndDay     string `json:"endDay"`
+	SortOrder  int    `json:"sortOrder"`
+}
+
+type updatePeriodTemplatesRequest struct {
+	Items []assessmentPeriodTemplateItemRequest `json:"items"`
+}
+
 func (h *AssessmentHandler) ListYears(c *gin.Context) {
 	result, err := h.assessmentService.ListYears(c.Request.Context())
 	if err != nil {
@@ -116,6 +128,57 @@ func (h *AssessmentHandler) ListPeriods(c *gin.Context) {
 	response.Success(c, gin.H{"items": result})
 }
 
+func (h *AssessmentHandler) ListPeriodTemplates(c *gin.Context) {
+	result, err := h.assessmentService.ListPeriodTemplates(c.Request.Context())
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to query period templates")
+		return
+	}
+	response.Success(c, gin.H{"items": result})
+}
+
+func (h *AssessmentHandler) UpdatePeriodTemplates(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	var req updatePeriodTemplatesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid period templates payload")
+		return
+	}
+
+	items := make([]service.AssessmentPeriodTemplateItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, service.AssessmentPeriodTemplateItem{
+			PeriodCode: strings.TrimSpace(item.PeriodCode),
+			PeriodName: strings.TrimSpace(item.PeriodName),
+			StartDay:   strings.TrimSpace(item.StartDay),
+			EndDay:     strings.TrimSpace(item.EndDay),
+			SortOrder:  item.SortOrder,
+		})
+	}
+
+	result, err := h.assessmentService.UpdatePeriodTemplates(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		items,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to update period templates")
+		return
+	}
+	response.Success(c, gin.H{"items": result})
+}
+
 func (h *AssessmentHandler) UpdatePeriodStatus(c *gin.Context) {
 	operatorID, ok := operatorFromClaims(c)
 	if !ok {
@@ -169,7 +232,8 @@ func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fal
 		errors.Is(err, service.ErrInvalidYearStatus),
 		errors.Is(err, service.ErrInvalidYearTransition),
 		errors.Is(err, service.ErrInvalidPeriodStatus),
-		errors.Is(err, service.ErrInvalidPeriodTransition):
+		errors.Is(err, service.ErrInvalidPeriodTransition),
+		errors.Is(err, service.ErrInvalidPeriodTemplate):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 	case errors.Is(err, service.ErrYearAlreadyExists),
 		errors.Is(err, service.ErrAssessmentReadOnly),

@@ -63,9 +63,9 @@
                 <el-dropdown-item disabled>
                   <span class="role-tag">{{ roleLabel(appStore.primaryRole) }}</span>
                 </el-dropdown-item>
-                <el-dropdown-item divided @click="goToChangePassword">\u4fee\u6539\u5bc6\u7801</el-dropdown-item>
-                <el-dropdown-item @click="handleLogout">\u9000\u51fa\u767b\u5f55</el-dropdown-item>
-                <el-dropdown-item divided @click="handleExitSystem">\u9000\u51fa\u7cfb\u7edf</el-dropdown-item>
+                <el-dropdown-item divided @click="goToChangePassword">修改密码</el-dropdown-item>
+                <el-dropdown-item @click="handleLogout">退出登录</el-dropdown-item>
+                <el-dropdown-item divided @click="handleExitSystem">退出系统</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>

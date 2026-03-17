@@ -3,6 +3,7 @@ import type {
   AssessmentObjectItem,
   AssessmentPeriodItem,
   AssessmentPeriodStatus,
+  AssessmentPeriodTemplateItem,
   AssessmentYearItem,
   AssessmentYearStatus,
   CreateAssessmentYearPayload,
@@ -32,6 +33,18 @@ export async function updateAssessmentYearStatus(
 export async function listAssessmentPeriods(yearId: number): Promise<AssessmentPeriodItem[]> {
   const response = await http.get(`/api/assessment/years/${yearId}/periods`);
   return (response.data?.data?.items ?? []) as AssessmentPeriodItem[];
+}
+
+export async function listAssessmentPeriodTemplates(): Promise<AssessmentPeriodTemplateItem[]> {
+  const response = await http.get("/api/assessment/period-templates");
+  return (response.data?.data?.items ?? []) as AssessmentPeriodTemplateItem[];
+}
+
+export async function updateAssessmentPeriodTemplates(
+  items: AssessmentPeriodTemplateItem[],
+): Promise<AssessmentPeriodTemplateItem[]> {
+  const response = await http.put("/api/assessment/period-templates", { items });
+  return (response.data?.data?.items ?? []) as AssessmentPeriodTemplateItem[];
 }
 
 export async function updateAssessmentPeriodStatus(

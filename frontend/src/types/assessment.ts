@@ -1,5 +1,5 @@
 export type AssessmentYearStatus = "preparing" | "active" | "completed";
-export type AssessmentPeriodCode = "Q1" | "Q2" | "Q3" | "Q4" | "YEAR_END";
+export type AssessmentPeriodCode = string;
 export type AssessmentPeriodStatus = "preparing" | "active" | "completed";
 export type AssessmentObjectType = "team" | "individual";
 export type GlobalAssessmentObjectType = AssessmentObjectType | "all";
@@ -39,6 +39,14 @@ export interface AssessmentPeriodItem {
   endDate?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface AssessmentPeriodTemplateItem {
+  periodCode: AssessmentPeriodCode;
+  periodName: string;
+  startDay?: string;
+  endDay?: string;
+  sortOrder: number;
 }
 
 export interface AssessmentObjectItem {

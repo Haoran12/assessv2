@@ -82,20 +82,8 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 		return false
 	}
 
-	selection, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-		Type:          runtime.WarningDialog,
-		Title:         "退出提醒",
-		Message:       "检测到存在未保存的数据，退出后将丢失，是否继续退出？",
-		Buttons:       []string{"继续退出", "取消"},
-		DefaultButton: "取消",
-		CancelButton:  "取消",
-	})
-	if err != nil {
-		log.Printf("show close confirmation dialog failed: %v", err)
-		return true
-	}
-
-	return selection != "继续退出"
+	runtime.EventsEmit(ctx, "app:close-requested")
+	return true
 }
 
 func (a *App) onSecondInstanceLaunch(secondInstanceData options.SecondInstanceData) {
@@ -118,7 +106,7 @@ func (a *App) onSecondInstanceLaunch(secondInstanceData options.SecondInstanceDa
 	if _, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:    runtime.InfoDialog,
 		Title:   "AssessV2",
-		Message: "系统已在运行，已为你切换到现有窗口。",
+		Message: "The app is already running. Switched to the existing window.",
 	}); err != nil {
 		log.Printf("show single-instance message dialog failed: %v", err)
 	}

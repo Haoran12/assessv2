@@ -563,9 +563,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useAppStore } from "@/stores/app";
+import { useUnsavedStore } from "@/stores/unsaved";
 import {
   createPositionLevel,
   createDepartment,
@@ -606,9 +607,16 @@ interface TreeNodeUI extends OrgTreeNode {
 
 const treeRef = ref();
 const appStore = useAppStore();
+const unsavedStore = useUnsavedStore();
 const canEdit = computed(() => appStore.hasPermission("org:update"));
 const isRoot = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
 const canManagePositionLevels = computed(() => isRoot.value);
+
+const organizationDirtySourceId = "org:organization-dialog";
+const departmentDirtySourceId = "org:department-dialog";
+const positionLevelDirtySourceId = "org:position-level-dialog";
+const employeeDirtySourceId = "org:employee-dialog";
+const transferDirtySourceId = "org:transfer-dialog";
 
 const activeTab = ref("organizations");
 
@@ -671,6 +679,7 @@ const organizationForm = reactive({
   sortOrder: 0,
   status: "active" as OrgStatus,
 });
+const organizationBaseline = ref("");
 
 const departmentDialogVisible = ref(false);
 const savingDepartment = ref(false);
@@ -682,6 +691,7 @@ const departmentForm = reactive({
   sortOrder: 0,
   status: "active" as OrgStatus,
 });
+const departmentBaseline = ref("");
 
 const employeeDialogVisible = ref(false);
 const savingEmployee = ref(false);
@@ -695,6 +705,7 @@ const employeeForm = reactive({
   hireDate: "",
   status: "active" as OrgStatus,
 });
+const employeeBaseline = ref("");
 
 const transferDialogVisible = ref(false);
 const savingTransfer = ref(false);
@@ -708,10 +719,12 @@ const transferForm = reactive({
   changeReason: "",
   effectiveDate: "",
 });
+const transferBaseline = ref("");
 
 const historyDialogVisible = ref(false);
 const historyTargetName = ref("");
 const historyRows = ref<EmployeeHistoryItem[]>([]);
+const positionLevelBaseline = ref("");
 
 const selectedTreeNode = ref<TreeNodeUI | null>(null);
 const treeProps = {
@@ -731,6 +744,142 @@ watch(activeTab, (value) => {
     void loadEmployees();
   }
 });
+
+watch(organizationDialogVisible, (visible) => {
+  if (visible) {
+    resetOrganizationBaseline();
+    return;
+  }
+  organizationBaseline.value = "";
+  unsavedStore.clearDirty(organizationDirtySourceId);
+});
+
+watch(
+  organizationForm,
+  () => {
+    if (!organizationDialogVisible.value) {
+      unsavedStore.clearDirty(organizationDirtySourceId);
+      return;
+    }
+    const current = organizationFormSignature();
+    if (!organizationBaseline.value || current === organizationBaseline.value) {
+      unsavedStore.clearDirty(organizationDirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(organizationDirtySourceId);
+  },
+  { deep: true },
+);
+
+watch(departmentDialogVisible, (visible) => {
+  if (visible) {
+    resetDepartmentBaseline();
+    return;
+  }
+  departmentBaseline.value = "";
+  unsavedStore.clearDirty(departmentDirtySourceId);
+});
+
+watch(
+  departmentForm,
+  () => {
+    if (!departmentDialogVisible.value) {
+      unsavedStore.clearDirty(departmentDirtySourceId);
+      return;
+    }
+    const current = departmentFormSignature();
+    if (!departmentBaseline.value || current === departmentBaseline.value) {
+      unsavedStore.clearDirty(departmentDirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(departmentDirtySourceId);
+  },
+  { deep: true },
+);
+
+watch(positionLevelDialogVisible, (visible) => {
+  if (visible) {
+    resetPositionLevelBaseline();
+    return;
+  }
+  positionLevelBaseline.value = "";
+  unsavedStore.clearDirty(positionLevelDirtySourceId);
+});
+
+watch(
+  positionLevelForm,
+  () => {
+    if (!positionLevelDialogVisible.value) {
+      unsavedStore.clearDirty(positionLevelDirtySourceId);
+      return;
+    }
+    const current = positionLevelFormSignature();
+    if (!positionLevelBaseline.value || current === positionLevelBaseline.value) {
+      unsavedStore.clearDirty(positionLevelDirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(positionLevelDirtySourceId);
+  },
+  { deep: true },
+);
+
+watch(employeeDialogVisible, (visible) => {
+  if (visible) {
+    resetEmployeeBaseline();
+    return;
+  }
+  employeeBaseline.value = "";
+  unsavedStore.clearDirty(employeeDirtySourceId);
+});
+
+watch(
+  employeeForm,
+  () => {
+    if (!employeeDialogVisible.value) {
+      unsavedStore.clearDirty(employeeDirtySourceId);
+      return;
+    }
+    const current = employeeFormSignature();
+    if (!employeeBaseline.value || current === employeeBaseline.value) {
+      unsavedStore.clearDirty(employeeDirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(employeeDirtySourceId);
+  },
+  { deep: true },
+);
+
+watch(transferDialogVisible, (visible) => {
+  if (visible) {
+    resetTransferBaseline();
+    return;
+  }
+  transferBaseline.value = "";
+  unsavedStore.clearDirty(transferDirtySourceId);
+});
+
+watch(transferTargetEmployee, () => {
+  if (transferDialogVisible.value) {
+    resetTransferBaseline();
+  }
+});
+
+watch(
+  transferForm,
+  () => {
+    if (!transferDialogVisible.value) {
+      unsavedStore.clearDirty(transferDirtySourceId);
+      return;
+    }
+    const current = transferFormSignature();
+    if (!transferBaseline.value || current === transferBaseline.value) {
+      unsavedStore.clearDirty(transferDirtySourceId);
+      return;
+    }
+    unsavedStore.markDirty(transferDirtySourceId);
+  },
+  { deep: true },
+);
 
 function filterTreeNode(value: string, data: TreeNodeUI): boolean {
   const text = value.trim().toLowerCase();
@@ -781,6 +930,92 @@ function dateText(value?: string): string {
     return value.slice(0, 10);
   }
   return value;
+}
+
+function organizationFormSignature(): string {
+  return JSON.stringify({
+    id: organizationForm.id,
+    orgName: organizationForm.orgName,
+    orgType: organizationForm.orgType,
+    parentId: organizationForm.parentId,
+    sortOrder: organizationForm.sortOrder,
+    status: organizationForm.status,
+  });
+}
+
+function departmentFormSignature(): string {
+  return JSON.stringify({
+    id: departmentForm.id,
+    deptName: departmentForm.deptName,
+    organizationId: departmentForm.organizationId,
+    parentDeptId: departmentForm.parentDeptId,
+    sortOrder: departmentForm.sortOrder,
+    status: departmentForm.status,
+  });
+}
+
+function positionLevelFormSignature(): string {
+  return JSON.stringify({
+    id: positionLevelForm.id,
+    levelCode: positionLevelForm.levelCode,
+    levelName: positionLevelForm.levelName,
+    description: positionLevelForm.description,
+    isForAssessment: positionLevelForm.isForAssessment,
+    sortOrder: positionLevelForm.sortOrder,
+    status: positionLevelForm.status,
+    isSystem: positionLevelForm.isSystem,
+  });
+}
+
+function employeeFormSignature(): string {
+  return JSON.stringify({
+    id: employeeForm.id,
+    empName: employeeForm.empName,
+    organizationId: employeeForm.organizationId,
+    departmentId: employeeForm.departmentId,
+    positionLevelId: employeeForm.positionLevelId,
+    positionTitle: employeeForm.positionTitle,
+    hireDate: employeeForm.hireDate,
+    status: employeeForm.status,
+  });
+}
+
+function transferFormSignature(): string {
+  return JSON.stringify({
+    employeeId: transferTargetEmployee.value?.id ?? null,
+    changeType: transferForm.changeType,
+    newOrganizationId: transferForm.newOrganizationId,
+    newDepartmentId: transferForm.newDepartmentId,
+    newPositionLevelId: transferForm.newPositionLevelId,
+    newPositionTitle: transferForm.newPositionTitle,
+    changeReason: transferForm.changeReason,
+    effectiveDate: transferForm.effectiveDate,
+  });
+}
+
+function resetOrganizationBaseline(): void {
+  organizationBaseline.value = organizationFormSignature();
+  unsavedStore.clearDirty(organizationDirtySourceId);
+}
+
+function resetDepartmentBaseline(): void {
+  departmentBaseline.value = departmentFormSignature();
+  unsavedStore.clearDirty(departmentDirtySourceId);
+}
+
+function resetPositionLevelBaseline(): void {
+  positionLevelBaseline.value = positionLevelFormSignature();
+  unsavedStore.clearDirty(positionLevelDirtySourceId);
+}
+
+function resetEmployeeBaseline(): void {
+  employeeBaseline.value = employeeFormSignature();
+  unsavedStore.clearDirty(employeeDirtySourceId);
+}
+
+function resetTransferBaseline(): void {
+  transferBaseline.value = transferFormSignature();
+  unsavedStore.clearDirty(transferDirtySourceId);
 }
 
 function organizationName(organizationId?: number): string {
@@ -1370,6 +1605,27 @@ async function openHistoryDialog(employee: EmployeeItem): Promise<void> {
 }
 
 onMounted(async () => {
+  unsavedStore.setSourceMeta(organizationDirtySourceId, {
+    label: "组织编辑",
+    save: submitOrganization,
+  });
+  unsavedStore.setSourceMeta(departmentDirtySourceId, {
+    label: "部门编辑",
+    save: submitDepartment,
+  });
+  unsavedStore.setSourceMeta(positionLevelDirtySourceId, {
+    label: "分类编辑",
+    save: submitPositionLevel,
+  });
+  unsavedStore.setSourceMeta(employeeDirtySourceId, {
+    label: "人员编辑",
+    save: submitEmployee,
+  });
+  unsavedStore.setSourceMeta(transferDirtySourceId, {
+    label: "人员调动",
+    save: submitTransfer,
+  });
+
   await Promise.all([
     loadOrganizations(),
     loadDepartments(),
@@ -1379,6 +1635,14 @@ onMounted(async () => {
   ]);
   await nextTick();
   treeRef.value?.filter(treeKeyword.value);
+});
+
+onBeforeUnmount(() => {
+  unsavedStore.unregisterSource(organizationDirtySourceId);
+  unsavedStore.unregisterSource(departmentDirtySourceId);
+  unsavedStore.unregisterSource(positionLevelDirtySourceId);
+  unsavedStore.unregisterSource(employeeDirtySourceId);
+  unsavedStore.unregisterSource(transferDirtySourceId);
 });
 </script>
 
