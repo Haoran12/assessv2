@@ -81,19 +81,21 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
+import { resolveUnsavedBeforeLeave } from "@/guards/unsaved";
 import type { AssessmentPeriodCode, GlobalAssessmentObjectCategory } from "@/types/assessment";
-import { formatAssessmentYearLabel } from "@/utils/assessment";
+import { formatAssessmentYearLabel, periodDisplayLabel } from "@/utils/assessment";
 import { appBrandName } from "@/config/branding";
 
 interface NavItem {
   path: string;
   label: string;
   permission?: string;
+  rootOnly?: boolean;
 }
 
 interface DesktopAppBridge {
@@ -109,10 +111,10 @@ const navItems: NavItem[] = [
   { path: "/rules/total", label: "\u603b\u5206\u89c4\u5219", permission: "rule:view" },
   { path: "/rules/module", label: "\u6a21\u5757\u89c4\u5219", permission: "rule:view" },
   { path: "/rules/grade", label: "\u7b49\u7b2c\u89c4\u5219", permission: "rule:view" },
-  { path: "/system/users", label: "\u7528\u6237\u7ba1\u7406", permission: "user:view" },
+  { path: "/system/users", label: "\u7528\u6237\u7ba1\u7406", permission: "user:view", rootOnly: true },
   { path: "/system/backup", label: "\u5907\u4efd\u6062\u590d", permission: "backup:view" },
   { path: "/system/audit", label: "\u5ba1\u8ba1\u65e5\u5fd7", permission: "audit:view" },
-  { path: "/system/settings", label: "\u7cfb\u7edf\u8bbe\u7f6e", permission: "setting:view" },
+  { path: "/system/settings", label: "\u7cfb\u7edf\u8bbe\u7f6e", permission: "setting:view", rootOnly: true },
 ];
 
 const route = useRoute();
@@ -120,15 +122,21 @@ const router = useRouter();
 const appStore = useAppStore();
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
-let closeGuardObserver: MutationObserver | null = null;
 let closeGuardSyncTimer: number | null = null;
 let lastSyncedCloseGuardState: boolean | null = null;
 let bypassBeforeUnloadUntil = 0;
+let closeRequestHandlerDisposer: (() => void) | null = null;
+let handlingCloseRequest = false;
 
 const objectCategoryOptions = computed(() => contextStore.categoryOptions);
 const activePath = computed(() => route.path);
 const visibleMenus = computed(() =>
-  navItems.filter((item) => !item.permission || appStore.hasPermission(item.permission)),
+  navItems.filter((item) => {
+    if (item.rootOnly && appStore.primaryRole !== "root" && !appStore.roles.includes("root")) {
+      return false;
+    }
+    return !item.permission || appStore.hasPermission(item.permission);
+  }),
 );
 const periodOptions = computed(() => contextStore.periods);
 
@@ -196,17 +204,7 @@ onMounted(() => {
     window.addEventListener("beforeunload", handleBeforeUnload);
   }
 
-  if (typeof document !== "undefined" && typeof MutationObserver !== "undefined") {
-    closeGuardObserver = new MutationObserver(() => {
-      scheduleCloseGuardSync();
-    });
-    closeGuardObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["class", "style"],
-    });
-  }
+  bindDesktopCloseRequestHandler();
 
   scheduleCloseGuardSync();
 });
@@ -220,20 +218,27 @@ onBeforeUnmount(() => {
     }
   }
 
-  if (closeGuardObserver) {
-    closeGuardObserver.disconnect();
-    closeGuardObserver = null;
+  if (closeRequestHandlerDisposer) {
+    closeRequestHandlerDisposer();
+    closeRequestHandlerDisposer = null;
   }
 
   clearDesktopCloseGuard();
 });
 
 function periodLabel(code: AssessmentPeriodCode, name?: string): string {
-  const text = name?.trim();
-  return text ? `${code} - ${text}` : code;
+  return periodDisplayLabel(code, name);
 }
 
 async function handleLogout(): Promise<void> {
+  const allowed = await resolveUnsavedBeforeLeave({
+    title: "退出登录提醒",
+    message: "检测到当前有未保存改动，退出登录后将丢失。请选择后续操作。",
+  });
+  if (!allowed) {
+    return;
+  }
+
   await appStore.logout();
   unsavedStore.clearAll();
   ElMessage.success("\u5df2\u9000\u51fa\u767b\u5f55");
@@ -244,30 +249,12 @@ async function goToChangePassword(): Promise<void> {
   await router.push("/change-password");
 }
 
-function hasOpenEditorDialog(): boolean {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return false;
-  }
-
-  const overlays = Array.from(document.querySelectorAll<HTMLElement>(".el-overlay"));
-  return overlays.some((overlay) => {
-    if (!overlay.querySelector(".el-dialog")) {
-      return false;
-    }
-    if (overlay.querySelector(".el-message-box")) {
-      return false;
-    }
-    const style = window.getComputedStyle(overlay);
-    return style.display !== "none" && style.visibility !== "hidden";
-  });
-}
-
 function isDesktopRuntime(): boolean {
   return typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("wails");
 }
 
 function hasPendingExitChanges(): boolean {
-  return unsavedStore.hasUnsavedChanges || hasOpenEditorDialog();
+  return unsavedStore.hasUnsavedChanges;
 }
 
 function getDesktopAppBridge(): DesktopAppBridge | undefined {
@@ -368,30 +355,29 @@ async function syncPreferredDataYear(year: number): Promise<void> {
   }
 }
 
-async function confirmExitIfUnsaved(): Promise<boolean> {
-  const hasUnsavedChanges = hasPendingExitChanges();
-  if (!hasUnsavedChanges) {
-    return true;
-  }
-
-  try {
-    await ElMessageBox.confirm("\u68c0\u6d4b\u5230\u5b58\u5728\u672a\u4fdd\u5b58\u7684\u6570\u636e\uff0c\u9000\u51fa\u540e\u5c06\u4e22\u5931\uff0c\u662f\u5426\u7ee7\u7eed\uff1f", "\u9000\u51fa\u63d0\u9192", {
-      type: "warning",
-      confirmButtonText: "\u7ee7\u7eed\u9000\u51fa",
-      cancelButtonText: "\u53d6\u6d88",
-    });
-    return true;
-  } catch (_error) {
-    return false;
-  }
-}
-
-async function handleExitSystem(): Promise<void> {
-  const allowed = await confirmExitIfUnsaved();
-  if (!allowed) {
+function bindDesktopCloseRequestHandler(): void {
+  if (typeof window === "undefined" || !isDesktopRuntime()) {
     return;
   }
 
+  const runtimeBridge = (window as Window & {
+    runtime?: {
+      EventsOn?: (eventName: string, callback: () => void) => (() => void) | void;
+    };
+  }).runtime;
+  if (!runtimeBridge?.EventsOn) {
+    return;
+  }
+
+  const dispose = runtimeBridge.EventsOn("app:close-requested", () => {
+    void handleDesktopCloseRequest();
+  });
+  if (typeof dispose === "function") {
+    closeRequestHandlerDisposer = dispose;
+  }
+}
+
+async function exitSystemInternal(): Promise<void> {
   try {
     await appStore.logout();
   } catch (_error) {
@@ -406,6 +392,37 @@ async function handleExitSystem(): Promise<void> {
     ElMessage.success("\u5df2\u9000\u51fa\u767b\u5f55");
     await router.push("/login");
   }
+}
+
+async function handleDesktopCloseRequest(): Promise<void> {
+  if (handlingCloseRequest) {
+    return;
+  }
+  handlingCloseRequest = true;
+  try {
+    const allowed = await resolveUnsavedBeforeLeave({
+      title: "关闭软件提醒",
+      message: "检测到当前有未保存改动，关闭后将丢失。请选择后续操作。",
+    });
+    if (!allowed) {
+      return;
+    }
+    await exitSystemInternal();
+  } finally {
+    handlingCloseRequest = false;
+  }
+}
+
+async function handleExitSystem(): Promise<void> {
+  const allowed = await resolveUnsavedBeforeLeave({
+    title: "退出系统提醒",
+    message: "检测到当前有未保存改动，退出后将丢失。请选择后续操作。",
+  });
+  if (!allowed) {
+    return;
+  }
+
+  await exitSystemInternal();
 }
 
 function roleLabel(roleCode: string): string {

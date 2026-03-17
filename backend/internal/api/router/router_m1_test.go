@@ -264,6 +264,117 @@ func TestM1RootOnlyUserGroupEndpoints(t *testing.T) {
 	}
 }
 
+func TestM1RootUserCRUD(t *testing.T) {
+	engine, db := setupTestServer(t)
+	createViewerUser(t, db, "viewer3", "Viewer Three")
+
+	viewerToken, _ := loginAndReadData(t, engine, "viewer3", testDefaultPassword)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	var staffRole model.Role
+	if err := db.Where("role_code = ?", "staff").First(&staffRole).Error; err != nil {
+		t.Fatalf("failed to load staff role: %v", err)
+	}
+
+	viewerCreateBody, _ := json.Marshal(map[string]any{
+		"username": "ops_user",
+		"realName": "Ops User",
+		"status":   "active",
+		"roleIds":  []uint{staffRole.ID},
+	})
+	viewerCreateReq := httptest.NewRequest(http.MethodPost, "/api/system/users", bytes.NewReader(viewerCreateBody))
+	viewerCreateReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	viewerCreateReq.Header.Set("Content-Type", "application/json")
+	viewerCreateResp := httptest.NewRecorder()
+	engine.ServeHTTP(viewerCreateResp, viewerCreateReq)
+	if viewerCreateResp.Code != http.StatusForbidden {
+		t.Fatalf("expected viewer create user status=403, got=%d body=%s", viewerCreateResp.Code, viewerCreateResp.Body.String())
+	}
+
+	createBody, _ := json.Marshal(map[string]any{
+		"username":           "ops_user",
+		"realName":           "Ops User",
+		"password":           "Temp#12345",
+		"status":             "active",
+		"mustChangePassword": true,
+		"roleIds":            []uint{staffRole.ID},
+		"primaryRoleId":      staffRole.ID,
+	})
+	createReq := httptest.NewRequest(http.MethodPost, "/api/system/users", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+rootToken)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	engine.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("expected create user status=200, got=%d body=%s", createResp.Code, createResp.Body.String())
+	}
+
+	var createEnvelope apiEnvelope
+	if err := json.Unmarshal(createResp.Body.Bytes(), &createEnvelope); err != nil {
+		t.Fatalf("failed to parse create user response: %v", err)
+	}
+	var createdUser struct {
+		ID       uint   `json:"id"`
+		Username string `json:"username"`
+		Status   string `json:"status"`
+	}
+	if err := json.Unmarshal(createEnvelope.Data, &createdUser); err != nil {
+		t.Fatalf("failed to parse create user payload: %v", err)
+	}
+	if createdUser.ID == 0 || createdUser.Username != "ops_user" || createdUser.Status != "active" {
+		t.Fatalf("unexpected created user: %+v", createdUser)
+	}
+
+	updateBody, _ := json.Marshal(map[string]any{
+		"username":           "ops_user",
+		"realName":           "Ops Team User",
+		"status":             "inactive",
+		"mustChangePassword": false,
+		"roleIds":            []uint{staffRole.ID},
+		"primaryRoleId":      staffRole.ID,
+	})
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		fmt.Sprintf("/api/system/users/%d", createdUser.ID),
+		bytes.NewReader(updateBody),
+	)
+	updateReq.Header.Set("Authorization", "Bearer "+rootToken)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	engine.ServeHTTP(updateResp, updateReq)
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected update user status=200, got=%d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/system/users/%d", createdUser.ID), nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+rootToken)
+	deleteResp := httptest.NewRecorder()
+	engine.ServeHTTP(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete user status=200, got=%d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	var activeUserCount int64
+	if err := db.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", createdUser.ID).
+		Count(&activeUserCount).Error; err != nil {
+		t.Fatalf("failed to query active user count: %v", err)
+	}
+	if activeUserCount != 0 {
+		t.Fatalf("expected deleted user to be filtered by deleted_at, active count=%d", activeUserCount)
+	}
+
+	var userRoleCount int64
+	if err := db.Model(&model.UserRole{}).
+		Where("user_id = ?", createdUser.ID).
+		Count(&userRoleCount).Error; err != nil {
+		t.Fatalf("failed to query user roles count: %v", err)
+	}
+	if userRoleCount != 0 {
+		t.Fatalf("expected user roles to be cleared after delete, count=%d", userRoleCount)
+	}
+}
+
 func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 	t.Helper()
 

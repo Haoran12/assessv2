@@ -47,20 +47,37 @@ func (r *UserRoleRepository) ReplaceForUser(
 	createdBy *uint,
 ) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ?", userID).Delete(&model.UserRole{}).Error; err != nil {
-			return fmt.Errorf("failed to clear user roles: %w", err)
-		}
-		for _, roleID := range roleIDs {
-			item := model.UserRole{
-				UserID:    userID,
-				RoleID:    roleID,
-				IsPrimary: roleID == primaryRoleID,
-				CreatedBy: createdBy,
-			}
-			if err := tx.Create(&item).Error; err != nil {
-				return fmt.Errorf("failed to create user role: %w", err)
-			}
-		}
-		return nil
+		return r.ReplaceForUserWithTx(tx, userID, roleIDs, primaryRoleID, createdBy)
 	})
+}
+
+func (r *UserRoleRepository) ReplaceForUserWithTx(
+	tx *gorm.DB,
+	userID uint,
+	roleIDs []uint,
+	primaryRoleID uint,
+	createdBy *uint,
+) error {
+	if err := tx.Where("user_id = ?", userID).Delete(&model.UserRole{}).Error; err != nil {
+		return fmt.Errorf("failed to clear user roles: %w", err)
+	}
+	for _, roleID := range roleIDs {
+		item := model.UserRole{
+			UserID:    userID,
+			RoleID:    roleID,
+			IsPrimary: roleID == primaryRoleID,
+			CreatedBy: createdBy,
+		}
+		if err := tx.Create(&item).Error; err != nil {
+			return fmt.Errorf("failed to create user role: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *UserRoleRepository) DeleteByUserIDWithTx(tx *gorm.DB, userID uint) error {
+	if err := tx.Where("user_id = ?", userID).Delete(&model.UserRole{}).Error; err != nil {
+		return fmt.Errorf("failed to delete user roles: %w", err)
+	}
+	return nil
 }

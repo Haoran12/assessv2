@@ -54,6 +54,20 @@ func (r *UserRepository) GetByID(ctx context.Context, userID uint) (*model.User,
 	return &user, nil
 }
 
+func (r *UserRepository) GetByIDWithTx(tx *gorm.DB, userID uint) (*model.User, error) {
+	var user model.User
+	err := tx.
+		Where("id = ? AND deleted_at IS NULL", userID).
+		Preload("UserRoles.Role").
+		Preload("UserOrganizations").
+		Preload("UserPermissionBindings").
+		First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 func (r *UserRepository) List(ctx context.Context, filter UserListFilter) ([]model.User, int64, error) {
 	if filter.Limit <= 0 {
 		filter.Limit = 20
@@ -92,6 +106,61 @@ func (r *UserRepository) List(ctx context.Context, filter UserListFilter) ([]mod
 	}
 
 	return users, total, nil
+}
+
+func (r *UserRepository) ExistsByUsername(ctx context.Context, username string, excludeUserID uint) (bool, error) {
+	query := r.db.WithContext(ctx).
+		Model(&model.User{}).
+		Where("username = ?", strings.TrimSpace(username))
+	if excludeUserID > 0 {
+		query = query.Where("id <> ?", excludeUserID)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, fmt.Errorf("failed to count username: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (r *UserRepository) WithTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
+	return r.db.WithContext(ctx).Transaction(fn)
+}
+
+func (r *UserRepository) CreateWithTx(tx *gorm.DB, user *model.User) error {
+	if err := tx.Create(user).Error; err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+	return nil
+}
+
+func (r *UserRepository) UpdateFieldsWithTx(tx *gorm.DB, userID uint, updates map[string]any) error {
+	result := tx.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", userID).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update user: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) SoftDeleteWithTx(tx *gorm.DB, userID uint, deletedAt int64) error {
+	result := tx.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", userID).
+		Updates(map[string]any{
+			"deleted_at": deletedAt,
+			"updated_at": deletedAt,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete user: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *UserRepository) UpdatePassword(ctx context.Context, userID uint, passwordHash string, mustChange bool) error {

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import { useAppStore } from "@/stores/app";
+import { resolveUnsavedBeforeLeave } from "@/guards/unsaved";
 
 const MainLayout = () => import("@/layouts/MainLayout.vue");
 const LoginView = () => import("@/views/LoginView.vue");
@@ -77,7 +78,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: "system/users",
     name: "system-users",
     component: SystemUsersView,
-    meta: { requiresAuth: true, permission: "user:view" },
+    meta: { requiresAuth: true, permission: "user:view", requiresRoot: true },
   },
   {
     path: "system/backup",
@@ -95,7 +96,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: "system/settings",
     name: "system-settings",
     component: SystemSettingsView,
-    meta: { requiresAuth: true, permission: "setting:view" },
+    meta: { requiresAuth: true, permission: "setting:view", requiresRoot: true },
   },
 ];
 
@@ -136,7 +137,7 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach(async (to) => {
+router.beforeEach(async (to, from) => {
   const store = useAppStore();
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
   const publicOnly = to.matched.some((record) => record.meta.publicOnly);
@@ -147,6 +148,16 @@ router.beforeEach(async (to) => {
       await store.initializeSession();
     } catch (_error) {
       // Session init failed and store has been cleared.
+    }
+  }
+
+  if (from.matched.length > 0 && to.fullPath !== from.fullPath) {
+    const allowed = await resolveUnsavedBeforeLeave({
+      title: "离开页面提醒",
+      message: "检测到当前页面有未保存改动，离开后可能丢失。请选择后续操作。",
+    });
+    if (!allowed) {
+      return false;
     }
   }
 
@@ -163,6 +174,14 @@ router.beforeEach(async (to) => {
 
   if (store.isAuthed && store.mustChangePassword && !allowWhenMustChange) {
     return "/change-password";
+  }
+
+  const requiresRoot = to.matched.some((record) => record.meta.requiresRoot);
+  if (requiresRoot) {
+    const isRoot = store.primaryRole === "root" || store.roles.includes("root");
+    if (!isRoot) {
+      return "/403";
+    }
   }
 
   const permissionMeta = to.meta.permission;

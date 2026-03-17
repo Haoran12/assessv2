@@ -38,6 +38,16 @@ type updateUserGroupsRequest struct {
 	PrimaryRoleID uint   `json:"primaryRoleId"`
 }
 
+type upsertUserRequest struct {
+	Username           string `json:"username"`
+	RealName           string `json:"realName"`
+	Password           string `json:"password"`
+	Status             string `json:"status"`
+	MustChangePassword *bool  `json:"mustChangePassword"`
+	RoleIDs            []uint `json:"roleIds"`
+	PrimaryRoleID      uint   `json:"primaryRoleId"`
+}
+
 func NewSystemHandler(authService *service.AuthService, userService *service.UserService) *SystemHandler {
 	return &SystemHandler{
 		authService: authService,
@@ -83,6 +93,141 @@ func (h *SystemHandler) ListUsers(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+func (h *SystemHandler) CreateUser(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+
+	var req upsertUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid user payload")
+		return
+	}
+
+	result, err := h.userService.CreateUser(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		service.CreateUserInput{
+			Username:           strings.TrimSpace(req.Username),
+			RealName:           strings.TrimSpace(req.RealName),
+			Password:           strings.TrimSpace(req.Password),
+			Status:             strings.TrimSpace(req.Status),
+			MustChangePassword: req.MustChangePassword,
+			RoleIDs:            req.RoleIDs,
+			PrimaryRoleID:      req.PrimaryRoleID,
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidUsername),
+			errors.Is(err, service.ErrInvalidRealName),
+			errors.Is(err, service.ErrInvalidUserStatus),
+			errors.Is(err, service.ErrInvalidRoleList):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+		case errors.Is(err, service.ErrUsernameExists):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to create user")
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SystemHandler) UpdateUser(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+
+	userID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
+		return
+	}
+
+	var req upsertUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid user payload")
+		return
+	}
+
+	result, err := h.userService.UpdateUser(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		userID,
+		service.UpdateUserInput{
+			Username:           strings.TrimSpace(req.Username),
+			RealName:           strings.TrimSpace(req.RealName),
+			Password:           strings.TrimSpace(req.Password),
+			Status:             strings.TrimSpace(req.Status),
+			MustChangePassword: req.MustChangePassword,
+			RoleIDs:            req.RoleIDs,
+			PrimaryRoleID:      req.PrimaryRoleID,
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		switch {
+		case repository.IsRecordNotFound(err):
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
+		case errors.Is(err, service.ErrInvalidUsername),
+			errors.Is(err, service.ErrInvalidRealName),
+			errors.Is(err, service.ErrInvalidUserStatus),
+			errors.Is(err, service.ErrInvalidRoleList),
+			errors.Is(err, service.ErrCannotDisableSelf),
+			errors.Is(err, service.ErrCannotDemoteRoot),
+			errors.Is(err, service.ErrCannotRenameRoot):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+		case errors.Is(err, service.ErrUsernameExists):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to update user")
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *SystemHandler) DeleteUser(c *gin.Context) {
+	operatorClaims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+
+	userID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid user id")
+		return
+	}
+
+	if err := h.userService.DeleteUser(
+		c.Request.Context(),
+		operatorClaims.UserID,
+		userID,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	); err != nil {
+		switch {
+		case repository.IsRecordNotFound(err):
+			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
+		case errors.Is(err, service.ErrCannotDeleteRoot), errors.Is(err, service.ErrCannotDeleteSelf):
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+		default:
+			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to delete user")
+		}
+		return
+	}
+	response.Success(c, gin.H{"deleted": true})
 }
 
 func (h *SystemHandler) ResetPassword(c *gin.Context) {
