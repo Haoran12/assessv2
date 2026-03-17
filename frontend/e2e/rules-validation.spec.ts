@@ -23,7 +23,7 @@ test("rules page checks weight sum before submit", async ({ page }) => {
 
   await expect(page.getByText("规则配置（M3）")).toBeVisible();
 
-  await page.getByRole("spinbutton").first().fill("2026");
+  await page.getByRole("spinbutton").first().fill("2027");
   await page.getByRole("button", { name: "新建规则" }).click();
 
   await expect(page.getByText("新建规则")).toBeVisible();

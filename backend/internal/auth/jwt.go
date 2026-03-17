@@ -14,12 +14,22 @@ type OrganizationScope struct {
 	IsPrimary        bool   `json:"isPrimary"`
 }
 
+type PermissionBinding struct {
+	RoleCode       string `json:"roleCode"`
+	ScopeOrgType   string `json:"scopeOrgType,omitempty"`
+	ScopeOrgID     *uint  `json:"scopeOrgId,omitempty"`
+	PersonObjectID *uint  `json:"personObjectId,omitempty"`
+	TeamObjectID   *uint  `json:"teamObjectId,omitempty"`
+	IsPrimary      bool   `json:"isPrimary"`
+}
+
 type Claims struct {
-	UserID      uint                `json:"uid"`
-	Username    string              `json:"username"`
-	Roles       []string            `json:"roles"`
-	Permissions []string            `json:"permissions"`
-	OrgScopes   []OrganizationScope `json:"orgScopes"`
+	UserID             uint                `json:"uid"`
+	Username           string              `json:"username"`
+	Roles              []string            `json:"roles"`
+	Permissions        []string            `json:"permissions"`
+	OrgScopes          []OrganizationScope `json:"orgScopes"`
+	PermissionBindings []PermissionBinding `json:"permissionBindings"`
 	jwt.RegisteredClaims
 }
 

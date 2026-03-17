@@ -1,16 +1,9 @@
-<template>
+﻿<template>
   <div class="login-page">
     <el-card class="login-card">
       <template #header>
         <strong>AssessV2 登录</strong>
       </template>
-
-      <el-alert
-        title="默认账号：root / #2026@hdwl"
-        type="info"
-        :closable="false"
-        style="margin-bottom: 12px"
-      />
 
       <el-alert
         v-if="sessionExpired"
@@ -60,7 +53,7 @@ const loading = ref(false);
 const sessionExpired = ref(sessionStorage.getItem(SESSION_EXPIRED_KEY) === "1");
 const form = reactive({
   username: "root",
-  password: "#2026@hdwl",
+  password: "#AssessV2@Init",
 });
 
 if (sessionExpired.value) {

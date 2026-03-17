@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
@@ -139,7 +140,7 @@ var (
 		"Q1": {}, "Q2": {}, "Q3": {}, "Q4": {}, "YEAR_END": {},
 	}
 	ruleObjectTypeSet = categorySetByObjectType
-	moduleCodeSet = map[string]struct{}{
+	moduleCodeSet     = map[string]struct{}{
 		"direct": {}, "vote": {}, "custom": {}, "extra": {},
 	}
 	voterTypeSet = map[string]struct{}{
@@ -231,6 +232,7 @@ func (s *RuleService) GetRule(ctx context.Context, ruleID uint) (*RuleDetail, er
 
 func (s *RuleService) CreateRule(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	input CreateRuleInput,
 	ipAddress string,
@@ -238,6 +240,9 @@ func (s *RuleService) CreateRule(
 ) (*RuleDetail, error) {
 	dimension, err := normalizeRuleDimension(input.YearID, input.PeriodCode, input.ObjectType, input.ObjectCategory)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireRuleDimensionWriteScope(ctx, s.db, claims, dimension.YearID, dimension.ObjectType, dimension.ObjectCategory); err != nil {
 		return nil, err
 	}
 	ruleName := strings.TrimSpace(input.RuleName)
@@ -253,10 +258,10 @@ func (s *RuleService) CreateRule(
 	baseRuleID := uint(0)
 	periods := targetPeriods(dimension.PeriodCode, input.SyncQuarterly)
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := ensureAssessmentYearExists(tx, dimension.YearID); err != nil {
-			return err
-		}
 		for _, periodCode := range periods {
+			if err := ensurePeriodConfigWritableTx(tx, dimension.YearID, periodCode); err != nil {
+				return err
+			}
 			currentDimension := dimension
 			currentDimension.PeriodCode = periodCode
 			rule, err := s.upsertRuleByDimensionTx(tx, &operator, currentDimension, ruleName, strings.TrimSpace(input.Description), input.IsActive, modules, upsertRuleMode{
@@ -295,6 +300,7 @@ func (s *RuleService) CreateRule(
 
 func (s *RuleService) UpdateRule(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	ruleID uint,
 	input UpdateRuleInput,
@@ -322,6 +328,12 @@ func (s *RuleService) UpdateRule(
 			}
 			return fmt.Errorf("failed to query assessment rule: %w", err)
 		}
+		if err := requireRuleDimensionWriteScope(ctx, s.db, claims, baseRule.YearID, baseRule.ObjectType, baseRule.ObjectCategory); err != nil {
+			return err
+		}
+		if err := ensurePeriodConfigWritableTx(tx, baseRule.YearID, baseRule.PeriodCode); err != nil {
+			return err
+		}
 		if err := s.replaceRuleConfigTx(tx, &operator, baseRule.ID, ruleName, strings.TrimSpace(input.Description), input.IsActive, modules); err != nil {
 			return err
 		}
@@ -331,6 +343,9 @@ func (s *RuleService) UpdateRule(
 			for _, periodCode := range periods {
 				if periodCode == baseRule.PeriodCode {
 					continue
+				}
+				if err := ensurePeriodConfigWritableTx(tx, baseRule.YearID, periodCode); err != nil {
+					return err
 				}
 				_, err := s.upsertRuleByDimensionTx(tx, &operator, ruleDimension{
 					YearID:         baseRule.YearID,
@@ -398,11 +413,15 @@ func (s *RuleService) ListTemplates(ctx context.Context, filter ListRuleTemplate
 
 func (s *RuleService) CreateTemplate(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	input CreateRuleTemplateInput,
 	ipAddress string,
 	userAgent string,
 ) (*RuleTemplateSummary, error) {
+	if err := requireRootOrAssessmentAdminClaims(claims); err != nil {
+		return nil, err
+	}
 	templateName := strings.TrimSpace(input.TemplateName)
 	if templateName == "" {
 		return nil, ErrRuleTemplateNameInvalid
@@ -463,6 +482,7 @@ func (s *RuleService) CreateTemplate(
 
 func (s *RuleService) CreateTemplateFromRule(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	ruleID uint,
 	templateName string,
@@ -474,12 +494,15 @@ func (s *RuleService) CreateTemplateFromRule(
 	if err != nil {
 		return nil, err
 	}
+	if err := requireRuleDimensionWriteScope(ctx, s.db, claims, detail.Rule.YearID, detail.Rule.ObjectType, detail.Rule.ObjectCategory); err != nil {
+		return nil, err
+	}
 	modules := make([]RuleModuleInput, 0, len(detail.Modules))
 	for _, item := range detail.Modules {
 		modules = append(modules, mapModuleDetailToInput(item))
 	}
 
-	return s.CreateTemplate(ctx, operatorID, CreateRuleTemplateInput{
+	return s.CreateTemplate(ctx, claims, operatorID, CreateRuleTemplateInput{
 		TemplateName:   templateName,
 		ObjectType:     detail.Rule.ObjectType,
 		ObjectCategory: detail.Rule.ObjectCategory,
@@ -494,6 +517,7 @@ func (s *RuleService) CreateTemplateFromRule(
 
 func (s *RuleService) ApplyTemplate(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	templateID uint,
 	input ApplyRuleTemplateInput,
@@ -505,6 +529,9 @@ func (s *RuleService) ApplyTemplate(
 	}
 	dimension, err := normalizeRuleDimension(input.YearID, input.PeriodCode, input.ObjectType, input.ObjectCategory)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireRuleDimensionWriteScope(ctx, s.db, claims, dimension.YearID, dimension.ObjectType, dimension.ObjectCategory); err != nil {
 		return nil, err
 	}
 
@@ -545,10 +572,10 @@ func (s *RuleService) ApplyTemplate(
 	baseRuleID := uint(0)
 	periods := targetPeriods(dimension.PeriodCode, input.SyncQuarterly)
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := ensureAssessmentYearExists(tx, dimension.YearID); err != nil {
-			return err
-		}
 		for _, periodCode := range periods {
+			if err := ensurePeriodConfigWritableTx(tx, dimension.YearID, periodCode); err != nil {
+				return err
+			}
 			currentDimension := dimension
 			currentDimension.PeriodCode = periodCode
 			rule, err := s.upsertRuleByDimensionTx(tx, &operator, currentDimension, ruleName, description, input.IsActive, modules, upsertRuleMode{

@@ -47,6 +47,17 @@ type appliedMigration struct {
 	AppliedAt int64
 }
 
+type ChecksumMismatchError struct {
+	Version          int
+	File             string
+	RecordedChecksum string
+	ActualChecksum   string
+}
+
+func (e *ChecksumMismatchError) Error() string {
+	return fmt.Sprintf("migration checksum mismatch version=%d file=%s", e.Version, e.File)
+}
+
 func NewManager(db *gorm.DB, migrationsDir string) (*Manager, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -85,7 +96,12 @@ func (m *Manager) Up(ctx context.Context) (int, error) {
 		recorded, exists := applied[item.Version]
 		if exists {
 			if recorded.Checksum != item.Checksum {
-				return 0, fmt.Errorf("migration checksum mismatch version=%d file=%s", item.Version, filepath.Base(item.UpPath))
+				return 0, &ChecksumMismatchError{
+					Version:          item.Version,
+					File:             filepath.Base(item.UpPath),
+					RecordedChecksum: recorded.Checksum,
+					ActualChecksum:   item.Checksum,
+				}
 			}
 			continue
 		}
@@ -97,6 +113,46 @@ func (m *Manager) Up(ctx context.Context) (int, error) {
 	}
 
 	return appliedCount, nil
+}
+
+func (m *Manager) ReconcileChecksums(ctx context.Context) (int, error) {
+	if err := m.ensureSchemaMigrationsTable(ctx); err != nil {
+		return 0, err
+	}
+
+	migrations, err := m.listMigrationFiles()
+	if err != nil {
+		return 0, err
+	}
+
+	applied, err := m.loadAppliedMigrations(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	reconciledCount := 0
+	for _, item := range migrations {
+		recorded, exists := applied[item.Version]
+		if !exists {
+			continue
+		}
+		if recorded.Checksum == item.Checksum && recorded.Name == item.Name {
+			continue
+		}
+
+		if _, err := m.sqlDB.ExecContext(
+			ctx,
+			"UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = ?",
+			item.Name,
+			item.Checksum,
+			item.Version,
+		); err != nil {
+			return reconciledCount, fmt.Errorf("failed to reconcile migration version=%d: %w", item.Version, err)
+		}
+		reconciledCount++
+	}
+
+	return reconciledCount, nil
 }
 
 func (m *Manager) Down(ctx context.Context, steps int) (int, error) {

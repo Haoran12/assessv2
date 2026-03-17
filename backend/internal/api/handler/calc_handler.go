@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/api/response"
+	"assessv2/backend/internal/middleware"
 	"assessv2/backend/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -57,6 +58,11 @@ func (h *CalcHandler) Recalculate(c *gin.Context) {
 }
 
 func (h *CalcHandler) ListCalculatedScores(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
@@ -68,7 +74,7 @@ func (h *CalcHandler) ListCalculatedScores(c *gin.Context) {
 		return
 	}
 
-	items, err := h.calcService.ListCalculatedScores(c.Request.Context(), service.ListCalculatedScoreFilter{
+	items, err := h.calcService.ListCalculatedScores(c.Request.Context(), claims, service.ListCalculatedScoreFilter{
 		YearID:         yearID,
 		PeriodCode:     strings.TrimSpace(c.Query("periodCode")),
 		ObjectID:       objectID,
@@ -83,12 +89,17 @@ func (h *CalcHandler) ListCalculatedScores(c *gin.Context) {
 }
 
 func (h *CalcHandler) ListCalculatedModuleScores(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	calculatedScoreID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid calculated score id")
 		return
 	}
-	items, err := h.calcService.ListCalculatedModuleScores(c.Request.Context(), calculatedScoreID)
+	items, err := h.calcService.ListCalculatedModuleScores(c.Request.Context(), claims, calculatedScoreID)
 	if err != nil {
 		h.handleCalcError(c, err, "failed to list calculated module scores")
 		return
@@ -97,13 +108,18 @@ func (h *CalcHandler) ListCalculatedModuleScores(c *gin.Context) {
 }
 
 func (h *CalcHandler) ListRankings(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
 		return
 	}
 
-	items, err := h.calcService.ListRankings(c.Request.Context(), service.ListRankingFilter{
+	items, err := h.calcService.ListRankings(c.Request.Context(), claims, service.ListRankingFilter{
 		YearID:         yearID,
 		PeriodCode:     strings.TrimSpace(c.Query("periodCode")),
 		RankingScope:   strings.TrimSpace(c.Query("scope")),
@@ -124,8 +140,12 @@ func (h *CalcHandler) handleCalcError(c *gin.Context, err error, fallback string
 		errors.Is(err, service.ErrCalcExpressionEval):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 	case errors.Is(err, service.ErrCalcDependencyCycle),
-		errors.Is(err, service.ErrPeriodLocked):
+		errors.Is(err, service.ErrAssessmentReadOnly),
+		errors.Is(err, service.ErrAssessmentNotActive),
+		errors.Is(err, service.ErrPeriodNotActive):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+	case errors.Is(err, service.ErrForbidden):
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrAssessmentObjectNotFound),
 		errors.Is(err, service.ErrPeriodNotFound):
 		response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())

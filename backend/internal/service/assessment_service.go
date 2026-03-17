@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
@@ -40,15 +44,24 @@ func (s *AssessmentService) ListYears(ctx context.Context) ([]model.AssessmentYe
 	if err := s.db.WithContext(ctx).Order("year DESC, id DESC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to list assessment years: %w", err)
 	}
+	for idx := range items {
+		items[idx].Status = normalizeYearStatus(items[idx].Status)
+	}
 	return items, nil
 }
 
-func (s *AssessmentService) CreateYear(ctx context.Context, operatorID uint, input CreateAssessmentYearInput, ipAddress string, userAgent string) (*CreateAssessmentYearResult, error) {
+func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims, operatorID uint, input CreateAssessmentYearInput, ipAddress string, userAgent string) (*CreateAssessmentYearResult, error) {
+	if err := requireCreateAssessmentYearScope(ctx, s.db, claims); err != nil {
+		return nil, err
+	}
 	if input.Year < 2000 || input.Year > 9999 {
 		return nil, ErrInvalidParam
 	}
 	if input.StartDate != nil && input.EndDate != nil && input.StartDate.After(*input.EndDate) {
 		return nil, ErrInvalidParam
+	}
+	if err := ensureAssessmentYearDataDirectory(input.Year); err != nil {
+		return nil, err
 	}
 	name := strings.TrimSpace(input.YearName)
 	if name == "" {
@@ -69,7 +82,7 @@ func (s *AssessmentService) CreateYear(ctx context.Context, operatorID uint, inp
 		year := model.AssessmentYear{
 			Year:        input.Year,
 			YearName:    name,
-			Status:      "preparing",
+			Status:      assessmentStatusPreparing,
 			StartDate:   input.StartDate,
 			EndDate:     input.EndDate,
 			Description: strings.TrimSpace(input.Description),
@@ -127,8 +140,11 @@ func (s *AssessmentService) CreateYear(ctx context.Context, operatorID uint, inp
 	return result, nil
 }
 
-func (s *AssessmentService) UpdateYearStatus(ctx context.Context, operatorID, yearID uint, status string, ipAddress string, userAgent string) (*model.AssessmentYear, error) {
-	next := strings.TrimSpace(status)
+func (s *AssessmentService) UpdateYearStatus(ctx context.Context, claims *auth.Claims, operatorID, yearID uint, status string, ipAddress string, userAgent string) (*model.AssessmentYear, error) {
+	if err := requireRootOrAssessmentAdminClaims(claims); err != nil {
+		return nil, err
+	}
+	next := normalizeYearStatus(status)
 	if !isValidYearStatus(next) {
 		return nil, ErrInvalidYearStatus
 	}
@@ -140,13 +156,12 @@ func (s *AssessmentService) UpdateYearStatus(ctx context.Context, operatorID, ye
 		}
 		return nil, fmt.Errorf("failed to query assessment year: %w", err)
 	}
-	if year.Status == "ended" && next != "ended" {
-		return nil, ErrYearAlreadyEnded
-	}
-	if year.Status != next && !canTransitionYearStatus(year.Status, next) {
+	current := normalizeYearStatus(year.Status)
+	if current != next && !canTransitionYearStatus(current, next) {
 		return nil, ErrInvalidYearTransition
 	}
-	if year.Status == next {
+	if current == next {
+		year.Status = current
 		return &year, nil
 	}
 
@@ -171,11 +186,17 @@ func (s *AssessmentService) ListPeriods(ctx context.Context, yearID uint) ([]mod
 	if err := s.db.WithContext(ctx).Where("year_id = ?", yearID).Order("id ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to list periods: %w", err)
 	}
+	for idx := range items {
+		items[idx].Status = normalizePeriodStatus(items[idx].Status)
+	}
 	return items, nil
 }
 
-func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, operatorID, periodID uint, status string, ipAddress string, userAgent string) (*model.AssessmentPeriod, error) {
-	next := strings.TrimSpace(status)
+func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, claims *auth.Claims, operatorID, periodID uint, status string, ipAddress string, userAgent string) (*model.AssessmentPeriod, error) {
+	if err := requireRootOrAssessmentAdminClaims(claims); err != nil {
+		return nil, err
+	}
+	next := normalizePeriodStatus(status)
 	if !isValidPeriodStatus(next) {
 		return nil, ErrInvalidPeriodStatus
 	}
@@ -187,13 +208,12 @@ func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, operatorID, 
 		}
 		return nil, fmt.Errorf("failed to query assessment period: %w", err)
 	}
-	if period.Status == "locked" && next != "locked" {
-		return nil, ErrPeriodLocked
-	}
-	if period.Status != next && !canTransitionPeriodStatus(period.Status, next) {
+	current := normalizePeriodStatus(period.Status)
+	if current != next && !canTransitionPeriodStatus(current, next) {
 		return nil, ErrInvalidPeriodTransition
 	}
-	if period.Status == next {
+	if current == next {
+		period.Status = current
 		return &period, nil
 	}
 
@@ -210,9 +230,17 @@ func (s *AssessmentService) UpdatePeriodStatus(ctx context.Context, operatorID, 
 	return &period, nil
 }
 
-func (s *AssessmentService) ListObjects(ctx context.Context, yearID uint) ([]model.AssessmentObject, error) {
+func (s *AssessmentService) ListObjects(ctx context.Context, claims *auth.Claims, yearID uint) ([]model.AssessmentObject, error) {
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+
+	query := s.db.WithContext(ctx).Model(&model.AssessmentObject{}).Where("year_id = ?", yearID)
+	query = scope.applyReadableObjectFilter(query, "id")
+
 	var items []model.AssessmentObject
-	if err := s.db.WithContext(ctx).Where("year_id = ?", yearID).Order("id ASC").Find(&items).Error; err != nil {
+	if err := query.Order("id ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to list assessment objects: %w", err)
 	}
 	return items, nil
@@ -231,7 +259,7 @@ func defaultPeriods(yearID uint, operatorID *uint) []model.AssessmentPeriod {
 	}
 	items := make([]model.AssessmentPeriod, 0, len(base))
 	for _, item := range base {
-		items = append(items, model.AssessmentPeriod{YearID: yearID, PeriodCode: item.Code, PeriodName: item.Name, Status: "not_started", CreatedBy: operatorID, UpdatedBy: operatorID})
+		items = append(items, model.AssessmentPeriod{YearID: yearID, PeriodCode: item.Code, PeriodName: item.Name, Status: assessmentStatusPreparing, CreatedBy: operatorID, UpdatedBy: operatorID})
 	}
 	return items
 }
@@ -500,8 +528,9 @@ func createAssessmentObjectTx(tx *gorm.DB, input model.AssessmentObject) (uint, 
 }
 
 func isValidYearStatus(status string) bool {
-	switch status {
-	case "preparing", "active", "ended":
+	normalized := normalizeYearStatus(status)
+	switch normalized {
+	case assessmentStatusPreparing, assessmentStatusActive, assessmentStatusCompleted:
 		return true
 	default:
 		return false
@@ -509,8 +538,9 @@ func isValidYearStatus(status string) bool {
 }
 
 func isValidPeriodStatus(status string) bool {
-	switch status {
-	case "not_started", "active", "ended", "locked":
+	normalized := normalizePeriodStatus(status)
+	switch normalized {
+	case assessmentStatusPreparing, assessmentStatusActive, assessmentStatusCompleted:
 		return true
 	default:
 		return false
@@ -521,28 +551,24 @@ func canTransitionYearStatus(current, next string) bool {
 	if current == next {
 		return true
 	}
-	switch current {
-	case "preparing":
-		return next == "active"
-	case "active":
-		return next == "ended"
-	default:
-		return false
-	}
+	return isValidYearStatus(current) && isValidYearStatus(next)
 }
 
 func canTransitionPeriodStatus(current, next string) bool {
 	if current == next {
 		return true
 	}
-	switch current {
-	case "not_started":
-		return next == "active" || next == "locked"
-	case "active":
-		return next == "ended" || next == "locked"
-	case "ended":
-		return next == "locked"
-	default:
-		return false
+	return isValidPeriodStatus(current) && isValidPeriodStatus(next)
+}
+
+func ensureAssessmentYearDataDirectory(year int) error {
+	dataRoot := strings.TrimSpace(os.Getenv("ASSESS_DATA_ROOT"))
+	if dataRoot == "" {
+		return nil
 	}
+	yearDir := filepath.Join(dataRoot, strconv.Itoa(year))
+	if err := os.MkdirAll(yearDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create assessment year data dir: %w", err)
+	}
+	return nil
 }

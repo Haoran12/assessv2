@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
@@ -17,6 +18,7 @@ import (
 
 type VoteService struct {
 	db        *gorm.DB
+	accountDB *gorm.DB
 	auditRepo *repository.AuditRepository
 	calc      *CalculationService
 }
@@ -99,8 +101,11 @@ type voteScope struct {
 	RoleCodes       []string `json:"role_codes"`
 }
 
-func NewVoteService(db *gorm.DB, auditRepo *repository.AuditRepository, calcService *CalculationService) *VoteService {
-	return &VoteService{db: db, auditRepo: auditRepo, calc: calcService}
+func NewVoteService(db *gorm.DB, accountDB *gorm.DB, auditRepo *repository.AuditRepository, calcService *CalculationService) *VoteService {
+	if accountDB == nil {
+		accountDB = db
+	}
+	return &VoteService{db: db, accountDB: accountDB, auditRepo: auditRepo, calc: calcService}
 }
 
 func (s *VoteService) GenerateVoteTasks(
@@ -149,7 +154,7 @@ func (s *VoteService) GenerateVoteTasks(
 
 		voterSet := make(map[uint]struct{})
 		for _, group := range groups {
-			voters, err := resolveVoteGroupVotersTx(tx, group)
+			voters, err := s.resolveVoteGroupVoters(ctx, group)
 			if err != nil {
 				return err
 			}
@@ -386,10 +391,14 @@ func (s *VoteService) ResetVoteTask(
 	return &task, nil
 }
 
-func (s *VoteService) ListVoteStatistics(ctx context.Context, filter VoteStatisticsFilter) (*VoteStatistics, error) {
+func (s *VoteService) ListVoteStatistics(ctx context.Context, claims *auth.Claims, filter VoteStatisticsFilter) (*VoteStatistics, error) {
 	periodCode := normalizePeriodCode(filter.PeriodCode)
 	if filter.YearID == 0 || filter.ModuleID == 0 || !isValidPeriodCode(periodCode) {
 		return nil, ErrInvalidParam
+	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
 	}
 
 	type voteStatsRow struct {
@@ -409,6 +418,7 @@ func (s *VoteService) ListVoteStatistics(ctx context.Context, filter VoteStatist
 	if filter.ObjectID != nil {
 		query = query.Where("vt.object_id = ?", *filter.ObjectID)
 	}
+	query = scope.applyReadableObjectFilter(query, "vt.object_id")
 
 	var rows []voteStatsRow
 	if err := query.Order("vg.sort_order ASC, vg.id ASC").Scan(&rows).Error; err != nil {
@@ -641,7 +651,7 @@ func resolveVoteTaskObjectsTx(tx *gorm.DB, yearID uint, objectIDs []uint) ([]mod
 	return objects, nil
 }
 
-func resolveVoteGroupVotersTx(tx *gorm.DB, group model.VoteGroup) ([]uint, error) {
+func (s *VoteService) resolveVoteGroupVoters(ctx context.Context, group model.VoteGroup) ([]uint, error) {
 	scope := voteScope{}
 	rawScope := strings.TrimSpace(group.VoterScope)
 	if rawScope != "" {
@@ -650,7 +660,7 @@ func resolveVoteGroupVotersTx(tx *gorm.DB, group model.VoteGroup) ([]uint, error
 		}
 	}
 
-	query := tx.Model(&model.User{}).Where("status = ? AND deleted_at IS NULL", "active")
+	query := s.accountDB.WithContext(ctx).Model(&model.User{}).Where("status = ? AND deleted_at IS NULL", "active")
 	hasScope := false
 	if len(scope.UserIDs) > 0 {
 		query = query.Where("users.id IN ?", scope.UserIDs)

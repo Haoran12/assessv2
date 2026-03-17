@@ -57,7 +57,7 @@ func Load() Config {
 		},
 		MigrationsDir:             getEnv("ASSESS_MIGRATIONS_DIR", "migrations"),
 		JWTSecret:                 getEnv("ASSESS_JWT_SECRET", "assessv2-dev-secret"),
-		DefaultPassword:           getEnv("ASSESS_DEFAULT_PASSWORD", "#2026@hdwl"),
+		DefaultPassword:           getEnv("ASSESS_DEFAULT_PASSWORD", "#AssessV2@Init"),
 		EnforceMustChangePassword: getEnvAsBool("ASSESS_ENFORCE_MUST_CHANGE_PASSWORD", false),
 	}
 }

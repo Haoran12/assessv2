@@ -16,7 +16,7 @@ func RequirePermission(permission string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if !auth.HasPermission(claims.Permissions, permission) {
+		if !auth.RoleAllowsPermission(claims.Roles, permission) && !auth.HasPermission(claims.Permissions, permission) {
 			response.Error(c, http.StatusForbidden, response.CodeForbidden, "permission denied")
 			c.Abort()
 			return

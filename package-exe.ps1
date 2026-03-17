@@ -69,6 +69,111 @@ function Resolve-WailsCommand {
     throw "Missing required command: wails (or `%GOPATH%\\bin\\wails.exe`)"
 }
 
+function Test-FilePath {
+    param([string]$Path)
+    return (Test-Path -Path $Path -PathType Leaf)
+}
+
+function Copy-SqliteBundle {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceMain,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetMain
+    )
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $TargetMain) -Force | Out-Null
+    Copy-Item -Path $SourceMain -Destination $TargetMain -Force
+    foreach ($suffix in @("-wal", "-shm")) {
+        $source = "$SourceMain$suffix"
+        if (Test-FilePath $source) {
+            Copy-Item -Path $source -Destination "$TargetMain$suffix" -Force
+        }
+    }
+}
+
+function Move-SqliteBundle {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceMain,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetMain
+    )
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $TargetMain) -Force | Out-Null
+    Move-Item -Path $SourceMain -Destination $TargetMain -Force
+    foreach ($suffix in @("-wal", "-shm")) {
+        $source = "$SourceMain$suffix"
+        if (Test-FilePath $source) {
+            Move-Item -Path $source -Destination "$TargetMain$suffix" -Force
+        }
+    }
+}
+
+function Resolve-PreferredYear {
+    param([string]$DataRoot)
+
+    $preferredFile = Join-Path $DataRoot ".assessment_year"
+    if (Test-FilePath $preferredFile) {
+        $raw = (Get-Content -Path $preferredFile -Raw).Trim()
+        if ($raw -match '^\d{4}$') {
+            return [int]$raw
+        }
+    }
+
+    $yearDirs = @(
+        Get-ChildItem -Path $DataRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d{4}$' } |
+            Sort-Object { [int]$_.Name }
+    )
+    if ($yearDirs.Count -gt 0) {
+        return [int]$yearDirs[-1].Name
+    }
+
+    return (Get-Date).Year
+}
+
+function Repair-LegacyDataLayout {
+    param([string]$DataRoot)
+
+    if (-not (Test-Path $DataRoot -PathType Container)) {
+        return
+    }
+
+    $year = Resolve-PreferredYear -DataRoot $DataRoot
+    $yearDir = Join-Path $DataRoot $year
+    New-Item -ItemType Directory -Path $yearDir -Force | Out-Null
+
+    $legacyAssessMain = Join-Path $DataRoot "assess.db"
+    $yearAssessMain = Join-Path $yearDir "assess.db"
+    if (Test-FilePath $legacyAssessMain) {
+        if (-not (Test-FilePath $yearAssessMain)) {
+            Move-SqliteBundle -SourceMain $legacyAssessMain -TargetMain $yearAssessMain
+            Write-Host "Migrated legacy assessment DB to yearly layout: data\\$year\\assess.db"
+        } else {
+            $backupDir = Join-Path $DataRoot ("legacy\\" + (Get-Date -Format "yyyyMMddHHmmss"))
+            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+            Move-SqliteBundle -SourceMain $legacyAssessMain -TargetMain (Join-Path $backupDir "assess.db")
+            Write-Host "Moved duplicate legacy assessment DB to backup: $backupDir"
+        }
+    }
+
+    $accountsDir = Join-Path $DataRoot "accounts"
+    $accountsMain = Join-Path $accountsDir "accounts.db"
+    New-Item -ItemType Directory -Path $accountsDir -Force | Out-Null
+
+    if (-not (Test-FilePath $accountsMain)) {
+        $legacyAccountsMain = Join-Path $DataRoot "accounts.db"
+        if (Test-FilePath $legacyAccountsMain) {
+            Move-SqliteBundle -SourceMain $legacyAccountsMain -TargetMain $accountsMain
+            Write-Host "Migrated legacy accounts DB to: data\\accounts\\accounts.db"
+        } elseif (Test-FilePath $yearAssessMain) {
+            Copy-SqliteBundle -SourceMain $yearAssessMain -TargetMain $accountsMain
+            Write-Host "Bootstrapped shared accounts DB from yearly DB: data\\accounts\\accounts.db"
+        }
+    }
+}
+
 function Sync-DesktopEmbeddedAssets {
     param(
         [string]$ProjectRoot
@@ -194,6 +299,10 @@ if (-not (Test-Path $desktopExe)) {
 Stop-RunningExeAtPath -ExePath $rootExe
 Copy-Item -Path $desktopExe -Destination $rootExe -Force
 
+Write-Step "Repairing legacy data directory layout"
+Repair-LegacyDataLayout -DataRoot (Join-Path $projectRoot "data")
+
 Write-Step "Done"
 Write-Host "EXE: $rootExe" -ForegroundColor Green
 Write-Host "Data directory pattern: .\\data\\{assessment_year}\\assess.db" -ForegroundColor Green
+Write-Host "Shared accounts DB: .\\data\\accounts\\accounts.db" -ForegroundColor Green

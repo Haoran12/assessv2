@@ -30,17 +30,7 @@ func isValidPeriodCode(value string) bool {
 }
 
 func ensurePeriodWritableTx(tx *gorm.DB, yearID uint, periodCode string) error {
-	var period model.AssessmentPeriod
-	if err := tx.Where("year_id = ? AND period_code = ?", yearID, periodCode).First(&period).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return ErrPeriodNotFound
-		}
-		return err
-	}
-	if period.Status == "locked" {
-		return ErrPeriodLocked
-	}
-	return nil
+	return ensurePeriodDataWritableTx(tx, yearID, periodCode)
 }
 
 func ensureAssessmentObjectTx(tx *gorm.DB, objectID, yearID uint) (*model.AssessmentObject, error) {

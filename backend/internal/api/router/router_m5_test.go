@@ -18,6 +18,7 @@ func TestM5AutoRecalculateAfterDirectScoreMutation(t *testing.T) {
 
 	company := createOrganization(t, db, "M5 Auto Company", "company", "active", nil)
 	yearID := createAssessmentYearForTest(t, engine, rootToken, 2099)
+	activateYearAndPeriodForTest(t, engine, db, rootToken, yearID, "Q1")
 	teamObjectID := mustAssessmentObjectIDByTarget(t, db, yearID, "organization", company.ID)
 
 	ruleID := createM4Rule(t, engine, rootToken, yearID, "Q1", "team", "subsidiary_company", []map[string]any{
@@ -85,6 +86,7 @@ func TestM5ManualRecalculateWithDependencyAndTieBreakRanking(t *testing.T) {
 	empB := createEmployee(t, db, "M5 Bob", companyB.ID, &deptB.ID, levelID, "active")
 
 	yearID := createAssessmentYearForTest(t, engine, rootToken, 2100)
+	activateYearAndPeriodForTest(t, engine, db, rootToken, yearID, "Q1")
 	teamAObjectID := mustAssessmentObjectIDByTarget(t, db, yearID, "organization", companyA.ID)
 	teamBObjectID := mustAssessmentObjectIDByTarget(t, db, yearID, "organization", companyB.ID)
 	indAObjectID := mustAssessmentObjectIDByTarget(t, db, yearID, "employee", empA.ID)
@@ -312,4 +314,40 @@ type serviceCalculatedScoreItem struct {
 	ID         uint    `json:"id"`
 	ObjectID   uint    `json:"objectId"`
 	FinalScore float64 `json:"finalScore"`
+}
+
+func activateYearAndPeriodForTest(
+	t *testing.T,
+	engine http.Handler,
+	db *gorm.DB,
+	token string,
+	yearID uint,
+	periodCode string,
+) {
+	t.Helper()
+
+	yearBody, _ := json.Marshal(map[string]any{"status": "active"})
+	yearReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/assessment/years/%d/status", yearID), bytes.NewReader(yearBody))
+	yearReq.Header.Set("Authorization", "Bearer "+token)
+	yearReq.Header.Set("Content-Type", "application/json")
+	yearResp := httptest.NewRecorder()
+	engine.ServeHTTP(yearResp, yearReq)
+	if yearResp.Code != http.StatusOK {
+		t.Fatalf("expected update year status=200, got=%d body=%s", yearResp.Code, yearResp.Body.String())
+	}
+
+	var period model.AssessmentPeriod
+	if err := db.Where("year_id = ? AND period_code = ?", yearID, periodCode).First(&period).Error; err != nil {
+		t.Fatalf("failed to query period(%s) for year=%d: %v", periodCode, yearID, err)
+	}
+
+	periodBody, _ := json.Marshal(map[string]any{"status": "active"})
+	periodReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/assessment/periods/%d/status", period.ID), bytes.NewReader(periodBody))
+	periodReq.Header.Set("Authorization", "Bearer "+token)
+	periodReq.Header.Set("Content-Type", "application/json")
+	periodResp := httptest.NewRecorder()
+	engine.ServeHTTP(periodResp, periodReq)
+	if periodResp.Code != http.StatusOK {
+		t.Fatalf("expected update period status=200, got=%d body=%s", periodResp.Code, periodResp.Body.String())
+	}
 }

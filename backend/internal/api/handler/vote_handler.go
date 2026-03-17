@@ -63,6 +63,7 @@ func (h *VoteHandler) ListVoteTasks(c *gin.Context) {
 		return
 	}
 	isRoot := auth.HasRole(claims.Roles, "root")
+	isAssessmentAdmin := auth.HasBusinessRole(claims.Roles, auth.RoleAssessmentAdmin)
 
 	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
 	if err != nil {
@@ -89,9 +90,14 @@ func (h *VoteHandler) ListVoteTasks(c *gin.Context) {
 		value := claims.UserID
 		voterID = &value
 	}
-	if !isRoot && voterID != nil && *voterID != claims.UserID {
-		response.Error(c, http.StatusForbidden, response.CodeForbidden, service.ErrVoteTaskForbidden.Error())
-		return
+	if !isRoot && !isAssessmentAdmin {
+		if voterID == nil {
+			value := claims.UserID
+			voterID = &value
+		} else if *voterID != claims.UserID {
+			response.Error(c, http.StatusForbidden, response.CodeForbidden, service.ErrVoteTaskForbidden.Error())
+			return
+		}
 	}
 
 	items, err := h.voteService.ListVoteTasks(c.Request.Context(), service.ListVoteTaskFilter{
@@ -160,6 +166,11 @@ func (h *VoteHandler) ResetVoteTask(c *gin.Context) {
 }
 
 func (h *VoteHandler) VoteStatistics(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
 	if err != nil || yearID == nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
@@ -175,7 +186,7 @@ func (h *VoteHandler) VoteStatistics(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid objectId")
 		return
 	}
-	result, err := h.voteService.ListVoteStatistics(c.Request.Context(), service.VoteStatisticsFilter{
+	result, err := h.voteService.ListVoteStatistics(c.Request.Context(), claims, service.VoteStatisticsFilter{
 		YearID:     *yearID,
 		PeriodCode: strings.TrimSpace(c.Query("periodCode")),
 		ModuleID:   *moduleID,
@@ -217,9 +228,13 @@ func (h *VoteHandler) handleVoteError(c *gin.Context, err error, fallback string
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 	case errors.Is(err, service.ErrVoteTaskLocked),
 		errors.Is(err, service.ErrVoteTaskNotResettable),
-		errors.Is(err, service.ErrPeriodLocked):
+		errors.Is(err, service.ErrAssessmentReadOnly),
+		errors.Is(err, service.ErrAssessmentNotActive),
+		errors.Is(err, service.ErrPeriodNotActive):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrVoteTaskForbidden):
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
+	case errors.Is(err, service.ErrForbidden):
 		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrVoteTaskNotFound),
 		errors.Is(err, service.ErrAssessmentObjectNotFound),

@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -86,6 +87,73 @@ DROP TABLE IF EXISTS test_logs;
 	}
 	if statusRows[1].Applied {
 		t.Fatalf("expected second migration rolled back")
+	}
+}
+
+func TestManagerReconcileChecksums(t *testing.T) {
+	ctx := context.Background()
+	migrationsDir := t.TempDir()
+
+	upPath := filepath.Join(migrationsDir, "0001_create_users.up.sql")
+	downPath := filepath.Join(migrationsDir, "0001_create_users.down.sql")
+
+	mustWriteFile(t, upPath, `
+CREATE TABLE test_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL
+);
+`)
+	mustWriteFile(t, downPath, `
+DROP TABLE IF EXISTS test_users;
+`)
+
+	db, cleanup := openTestDB(t)
+	defer cleanup()
+
+	manager, err := NewManager(db, migrationsDir)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	applied, err := manager.Up(ctx)
+	if err != nil {
+		t.Fatalf("failed to apply initial migrations: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("expected applied=1, got=%d", applied)
+	}
+
+	mustWriteFile(t, upPath, `
+CREATE TABLE test_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    email TEXT
+);
+`)
+
+	_, err = manager.Up(ctx)
+	if err == nil {
+		t.Fatalf("expected checksum mismatch error")
+	}
+	var checksumErr *ChecksumMismatchError
+	if !errors.As(err, &checksumErr) {
+		t.Fatalf("expected ChecksumMismatchError, got: %v", err)
+	}
+
+	reconciled, err := manager.ReconcileChecksums(ctx)
+	if err != nil {
+		t.Fatalf("failed to reconcile checksums: %v", err)
+	}
+	if reconciled != 1 {
+		t.Fatalf("expected reconciled=1, got=%d", reconciled)
+	}
+
+	applied, err = manager.Up(ctx)
+	if err != nil {
+		t.Fatalf("expected up to pass after reconcile, got: %v", err)
+	}
+	if applied != 0 {
+		t.Fatalf("expected applied=0 after reconcile, got=%d", applied)
 	}
 }
 

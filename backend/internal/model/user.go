@@ -15,8 +15,9 @@ type User struct {
 	UpdatedAt          int64   `gorm:"not null;autoUpdateTime" json:"updatedAt"`
 	DeletedAt          *int64  `gorm:"index" json:"-"`
 
-	UserRoles         []UserRole         `gorm:"foreignKey:UserID" json:"-"`
-	UserOrganizations []UserOrganization `gorm:"foreignKey:UserID" json:"-"`
+	UserRoles              []UserRole              `gorm:"foreignKey:UserID" json:"-"`
+	UserOrganizations      []UserOrganization      `gorm:"foreignKey:UserID" json:"-"`
+	UserPermissionBindings []UserPermissionBinding `gorm:"foreignKey:UserID" json:"-"`
 }
 
 func (User) TableName() string {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/api/response"
+	"assessv2/backend/internal/middleware"
 	"assessv2/backend/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -140,13 +141,18 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	var req createRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid rule payload")
 		return
 	}
 	modules := mapModuleRequests(req.Modules)
-	result, err := h.ruleService.CreateRule(c.Request.Context(), operatorID, service.CreateRuleInput{
+	result, err := h.ruleService.CreateRule(c.Request.Context(), claims, operatorID, service.CreateRuleInput{
 		YearID:         req.YearID,
 		PeriodCode:     strings.TrimSpace(req.PeriodCode),
 		ObjectType:     strings.TrimSpace(req.ObjectType),
@@ -169,6 +175,11 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	ruleID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid rule id")
@@ -180,7 +191,7 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 		return
 	}
 	modules := mapModuleRequests(req.Modules)
-	result, err := h.ruleService.UpdateRule(c.Request.Context(), operatorID, ruleID, service.UpdateRuleInput{
+	result, err := h.ruleService.UpdateRule(c.Request.Context(), claims, operatorID, ruleID, service.UpdateRuleInput{
 		RuleName:      strings.TrimSpace(req.RuleName),
 		Description:   strings.TrimSpace(req.Description),
 		IsActive:      boolOrDefault(req.IsActive, true),
@@ -211,13 +222,18 @@ func (h *RuleHandler) CreateTemplate(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	var req createTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid template payload")
 		return
 	}
 	modules := mapModuleRequests(req.Config.Modules)
-	result, err := h.ruleService.CreateTemplate(c.Request.Context(), operatorID, service.CreateRuleTemplateInput{
+	result, err := h.ruleService.CreateTemplate(c.Request.Context(), claims, operatorID, service.CreateRuleTemplateInput{
 		TemplateName:   strings.TrimSpace(req.TemplateName),
 		ObjectType:     strings.TrimSpace(req.ObjectType),
 		ObjectCategory: strings.TrimSpace(req.ObjectCategory),
@@ -240,6 +256,11 @@ func (h *RuleHandler) CreateTemplateFromRule(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	ruleID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid rule id")
@@ -250,7 +271,7 @@ func (h *RuleHandler) CreateTemplateFromRule(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid template payload")
 		return
 	}
-	result, err := h.ruleService.CreateTemplateFromRule(c.Request.Context(), operatorID, ruleID, strings.TrimSpace(req.TemplateName), strings.TrimSpace(req.Description), c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.ruleService.CreateTemplateFromRule(c.Request.Context(), claims, operatorID, ruleID, strings.TrimSpace(req.TemplateName), strings.TrimSpace(req.Description), c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleRuleError(c, err, "failed to create template from rule")
 		return
@@ -263,6 +284,11 @@ func (h *RuleHandler) ApplyTemplate(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	templateID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid template id")
@@ -273,7 +299,7 @@ func (h *RuleHandler) ApplyTemplate(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid apply template payload")
 		return
 	}
-	result, err := h.ruleService.ApplyTemplate(c.Request.Context(), operatorID, templateID, service.ApplyRuleTemplateInput{
+	result, err := h.ruleService.ApplyTemplate(c.Request.Context(), claims, operatorID, templateID, service.ApplyRuleTemplateInput{
 		YearID:         req.YearID,
 		PeriodCode:     strings.TrimSpace(req.PeriodCode),
 		ObjectType:     strings.TrimSpace(req.ObjectType),
@@ -294,6 +320,8 @@ func (h *RuleHandler) ApplyTemplate(c *gin.Context) {
 func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, service.ErrInvalidParam),
+		errors.Is(err, service.ErrInvalidYearStatus),
+		errors.Is(err, service.ErrInvalidPeriodStatus),
 		errors.Is(err, service.ErrInvalidRulePeriodCode),
 		errors.Is(err, service.ErrInvalidRuleObjectType),
 		errors.Is(err, service.ErrInvalidRuleObjectCategory),
@@ -305,8 +333,11 @@ func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string
 		errors.Is(err, service.ErrInvalidExpression),
 		errors.Is(err, service.ErrRuleTemplateNameInvalid):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
-	case errors.Is(err, service.ErrRuleAlreadyExists):
+	case errors.Is(err, service.ErrRuleAlreadyExists),
+		errors.Is(err, service.ErrAssessmentReadOnly):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+	case errors.Is(err, service.ErrForbidden):
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrRuleNotFound),
 		errors.Is(err, service.ErrRuleTemplateNotFound),
 		errors.Is(err, service.ErrYearNotFound):

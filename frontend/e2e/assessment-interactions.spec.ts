@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+﻿import { expect, test } from "@playwright/test";
 import { mockProfile, ok, setAuthedSession } from "./helpers";
 
 test("assessment page supports create year and status transition interactions", async ({ page }) => {
@@ -9,7 +9,7 @@ test("assessment page supports create year and status transition interactions", 
     {
       id: 1,
       year: 2025,
-      yearName: "2025年度考核",
+      yearName: "2025骞村害鑰冩牳",
       status: "preparing",
       description: "",
     },
@@ -17,16 +17,16 @@ test("assessment page supports create year and status transition interactions", 
 
   const periodsByYear: Record<number, unknown[]> = {
     1: [
-      { id: 11, yearId: 1, periodCode: "Q1", periodName: "第一季度", status: "not_started" },
-      { id: 12, yearId: 1, periodCode: "Q2", periodName: "第二季度", status: "not_started" },
-      { id: 13, yearId: 1, periodCode: "Q3", periodName: "第三季度", status: "not_started" },
-      { id: 14, yearId: 1, periodCode: "Q4", periodName: "第四季度", status: "not_started" },
-      { id: 15, yearId: 1, periodCode: "YEAR_END", periodName: "年终考核", status: "not_started" },
+      { id: 11, yearId: 1, periodCode: "Q1", periodName: "绗竴瀛ｅ害", status: "preparing" },
+      { id: 12, yearId: 1, periodCode: "Q2", periodName: "绗簩瀛ｅ害", status: "preparing" },
+      { id: 13, yearId: 1, periodCode: "Q3", periodName: "绗笁瀛ｅ害", status: "preparing" },
+      { id: 14, yearId: 1, periodCode: "Q4", periodName: "绗洓瀛ｅ害", status: "preparing" },
+      { id: 15, yearId: 1, periodCode: "YEAR_END", periodName: "骞寸粓鑰冩牳", status: "preparing" },
     ],
   };
 
   const objectsByYear: Record<number, unknown[]> = {
-    1: [{ id: 100, yearId: 1, objectType: "team", objectCategory: "company", targetId: 1, targetType: "organization", objectName: "测试公司", isActive: true }],
+    1: [{ id: 100, yearId: 1, objectType: "team", objectCategory: "company", targetId: 1, targetType: "organization", objectName: "娴嬭瘯鍏徃", isActive: true }],
   };
 
   await page.route("**/api/assessment/**", async (route) => {
@@ -42,18 +42,18 @@ test("assessment page supports create year and status transition interactions", 
     if (method === "POST" && path === "/api/assessment/years") {
       const created = {
         id: 2,
-        year: 2026,
-        yearName: "2026年度考核",
+        year: 2027,
+        yearName: "2027骞村害鑰冩牳",
         status: "preparing",
         description: "",
       };
       years.unshift(created);
       periodsByYear[2] = [
-        { id: 21, yearId: 2, periodCode: "Q1", periodName: "第一季度", status: "not_started" },
-        { id: 22, yearId: 2, periodCode: "Q2", periodName: "第二季度", status: "not_started" },
-        { id: 23, yearId: 2, periodCode: "Q3", periodName: "第三季度", status: "not_started" },
-        { id: 24, yearId: 2, periodCode: "Q4", periodName: "第四季度", status: "not_started" },
-        { id: 25, yearId: 2, periodCode: "YEAR_END", periodName: "年终考核", status: "not_started" },
+        { id: 21, yearId: 2, periodCode: "Q1", periodName: "绗竴瀛ｅ害", status: "preparing" },
+        { id: 22, yearId: 2, periodCode: "Q2", periodName: "绗簩瀛ｅ害", status: "preparing" },
+        { id: 23, yearId: 2, periodCode: "Q3", periodName: "绗笁瀛ｅ害", status: "preparing" },
+        { id: 24, yearId: 2, periodCode: "Q4", periodName: "绗洓瀛ｅ害", status: "preparing" },
+        { id: 25, yearId: 2, periodCode: "YEAR_END", periodName: "骞寸粓鑰冩牳", status: "preparing" },
       ];
       objectsByYear[2] = [];
       await ok(route, {
@@ -111,13 +111,14 @@ test("assessment page supports create year and status transition interactions", 
 
   await page.goto("/assessment");
 
-  await expect(page.getByText("年度管理")).toBeVisible();
-  await expect(page.getByText("第一季度")).toBeVisible();
+  await expect(page.getByText("骞村害绠＄悊")).toBeVisible();
+  await expect(page.getByText("绗竴瀛ｅ害")).toBeVisible();
 
-  await page.getByRole("button", { name: "创建年度" }).click();
-  await expect(page.getByText("创建考核年度")).toBeVisible();
-  await page.getByRole("button", { name: "创建" }).click();
+  await page.getByRole("button", { name: "鍒涘缓骞村害" }).click();
+  await expect(page.getByText("鍒涘缓鑰冩牳骞村害")).toBeVisible();
+  await page.getByRole("button", { name: "鍒涘缓" }).click();
 
-  await expect(page.getByText("年度创建成功，自动生成 5 个周期")).toBeVisible();
-  await expect(page.getByText("2026年度考核")).toBeVisible();
+  await expect(page.getByText("骞村害鍒涘缓鎴愬姛锛岃嚜鍔ㄧ敓鎴?5 涓懆鏈?)).toBeVisible();
+  await expect(page.getByText("2027骞村害鑰冩牳")).toBeVisible();
 });
+

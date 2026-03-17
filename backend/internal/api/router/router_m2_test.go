@@ -136,7 +136,7 @@ func TestM2CreateYearAutoPeriodsAndExcludeInactiveTargets(t *testing.T) {
 	}
 }
 
-func TestM2PeriodLockedCannotReopen(t *testing.T) {
+func TestM2PeriodCompletedCanReopen(t *testing.T) {
 	engine, _ := setupTestServer(t)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
 
@@ -169,14 +169,14 @@ func TestM2PeriodLockedCannotReopen(t *testing.T) {
 	}
 	periodID := createYearData.Periods[0].ID
 
-	lockReqBody, _ := json.Marshal(map[string]string{"status": "locked"})
+	lockReqBody, _ := json.Marshal(map[string]string{"status": "completed"})
 	lockReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/assessment/periods/%d/status", periodID), bytes.NewReader(lockReqBody))
 	lockReq.Header.Set("Authorization", "Bearer "+rootToken)
 	lockReq.Header.Set("Content-Type", "application/json")
 	lockResp := httptest.NewRecorder()
 	engine.ServeHTTP(lockResp, lockReq)
 	if lockResp.Code != http.StatusOK {
-		t.Fatalf("expected lock period status=200, got=%d body=%s", lockResp.Code, lockResp.Body.String())
+		t.Fatalf("expected complete period status=200, got=%d body=%s", lockResp.Code, lockResp.Body.String())
 	}
 
 	reopenReqBody, _ := json.Marshal(map[string]string{"status": "active"})
@@ -185,8 +185,8 @@ func TestM2PeriodLockedCannotReopen(t *testing.T) {
 	reopenReq.Header.Set("Content-Type", "application/json")
 	reopenResp := httptest.NewRecorder()
 	engine.ServeHTTP(reopenResp, reopenReq)
-	if reopenResp.Code != http.StatusBadRequest {
-		t.Fatalf("expected reopen locked period status=400, got=%d body=%s", reopenResp.Code, reopenResp.Body.String())
+	if reopenResp.Code != http.StatusOK {
+		t.Fatalf("expected reopen completed period status=200, got=%d body=%s", reopenResp.Code, reopenResp.Body.String())
 	}
 }
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="assessment-view">
     <el-card>
       <template #header>
@@ -29,7 +29,7 @@
         <el-table-column prop="description" label="说明" min-width="180">
           <template #default="{ row }">{{ row.description || "-" }}</template>
         </el-table-column>
-        <el-table-column label="操作" min-width="200" fixed="right">
+        <el-table-column label="操作" min-width="220" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button link type="primary" @click="selectYear(row)">查看周期</el-button>
@@ -104,49 +104,7 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <span v-else class="status-disabled">已锁定或无可用流转</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <el-card>
-      <template #header>
-        <div class="card-header">
-          <strong>
-            考核对象
-            <span class="subtitle" v-if="selectedYear">- 共 {{ filteredObjects.length }} 条</span>
-          </strong>
-        </div>
-      </template>
-
-      <div class="objects-filter">
-        <el-select v-model="objectFilter.objectType" clearable placeholder="对象类型">
-          <el-option label="团体" value="team" />
-          <el-option label="个人" value="individual" />
-        </el-select>
-        <el-select v-model="objectFilter.objectCategory" clearable placeholder="对象分类">
-          <el-option v-for="item in objectCategoryOptions" :key="item" :label="assessmentCategoryLabel(item)" :value="item" />
-        </el-select>
-        <el-input v-model="objectFilter.keyword" clearable placeholder="按对象名称搜索" />
-      </div>
-
-      <el-empty v-if="!selectedYear" description="请选择年度后查看考核对象" />
-      <el-table v-else v-loading="loadingObjects" :data="filteredObjects" border>
-        <el-table-column prop="id" label="编号" width="70" />
-        <el-table-column prop="objectName" label="对象名称" min-width="180" />
-        <el-table-column prop="objectType" label="对象类型" width="110" />
-        <el-table-column label="对象分类" min-width="140">
-          <template #default="{ row }">{{ assessmentCategoryLabel(row.objectCategory) }}</template>
-        </el-table-column>
-        <el-table-column prop="targetType" label="目标类型" width="110" />
-        <el-table-column prop="targetId" label="目标编号" width="100" />
-        <el-table-column prop="parentObjectId" label="上级对象编号" width="110">
-          <template #default="{ row }">{{ row.parentObjectId || "-" }}</template>
-        </el-table-column>
-        <el-table-column label="是否参与" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.isActive ? 'success' : 'info'">{{ row.isActive ? "是" : "否" }}</el-tag>
+            <span v-else class="status-disabled">当前无可用流转</span>
           </template>
         </el-table-column>
       </el-table>
@@ -211,21 +169,18 @@ import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import {
   createAssessmentYear,
-  listAssessmentObjects,
   listAssessmentPeriods,
   listAssessmentYears,
   updateAssessmentPeriodStatus,
   updateAssessmentYearStatus,
 } from "@/api/assessment";
 import type {
-  AssessmentObjectItem,
   AssessmentPeriodItem,
   AssessmentPeriodStatus,
   AssessmentYearItem,
   AssessmentYearStatus,
 } from "@/types/assessment";
 import { formatAssessmentYearLabel } from "@/utils/assessment";
-import { assessmentCategoryLabel } from "@/constants/assessmentCategories";
 
 const appStore = useAppStore();
 const contextStore = useContextStore();
@@ -237,15 +192,6 @@ const selectedYear = ref<AssessmentYearItem | null>(null);
 
 const loadingPeriods = ref(false);
 const periods = ref<AssessmentPeriodItem[]>([]);
-
-const loadingObjects = ref(false);
-const objects = ref<AssessmentObjectItem[]>([]);
-
-const objectFilter = reactive({
-  objectType: "",
-  objectCategory: "",
-  keyword: "",
-});
 
 const createYearDialogVisible = ref(false);
 const creatingYear = ref(false);
@@ -261,32 +207,6 @@ const createYearForm = reactive({
 const copyFromYearOptions = computed(() =>
   years.value.filter((item) => item.year !== createYearForm.year),
 );
-
-const objectCategoryOptions = computed(() => {
-  const set = new Set<string>();
-  for (const item of objects.value) {
-    set.add(item.objectCategory);
-  }
-  return Array.from(set.values());
-});
-
-const filteredObjects = computed(() => {
-  return objects.value.filter((item) => {
-    if (objectFilter.objectType && item.objectType !== objectFilter.objectType) {
-      return false;
-    }
-    if (objectFilter.objectCategory && item.objectCategory !== objectFilter.objectCategory) {
-      return false;
-    }
-    if (objectFilter.keyword.trim()) {
-      const kw = objectFilter.keyword.trim().toLowerCase();
-      if (!item.objectName.toLowerCase().includes(kw)) {
-        return false;
-      }
-    }
-    return true;
-  });
-});
 
 function dateText(value?: string): string {
   if (!value) {
@@ -304,8 +224,8 @@ function yearStatusText(status: AssessmentYearStatus): string {
       return "筹备中";
     case "active":
       return "进行中";
-    case "ended":
-      return "已结束";
+    case "completed":
+      return "已完成";
     default:
       return status;
   }
@@ -317,7 +237,7 @@ function yearStatusTagType(status: AssessmentYearStatus): "info" | "warning" | "
       return "info";
     case "active":
       return "warning";
-    case "ended":
+    case "completed":
       return "success";
     default:
       return "info";
@@ -326,56 +246,36 @@ function yearStatusTagType(status: AssessmentYearStatus): "info" | "warning" | "
 
 function periodStatusText(status: AssessmentPeriodStatus): string {
   switch (status) {
-    case "not_started":
-      return "未开始";
+    case "preparing":
+      return "筹备中";
     case "active":
       return "进行中";
-    case "ended":
-      return "已结束";
-    case "locked":
-      return "已锁定";
+    case "completed":
+      return "已完成";
     default:
       return status;
   }
 }
 
-function periodStatusTagType(status: AssessmentPeriodStatus): "info" | "warning" | "success" | "danger" {
+function periodStatusTagType(status: AssessmentPeriodStatus): "info" | "warning" | "success" {
   switch (status) {
-    case "not_started":
+    case "preparing":
       return "info";
     case "active":
       return "warning";
-    case "ended":
+    case "completed":
       return "success";
-    case "locked":
-      return "danger";
     default:
       return "info";
   }
 }
 
 function availableYearTransitions(status: AssessmentYearStatus): AssessmentYearStatus[] {
-  switch (status) {
-    case "preparing":
-      return ["active"];
-    case "active":
-      return ["ended"];
-    default:
-      return [];
-  }
+  return ["preparing", "active", "completed"].filter((item) => item !== status) as AssessmentYearStatus[];
 }
 
 function availablePeriodTransitions(status: AssessmentPeriodStatus): AssessmentPeriodStatus[] {
-  switch (status) {
-    case "not_started":
-      return ["active", "locked"];
-    case "active":
-      return ["ended", "locked"];
-    case "ended":
-      return ["locked"];
-    default:
-      return [];
-  }
+  return ["preparing", "active", "completed"].filter((item) => item !== status) as AssessmentPeriodStatus[];
 }
 
 async function loadYears(): Promise<void> {
@@ -385,8 +285,11 @@ async function loadYears(): Promise<void> {
     if (!selectedYear.value && years.value.length > 0) {
       const preferred = years.value.find((item) => item.id === contextStore.yearId);
       await selectYear(preferred ?? years.value[0]);
-    } else if (selectedYear.value) {
-      const latest = years.value.find((item) => item.id === selectedYear.value?.id) || null;
+      return;
+    }
+
+    if (selectedYear.value) {
+      const latest = years.value.find((item) => item.id === selectedYear.value?.id) ?? null;
       selectedYear.value = latest;
       if (!latest && years.value.length > 0) {
         await selectYear(years.value[0]);
@@ -410,20 +313,9 @@ async function loadPeriods(yearId: number): Promise<void> {
   }
 }
 
-async function loadObjects(yearId: number): Promise<void> {
-  loadingObjects.value = true;
-  try {
-    objects.value = await listAssessmentObjects(yearId);
-  } catch (_error) {
-    ElMessage.error("考核对象加载失败");
-  } finally {
-    loadingObjects.value = false;
-  }
-}
-
 async function selectYear(row: AssessmentYearItem): Promise<void> {
   selectedYear.value = row;
-  await Promise.all([loadPeriods(row.id), loadObjects(row.id)]);
+  await loadPeriods(row.id);
   if (contextStore.yearId !== row.id) {
     try {
       await contextStore.setYear(row.id);
@@ -437,7 +329,7 @@ async function reloadCurrentYearData(): Promise<void> {
   if (!selectedYear.value) {
     return;
   }
-  await Promise.all([loadPeriods(selectedYear.value.id), loadObjects(selectedYear.value.id)]);
+  await loadPeriods(selectedYear.value.id);
 }
 
 function openCreateYearDialog(): void {
@@ -537,7 +429,6 @@ watch(
     if (!yearId) {
       selectedYear.value = null;
       periods.value = [];
-      objects.value = [];
       return;
     }
 
@@ -594,13 +485,6 @@ onMounted(async () => {
   color: #909399;
 }
 
-.objects-filter {
-  display: grid;
-  grid-template-columns: 180px 180px 1fr;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
 .subtitle {
   margin-left: 6px;
   color: #606266;
@@ -611,10 +495,6 @@ onMounted(async () => {
   .card-header {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .objects-filter {
-    grid-template-columns: 1fr;
   }
 }
 </style>

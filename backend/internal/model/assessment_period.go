@@ -7,7 +7,7 @@ type AssessmentPeriod struct {
 	YearID     uint       `gorm:"not null;index;uniqueIndex:uk_year_period" json:"yearId"`
 	PeriodCode string     `gorm:"size:20;not null;uniqueIndex:uk_year_period" json:"periodCode"`
 	PeriodName string     `gorm:"size:100;not null" json:"periodName"`
-	Status     string     `gorm:"size:20;not null;default:not_started;index" json:"status"`
+	Status     string     `gorm:"size:20;not null;default:preparing;index" json:"status"`
 	StartDate  *time.Time `gorm:"type:date" json:"startDate,omitempty"`
 	EndDate    *time.Time `gorm:"type:date" json:"endDate,omitempty"`
 	CreatedBy  *uint      `json:"createdBy,omitempty"`

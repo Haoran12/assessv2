@@ -3,21 +3,18 @@ import { useAppStore } from "@/stores/app";
 
 const MainLayout = () => import("@/layouts/MainLayout.vue");
 const LoginView = () => import("@/views/LoginView.vue");
-const PlaceholderView = () => import("@/views/PlaceholderView.vue");
 const ChangePasswordView = () => import("@/views/ChangePasswordView.vue");
 const SystemUsersView = () => import("@/views/SystemUsersView.vue");
 const ForbiddenView = () => import("@/views/ForbiddenView.vue");
 const RulesView = () => import("@/views/RulesView.vue");
 const OrganizationView = () => import("@/views/OrganizationView.vue");
-const ScoreDirectView = () => import("@/views/ScoreDirectView.vue");
-const ScoreExtraView = () => import("@/views/ScoreExtraView.vue");
-const VoteTaskView = () => import("@/views/VoteTaskView.vue");
-const VoteExecuteView = () => import("@/views/VoteExecuteView.vue");
-const VoteStatisticsView = () => import("@/views/VoteStatisticsView.vue");
-const ResultOverviewView = () => import("@/views/ResultOverviewView.vue");
 const SystemOverviewView = () => import("@/views/SystemOverviewView.vue");
+const AssessmentView = () => import("@/views/AssessmentView.vue");
 const ModuleRulesView = () => import("@/views/ModuleRulesView.vue");
 const GradeRulesPlaceholderView = () => import("@/views/GradeRulesPlaceholderView.vue");
+const BackupManageView = () => import("@/views/BackupManageView.vue");
+const AuditLogsView = () => import("@/views/AuditLogsView.vue");
+const SystemSettingsView = () => import("@/views/SystemSettingsView.vue");
 
 const moduleRoutes: RouteRecordRaw[] = [
   {
@@ -38,9 +35,15 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, permission: "org:view" },
   },
   {
+    path: "period-management",
+    name: "period-management",
+    component: AssessmentView,
+    meta: { requiresAuth: true, permission: "assessment:view" },
+  },
+  {
     path: "assessment",
-    name: "assessment",
-    redirect: "/overview",
+    name: "assessment-legacy",
+    redirect: "/period-management",
   },
   {
     path: "rules",
@@ -66,116 +69,6 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, permission: "rule:view" },
   },
   {
-    path: "scores",
-    name: "scores",
-    redirect: "/scores/direct",
-  },
-  {
-    path: "score",
-    name: "score-legacy",
-    redirect: "/scores/direct",
-  },
-  {
-    path: "score/direct",
-    name: "score-legacy-direct",
-    redirect: "/scores/direct",
-  },
-  {
-    path: "score/extra",
-    name: "score-legacy-extra",
-    redirect: "/scores/extra",
-  },
-  {
-    path: "scores/direct",
-    name: "scores-direct",
-    component: ScoreDirectView,
-    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
-  },
-  {
-    path: "scores/extra",
-    name: "scores-extra",
-    component: ScoreExtraView,
-    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
-  },
-  {
-    path: "votes",
-    name: "votes",
-    redirect: "/votes/task",
-  },
-  {
-    path: "vote",
-    name: "vote-legacy",
-    redirect: "/votes/task",
-  },
-  {
-    path: "vote/task",
-    name: "vote-legacy-task",
-    redirect: "/votes/task",
-  },
-  {
-    path: "vote/execute",
-    name: "vote-legacy-execute",
-    redirect: "/votes/execute",
-  },
-  {
-    path: "vote/statistics",
-    name: "vote-legacy-statistics",
-    redirect: "/votes/statistics",
-  },
-  {
-    path: "votes/task",
-    name: "votes-task",
-    component: VoteTaskView,
-    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
-  },
-  {
-    path: "votes/execute",
-    name: "votes-execute",
-    component: VoteExecuteView,
-    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
-  },
-  {
-    path: "votes/statistics",
-    name: "votes-statistics",
-    component: VoteStatisticsView,
-    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
-  },
-  {
-    path: "results",
-    name: "results",
-    redirect: "/results/overview",
-  },
-  {
-    path: "result",
-    name: "result-legacy",
-    redirect: "/results/overview",
-  },
-  {
-    path: "results/overview",
-    name: "results-overview",
-    component: ResultOverviewView,
-    meta: { requiresAuth: true, permission: "score:view", useGlobalContext: true },
-  },
-  {
-    path: "calc",
-    name: "calc",
-    redirect: "/rules/module",
-  },
-  {
-    path: "reports",
-    name: "reports",
-    component: PlaceholderView,
-    props: { title: "报表中心", apiGroup: "/api/reports" },
-    meta: { requiresAuth: true, permission: "report:view" },
-  },
-  {
-    path: "backup",
-    name: "backup",
-    component: PlaceholderView,
-    props: { title: "备份管理", apiGroup: "/api/backup" },
-    meta: { requiresAuth: true, permission: "backup:*" },
-  },
-  {
     path: "system",
     name: "system",
     redirect: "/system/users",
@@ -185,6 +78,24 @@ const moduleRoutes: RouteRecordRaw[] = [
     name: "system-users",
     component: SystemUsersView,
     meta: { requiresAuth: true, permission: "user:view" },
+  },
+  {
+    path: "system/backup",
+    name: "system-backup",
+    component: BackupManageView,
+    meta: { requiresAuth: true, permission: "backup:view" },
+  },
+  {
+    path: "system/audit",
+    name: "system-audit",
+    component: AuditLogsView,
+    meta: { requiresAuth: true, permission: "audit:view" },
+  },
+  {
+    path: "system/settings",
+    name: "system-settings",
+    component: SystemSettingsView,
+    meta: { requiresAuth: true, permission: "setting:view" },
   },
 ];
 

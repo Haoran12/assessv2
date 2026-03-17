@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
@@ -205,7 +206,14 @@ func (s *OrgService) ListOrganizations(ctx context.Context, filter ListOrganizat
 	return items, nil
 }
 
-func (s *OrgService) CreateOrganization(ctx context.Context, operatorID uint, input CreateOrganizationInput, ipAddress string, userAgent string) (*model.Organization, error) {
+func (s *OrgService) CreateOrganization(ctx context.Context, claims *auth.Claims, operatorID uint, input CreateOrganizationInput, ipAddress string, userAgent string) (*model.Organization, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(input.OrgName) == "" {
 		return nil, ErrInvalidParam
 	}
@@ -215,6 +223,17 @@ func (s *OrgService) CreateOrganization(ctx context.Context, operatorID uint, in
 	status := normalizeStatus(input.Status, "active")
 	if !isValidOrgStatus(status) {
 		return nil, ErrInvalidOrganizationStatus
+	}
+	if !writeScope.unrestricted {
+		if strings.TrimSpace(input.OrgType) == "group" {
+			return nil, ErrForbidden
+		}
+		if input.ParentID == nil || *input.ParentID == 0 {
+			return nil, ErrForbidden
+		}
+		if !writeScope.allowsOrganization(*input.ParentID) {
+			return nil, ErrForbidden
+		}
 	}
 	if input.ParentID != nil && *input.ParentID > 0 {
 		if err := s.requireOrganization(ctx, *input.ParentID); err != nil {
@@ -233,7 +252,17 @@ func (s *OrgService) CreateOrganization(ctx context.Context, operatorID uint, in
 	return &record, nil
 }
 
-func (s *OrgService) UpdateOrganization(ctx context.Context, operatorID, organizationID uint, input UpdateOrganizationInput, ipAddress string, userAgent string) (*model.Organization, error) {
+func (s *OrgService) UpdateOrganization(ctx context.Context, claims *auth.Claims, operatorID, organizationID uint, input UpdateOrganizationInput, ipAddress string, userAgent string) (*model.Organization, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+	if !writeScope.allowsOrganization(organizationID) {
+		return nil, ErrForbidden
+	}
 	if strings.TrimSpace(input.OrgName) == "" {
 		return nil, ErrInvalidParam
 	}
@@ -247,6 +276,9 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, operatorID, organiz
 	if input.ParentID != nil && *input.ParentID > 0 {
 		if *input.ParentID == organizationID {
 			return nil, ErrInvalidParam
+		}
+		if !writeScope.allowsOrganization(*input.ParentID) {
+			return nil, ErrForbidden
 		}
 		if err := s.requireOrganization(ctx, *input.ParentID); err != nil {
 			return nil, err
@@ -274,7 +306,18 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, operatorID, organiz
 	return &existing, nil
 }
 
-func (s *OrgService) DeleteOrganization(ctx context.Context, operatorID, organizationID uint, ipAddress string, userAgent string) error {
+func (s *OrgService) DeleteOrganization(ctx context.Context, claims *auth.Claims, operatorID, organizationID uint, ipAddress string, userAgent string) error {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return err
+	}
+	if !writeScope.allowsOrganization(organizationID) {
+		return ErrForbidden
+	}
+
 	var existing model.Organization
 	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", organizationID).First(&existing).Error; err != nil {
 		if repository.IsRecordNotFound(err) {
@@ -324,7 +367,18 @@ func (s *OrgService) ListDepartments(ctx context.Context, filter ListDepartmentF
 	return items, nil
 }
 
-func (s *OrgService) CreateDepartment(ctx context.Context, operatorID uint, input CreateDepartmentInput, ipAddress string, userAgent string) (*model.Department, error) {
+func (s *OrgService) CreateDepartment(ctx context.Context, claims *auth.Claims, operatorID uint, input CreateDepartmentInput, ipAddress string, userAgent string) (*model.Department, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+	if !writeScope.allowsOrganization(input.OrganizationID) {
+		return nil, ErrForbidden
+	}
+
 	if strings.TrimSpace(input.DeptName) == "" {
 		return nil, ErrInvalidParam
 	}
@@ -334,6 +388,13 @@ func (s *OrgService) CreateDepartment(ctx context.Context, operatorID uint, inpu
 	if input.ParentDeptID != nil && *input.ParentDeptID > 0 {
 		if err := s.requireDepartment(ctx, *input.ParentDeptID); err != nil {
 			return nil, err
+		}
+		parentOrgID, err := s.departmentOrganizationID(ctx, *input.ParentDeptID)
+		if err != nil {
+			return nil, err
+		}
+		if parentOrgID != input.OrganizationID || !writeScope.allowsOrganization(parentOrgID) {
+			return nil, ErrForbidden
 		}
 	}
 	status := normalizeStatus(input.Status, "active")
@@ -351,9 +412,19 @@ func (s *OrgService) CreateDepartment(ctx context.Context, operatorID uint, inpu
 	return &record, nil
 }
 
-func (s *OrgService) UpdateDepartment(ctx context.Context, operatorID, departmentID uint, input UpdateDepartmentInput, ipAddress string, userAgent string) (*model.Department, error) {
+func (s *OrgService) UpdateDepartment(ctx context.Context, claims *auth.Claims, operatorID, departmentID uint, input UpdateDepartmentInput, ipAddress string, userAgent string) (*model.Department, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(input.DeptName) == "" {
 		return nil, ErrInvalidParam
+	}
+	if !writeScope.allowsOrganization(input.OrganizationID) {
+		return nil, ErrForbidden
 	}
 	if err := s.requireOrganization(ctx, input.OrganizationID); err != nil {
 		return nil, err
@@ -364,6 +435,13 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, operatorID, departmen
 		}
 		if err := s.requireDepartment(ctx, *input.ParentDeptID); err != nil {
 			return nil, err
+		}
+		parentOrgID, err := s.departmentOrganizationID(ctx, *input.ParentDeptID)
+		if err != nil {
+			return nil, err
+		}
+		if parentOrgID != input.OrganizationID || !writeScope.allowsOrganization(parentOrgID) {
+			return nil, ErrForbidden
 		}
 	}
 	status := normalizeStatus(input.Status, "active")
@@ -377,6 +455,9 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, operatorID, departmen
 			return nil, ErrDepartmentNotFound
 		}
 		return nil, fmt.Errorf("failed to query department: %w", err)
+	}
+	if !writeScope.allowsOrganization(existing.OrganizationID) {
+		return nil, ErrForbidden
 	}
 
 	operator := operatorID
@@ -392,13 +473,23 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, operatorID, departmen
 	return &existing, nil
 }
 
-func (s *OrgService) DeleteDepartment(ctx context.Context, operatorID, departmentID uint, ipAddress string, userAgent string) error {
+func (s *OrgService) DeleteDepartment(ctx context.Context, claims *auth.Claims, operatorID, departmentID uint, ipAddress string, userAgent string) error {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return err
+	}
 	var existing model.Department
 	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", departmentID).First(&existing).Error; err != nil {
 		if repository.IsRecordNotFound(err) {
 			return ErrDepartmentNotFound
 		}
 		return fmt.Errorf("failed to query department: %w", err)
+	}
+	if !writeScope.allowsOrganization(existing.OrganizationID) {
+		return ErrForbidden
 	}
 	if err := s.ensureDepartmentNotInUse(ctx, departmentID); err != nil {
 		return err
@@ -479,6 +570,9 @@ func (s *OrgService) ListPositionLevels(ctx context.Context, filter ListPosition
 }
 
 func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, input CreatePositionLevelInput, ipAddress string, userAgent string) (*model.PositionLevel, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
 	levelCode, err := normalizePositionLevelCode(input.LevelCode)
 	if err != nil {
 		return nil, err
@@ -534,6 +628,9 @@ func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, i
 }
 
 func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positionLevelID uint, input UpdatePositionLevelInput, ipAddress string, userAgent string) (*model.PositionLevel, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
 	levelCode, err := normalizePositionLevelCode(input.LevelCode)
 	if err != nil {
 		return nil, err
@@ -604,6 +701,9 @@ func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positi
 }
 
 func (s *OrgService) DeletePositionLevel(ctx context.Context, operatorID, positionLevelID uint, ipAddress string, userAgent string) error {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return err
+	}
 	var existing model.PositionLevel
 	if err := s.db.WithContext(ctx).Where("id = ?", positionLevelID).First(&existing).Error; err != nil {
 		if repository.IsRecordNotFound(err) {
@@ -653,7 +753,18 @@ func (s *OrgService) ListEmployees(ctx context.Context, filter ListEmployeeFilte
 	return items, nil
 }
 
-func (s *OrgService) CreateEmployee(ctx context.Context, operatorID uint, input CreateEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
+func (s *OrgService) CreateEmployee(ctx context.Context, claims *auth.Claims, operatorID uint, input CreateEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+	if !writeScope.allowsOrganization(input.OrganizationID) {
+		return nil, ErrForbidden
+	}
+
 	if strings.TrimSpace(input.EmpName) == "" {
 		return nil, ErrInvalidParam
 	}
@@ -683,9 +794,19 @@ func (s *OrgService) CreateEmployee(ctx context.Context, operatorID uint, input 
 	return &record, nil
 }
 
-func (s *OrgService) UpdateEmployee(ctx context.Context, operatorID, employeeID uint, input UpdateEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
+func (s *OrgService) UpdateEmployee(ctx context.Context, claims *auth.Claims, operatorID, employeeID uint, input UpdateEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(input.EmpName) == "" {
 		return nil, ErrInvalidParam
+	}
+	if !writeScope.allowsOrganization(input.OrganizationID) {
+		return nil, ErrForbidden
 	}
 	if err := s.requireOrganization(ctx, input.OrganizationID); err != nil {
 		return nil, err
@@ -710,6 +831,9 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, operatorID, employeeID 
 		}
 		return nil, fmt.Errorf("failed to query employee: %w", err)
 	}
+	if !writeScope.allowsOrganization(existing.OrganizationID) {
+		return nil, ErrForbidden
+	}
 
 	operator := operatorID
 	updates := map[string]any{"emp_name": strings.TrimSpace(input.EmpName), "organization_id": input.OrganizationID, "department_id": input.DepartmentID, "position_level_id": input.PositionLevelID, "position_title": strings.TrimSpace(input.PositionTitle), "hire_date": input.HireDate, "status": status, "updated_by": &operator, "updated_at": time.Now().Unix()}
@@ -724,13 +848,23 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, operatorID, employeeID 
 	return &existing, nil
 }
 
-func (s *OrgService) DeleteEmployee(ctx context.Context, operatorID, employeeID uint, ipAddress string, userAgent string) error {
+func (s *OrgService) DeleteEmployee(ctx context.Context, claims *auth.Claims, operatorID, employeeID uint, ipAddress string, userAgent string) error {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return err
+	}
 	var existing model.Employee
 	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", employeeID).First(&existing).Error; err != nil {
 		if repository.IsRecordNotFound(err) {
 			return ErrEmployeeNotFound
 		}
 		return fmt.Errorf("failed to query employee: %w", err)
+	}
+	if !writeScope.allowsOrganization(existing.OrganizationID) {
+		return ErrForbidden
 	}
 
 	operator := operatorID
@@ -752,7 +886,14 @@ func (s *OrgService) DeleteEmployee(ctx context.Context, operatorID, employeeID 
 	return nil
 }
 
-func (s *OrgService) TransferEmployee(ctx context.Context, operatorID, employeeID uint, input TransferEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
+func (s *OrgService) TransferEmployee(ctx context.Context, claims *auth.Claims, operatorID, employeeID uint, input TransferEmployeeInput, ipAddress string, userAgent string) (*model.Employee, error) {
+	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
 	if !isValidTransferType(strings.TrimSpace(input.ChangeType)) {
 		return nil, ErrInvalidTransferType
 	}
@@ -767,6 +908,9 @@ func (s *OrgService) TransferEmployee(ctx context.Context, operatorID, employeeI
 		}
 		return nil, fmt.Errorf("failed to query employee: %w", err)
 	}
+	if !writeScope.allowsOrganization(employee.OrganizationID) {
+		return nil, ErrForbidden
+	}
 
 	newOrgID := employee.OrganizationID
 	if input.NewOrganizationID != nil {
@@ -777,6 +921,9 @@ func (s *OrgService) TransferEmployee(ctx context.Context, operatorID, employeeI
 	}
 	if err := s.requireOrganization(ctx, newOrgID); err != nil {
 		return nil, err
+	}
+	if !writeScope.allowsOrganization(newOrgID) {
+		return nil, ErrForbidden
 	}
 
 	newDeptID := employee.DepartmentID
@@ -923,6 +1070,17 @@ func (s *OrgService) requireDepartmentWithOrg(ctx context.Context, departmentID,
 		return ErrDepartmentNotFound
 	}
 	return nil
+}
+
+func (s *OrgService) departmentOrganizationID(ctx context.Context, departmentID uint) (uint, error) {
+	var department model.Department
+	if err := s.db.WithContext(ctx).Select("id", "organization_id").Where("id = ? AND deleted_at IS NULL", departmentID).First(&department).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return 0, ErrDepartmentNotFound
+		}
+		return 0, fmt.Errorf("failed to query department organization id: %w", err)
+	}
+	return department.OrganizationID, nil
 }
 
 func (s *OrgService) requirePositionLevel(ctx context.Context, positionLevelID uint) error {

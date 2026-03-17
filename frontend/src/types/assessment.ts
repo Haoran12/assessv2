@@ -1,6 +1,6 @@
-export type AssessmentYearStatus = "preparing" | "active" | "ended";
+export type AssessmentYearStatus = "preparing" | "active" | "completed";
 export type AssessmentPeriodCode = "Q1" | "Q2" | "Q3" | "Q4" | "YEAR_END";
-export type AssessmentPeriodStatus = "not_started" | "active" | "ended" | "locked";
+export type AssessmentPeriodStatus = "preparing" | "active" | "completed";
 export type AssessmentObjectType = "team" | "individual";
 export type GlobalAssessmentObjectType = AssessmentObjectType | "all";
 export type AssessmentObjectCategory =

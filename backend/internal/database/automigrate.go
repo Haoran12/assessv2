@@ -11,10 +11,12 @@ import (
 func AutoMigrateAndSeed(db *gorm.DB, defaultPassword string) error {
 	if err := db.AutoMigrate(
 		&model.SystemSetting{},
+		&model.BackupRecord{},
 		&model.User{},
 		&model.Role{},
 		&model.UserRole{},
 		&model.UserOrganization{},
+		&model.UserPermissionBinding{},
 		&model.AuditLog{},
 		&model.Organization{},
 		&model.Department{},

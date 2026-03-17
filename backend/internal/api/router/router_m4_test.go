@@ -19,6 +19,7 @@ func TestM4DirectScoreAndExtraPointFlow(t *testing.T) {
 	createOrganization(t, db, "M4 Company 1", "company", "active", nil)
 	createOrganization(t, db, "M4 Company 2", "company", "active", nil)
 	yearID := createAssessmentYearForTest(t, engine, rootToken, 2097)
+	activateYearAndPeriodForTest(t, engine, db, rootToken, yearID, "Q1")
 	objectIDs := listAssessmentObjectIDsForYear(t, engine, rootToken, yearID)
 	if len(objectIDs) < 2 {
 		t.Fatalf("expected at least 2 assessment objects, got=%d", len(objectIDs))
@@ -132,7 +133,7 @@ func TestM4DirectScoreAndExtraPointFlow(t *testing.T) {
 		"pointType": "add",
 		"points":    3.5,
 		"reason":    "innovation award",
-		"evidence":  "doc#2026-A",
+		"evidence":  "doc#2027-A",
 		"approve":   true,
 	})
 	updateExtraReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/scores/extra/%d", extraData.ID), bytes.NewReader(updateExtraBody))
@@ -193,6 +194,7 @@ func TestM4VoteGenerateDraftSubmitResetAndStats(t *testing.T) {
 
 	createOrganization(t, db, "M4 Vote Company", "company", "active", nil)
 	yearID := createAssessmentYearForTest(t, engine, rootToken, 2098)
+	activateYearAndPeriodForTest(t, engine, db, rootToken, yearID, "Q1")
 	objectIDs := listAssessmentObjectIDsForYear(t, engine, rootToken, yearID)
 	if len(objectIDs) == 0 {
 		t.Fatalf("expected at least one assessment object")

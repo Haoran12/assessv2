@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/api/response"
+	"assessv2/backend/internal/middleware"
 	"assessv2/backend/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -66,6 +67,11 @@ func NewScoreHandler(scoreService *service.ScoreService) *ScoreHandler {
 }
 
 func (h *ScoreHandler) ListDirectScores(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
@@ -82,7 +88,7 @@ func (h *ScoreHandler) ListDirectScores(c *gin.Context) {
 		return
 	}
 
-	items, err := h.scoreService.ListDirectScores(c.Request.Context(), service.ListDirectScoreFilter{
+	items, err := h.scoreService.ListDirectScores(c.Request.Context(), claims, service.ListDirectScoreFilter{
 		YearID:     yearID,
 		PeriodCode: strings.TrimSpace(c.Query("periodCode")),
 		ModuleID:   moduleID,
@@ -96,16 +102,18 @@ func (h *ScoreHandler) ListDirectScores(c *gin.Context) {
 }
 
 func (h *ScoreHandler) CreateDirectScore(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	var req directScoreRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid direct score payload")
 		return
 	}
-	result, err := h.scoreService.CreateDirectScore(c.Request.Context(), operatorID, service.CreateDirectScoreInput{
+	result, err := h.scoreService.CreateDirectScore(c.Request.Context(), claims, operatorID, service.CreateDirectScoreInput{
 		YearID:     req.YearID,
 		PeriodCode: strings.TrimSpace(req.PeriodCode),
 		ModuleID:   req.ModuleID,
@@ -121,10 +129,12 @@ func (h *ScoreHandler) CreateDirectScore(c *gin.Context) {
 }
 
 func (h *ScoreHandler) BatchUpsertDirectScores(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	var req batchDirectScoreRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid batch direct score payload")
@@ -138,7 +148,7 @@ func (h *ScoreHandler) BatchUpsertDirectScores(c *gin.Context) {
 			Remark:   strings.TrimSpace(item.Remark),
 		})
 	}
-	result, err := h.scoreService.BatchUpsertDirectScores(c.Request.Context(), operatorID, service.BatchDirectScoreInput{
+	result, err := h.scoreService.BatchUpsertDirectScores(c.Request.Context(), claims, operatorID, service.BatchDirectScoreInput{
 		YearID:     req.YearID,
 		PeriodCode: strings.TrimSpace(req.PeriodCode),
 		ModuleID:   req.ModuleID,
@@ -153,10 +163,12 @@ func (h *ScoreHandler) BatchUpsertDirectScores(c *gin.Context) {
 }
 
 func (h *ScoreHandler) UpdateDirectScore(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	scoreID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid direct score id")
@@ -167,7 +179,7 @@ func (h *ScoreHandler) UpdateDirectScore(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid direct score payload")
 		return
 	}
-	result, err := h.scoreService.UpdateDirectScore(c.Request.Context(), operatorID, scoreID, service.UpdateDirectScoreInput{
+	result, err := h.scoreService.UpdateDirectScore(c.Request.Context(), claims, operatorID, scoreID, service.UpdateDirectScoreInput{
 		Score:  req.Score,
 		Remark: strings.TrimSpace(req.Remark),
 	}, c.ClientIP(), c.GetHeader("User-Agent"))
@@ -179,16 +191,18 @@ func (h *ScoreHandler) UpdateDirectScore(c *gin.Context) {
 }
 
 func (h *ScoreHandler) DeleteDirectScore(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	scoreID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid direct score id")
 		return
 	}
-	if err := h.scoreService.DeleteDirectScore(c.Request.Context(), operatorID, scoreID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+	if err := h.scoreService.DeleteDirectScore(c.Request.Context(), claims, operatorID, scoreID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
 		h.handleScoreError(c, err, "failed to delete direct score")
 		return
 	}
@@ -196,6 +210,11 @@ func (h *ScoreHandler) DeleteDirectScore(c *gin.Context) {
 }
 
 func (h *ScoreHandler) ListExtraPoints(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	yearID, err := parseOptionalUintQuery(c.Query("yearId"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid yearId")
@@ -206,7 +225,7 @@ func (h *ScoreHandler) ListExtraPoints(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid objectId")
 		return
 	}
-	items, err := h.scoreService.ListExtraPoints(c.Request.Context(), service.ListExtraPointFilter{
+	items, err := h.scoreService.ListExtraPoints(c.Request.Context(), claims, service.ListExtraPointFilter{
 		YearID:     yearID,
 		PeriodCode: strings.TrimSpace(c.Query("periodCode")),
 		ObjectID:   objectID,
@@ -220,16 +239,18 @@ func (h *ScoreHandler) ListExtraPoints(c *gin.Context) {
 }
 
 func (h *ScoreHandler) CreateExtraPoint(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	var req extraPointRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid extra point payload")
 		return
 	}
-	result, err := h.scoreService.CreateExtraPoint(c.Request.Context(), operatorID, service.CreateExtraPointInput{
+	result, err := h.scoreService.CreateExtraPoint(c.Request.Context(), claims, operatorID, service.CreateExtraPointInput{
 		YearID:     req.YearID,
 		PeriodCode: strings.TrimSpace(req.PeriodCode),
 		ObjectID:   req.ObjectID,
@@ -247,10 +268,12 @@ func (h *ScoreHandler) CreateExtraPoint(c *gin.Context) {
 }
 
 func (h *ScoreHandler) UpdateExtraPoint(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	extraPointID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid extra point id")
@@ -261,7 +284,7 @@ func (h *ScoreHandler) UpdateExtraPoint(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid extra point payload")
 		return
 	}
-	result, err := h.scoreService.UpdateExtraPoint(c.Request.Context(), operatorID, extraPointID, service.UpdateExtraPointInput{
+	result, err := h.scoreService.UpdateExtraPoint(c.Request.Context(), claims, operatorID, extraPointID, service.UpdateExtraPointInput{
 		PointType: strings.TrimSpace(req.PointType),
 		Points:    req.Points,
 		Reason:    strings.TrimSpace(req.Reason),
@@ -276,16 +299,18 @@ func (h *ScoreHandler) UpdateExtraPoint(c *gin.Context) {
 }
 
 func (h *ScoreHandler) ApproveExtraPoint(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	extraPointID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid extra point id")
 		return
 	}
-	result, err := h.scoreService.ApproveExtraPoint(c.Request.Context(), operatorID, extraPointID, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.scoreService.ApproveExtraPoint(c.Request.Context(), claims, operatorID, extraPointID, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleScoreError(c, err, "failed to approve extra point")
 		return
@@ -294,16 +319,18 @@ func (h *ScoreHandler) ApproveExtraPoint(c *gin.Context) {
 }
 
 func (h *ScoreHandler) DeleteExtraPoint(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
+	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	operatorID := claims.UserID
 	extraPointID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid extra point id")
 		return
 	}
-	if err := h.scoreService.DeleteExtraPoint(c.Request.Context(), operatorID, extraPointID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+	if err := h.scoreService.DeleteExtraPoint(c.Request.Context(), claims, operatorID, extraPointID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
 		h.handleScoreError(c, err, "failed to delete extra point")
 		return
 	}
@@ -320,8 +347,12 @@ func (h *ScoreHandler) handleScoreError(c *gin.Context, err error, fallback stri
 		errors.Is(err, service.ErrExtraPointReasonEmpty):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
 	case errors.Is(err, service.ErrDirectScoreExists),
-		errors.Is(err, service.ErrPeriodLocked):
+		errors.Is(err, service.ErrAssessmentReadOnly),
+		errors.Is(err, service.ErrAssessmentNotActive),
+		errors.Is(err, service.ErrPeriodNotActive):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+	case errors.Is(err, service.ErrForbidden):
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrDirectScoreNotFound),
 		errors.Is(err, service.ErrExtraPointNotFound),
 		errors.Is(err, service.ErrAssessmentObjectNotFound),

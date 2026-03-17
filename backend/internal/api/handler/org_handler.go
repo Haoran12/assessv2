@@ -92,12 +92,17 @@ func (h *OrgHandler) CreateOrganization(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	var req upsertOrganizationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid organization payload")
 		return
 	}
-	result, err := h.orgService.CreateOrganization(c.Request.Context(), operatorID, service.CreateOrganizationInput{OrgName: strings.TrimSpace(req.OrgName), OrgType: strings.TrimSpace(req.OrgType), ParentID: req.ParentID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.CreateOrganization(c.Request.Context(), claims, operatorID, service.CreateOrganizationInput{OrgName: strings.TrimSpace(req.OrgName), OrgType: strings.TrimSpace(req.OrgType), ParentID: req.ParentID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to create organization")
 		return
@@ -110,6 +115,11 @@ func (h *OrgHandler) UpdateOrganization(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	organizationID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid organization id")
@@ -120,7 +130,7 @@ func (h *OrgHandler) UpdateOrganization(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid organization payload")
 		return
 	}
-	result, err := h.orgService.UpdateOrganization(c.Request.Context(), operatorID, organizationID, service.UpdateOrganizationInput{OrgName: strings.TrimSpace(req.OrgName), OrgType: strings.TrimSpace(req.OrgType), ParentID: req.ParentID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.UpdateOrganization(c.Request.Context(), claims, operatorID, organizationID, service.UpdateOrganizationInput{OrgName: strings.TrimSpace(req.OrgName), OrgType: strings.TrimSpace(req.OrgType), ParentID: req.ParentID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to update organization")
 		return
@@ -133,12 +143,17 @@ func (h *OrgHandler) DeleteOrganization(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	organizationID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid organization id")
 		return
 	}
-	if err := h.orgService.DeleteOrganization(c.Request.Context(), operatorID, organizationID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+	if err := h.orgService.DeleteOrganization(c.Request.Context(), claims, operatorID, organizationID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
 		h.handleOrgError(c, err, "failed to delete organization")
 		return
 	}
@@ -169,12 +184,17 @@ func (h *OrgHandler) CreateDepartment(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	var req upsertDepartmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid department payload")
 		return
 	}
-	result, err := h.orgService.CreateDepartment(c.Request.Context(), operatorID, service.CreateDepartmentInput{DeptName: strings.TrimSpace(req.DeptName), OrganizationID: req.OrganizationID, ParentDeptID: req.ParentDeptID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.CreateDepartment(c.Request.Context(), claims, operatorID, service.CreateDepartmentInput{DeptName: strings.TrimSpace(req.DeptName), OrganizationID: req.OrganizationID, ParentDeptID: req.ParentDeptID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to create department")
 		return
@@ -187,6 +207,11 @@ func (h *OrgHandler) UpdateDepartment(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	departmentID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid department id")
@@ -197,7 +222,7 @@ func (h *OrgHandler) UpdateDepartment(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid department payload")
 		return
 	}
-	result, err := h.orgService.UpdateDepartment(c.Request.Context(), operatorID, departmentID, service.UpdateDepartmentInput{DeptName: strings.TrimSpace(req.DeptName), OrganizationID: req.OrganizationID, ParentDeptID: req.ParentDeptID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.UpdateDepartment(c.Request.Context(), claims, operatorID, departmentID, service.UpdateDepartmentInput{DeptName: strings.TrimSpace(req.DeptName), OrganizationID: req.OrganizationID, ParentDeptID: req.ParentDeptID, LeaderID: req.LeaderID, SortOrder: req.SortOrder, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to update department")
 		return
@@ -210,12 +235,17 @@ func (h *OrgHandler) DeleteDepartment(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	departmentID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid department id")
 		return
 	}
-	if err := h.orgService.DeleteDepartment(c.Request.Context(), operatorID, departmentID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+	if err := h.orgService.DeleteDepartment(c.Request.Context(), claims, operatorID, departmentID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
 		h.handleOrgError(c, err, "failed to delete department")
 		return
 	}
@@ -349,6 +379,11 @@ func (h *OrgHandler) CreateEmployee(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	var req upsertEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid employee payload")
@@ -359,7 +394,7 @@ func (h *OrgHandler) CreateEmployee(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid hireDate")
 		return
 	}
-	result, err := h.orgService.CreateEmployee(c.Request.Context(), operatorID, service.CreateEmployeeInput{EmpName: strings.TrimSpace(req.EmpName), OrganizationID: req.OrganizationID, DepartmentID: req.DepartmentID, PositionLevelID: req.PositionLevelID, PositionTitle: strings.TrimSpace(req.PositionTitle), HireDate: hireDate, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.CreateEmployee(c.Request.Context(), claims, operatorID, service.CreateEmployeeInput{EmpName: strings.TrimSpace(req.EmpName), OrganizationID: req.OrganizationID, DepartmentID: req.DepartmentID, PositionLevelID: req.PositionLevelID, PositionTitle: strings.TrimSpace(req.PositionTitle), HireDate: hireDate, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to create employee")
 		return
@@ -372,6 +407,11 @@ func (h *OrgHandler) UpdateEmployee(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	employeeID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid employee id")
@@ -387,7 +427,7 @@ func (h *OrgHandler) UpdateEmployee(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid hireDate")
 		return
 	}
-	result, err := h.orgService.UpdateEmployee(c.Request.Context(), operatorID, employeeID, service.UpdateEmployeeInput{EmpName: strings.TrimSpace(req.EmpName), OrganizationID: req.OrganizationID, DepartmentID: req.DepartmentID, PositionLevelID: req.PositionLevelID, PositionTitle: strings.TrimSpace(req.PositionTitle), HireDate: hireDate, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.UpdateEmployee(c.Request.Context(), claims, operatorID, employeeID, service.UpdateEmployeeInput{EmpName: strings.TrimSpace(req.EmpName), OrganizationID: req.OrganizationID, DepartmentID: req.DepartmentID, PositionLevelID: req.PositionLevelID, PositionTitle: strings.TrimSpace(req.PositionTitle), HireDate: hireDate, Status: strings.TrimSpace(req.Status)}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to update employee")
 		return
@@ -400,12 +440,17 @@ func (h *OrgHandler) DeleteEmployee(c *gin.Context) {
 	if !ok {
 		return
 	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
 	employeeID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid employee id")
 		return
 	}
-	if err := h.orgService.DeleteEmployee(c.Request.Context(), operatorID, employeeID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+	if err := h.orgService.DeleteEmployee(c.Request.Context(), claims, operatorID, employeeID, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
 		h.handleOrgError(c, err, "failed to delete employee")
 		return
 	}
@@ -415,6 +460,11 @@ func (h *OrgHandler) DeleteEmployee(c *gin.Context) {
 func (h *OrgHandler) TransferEmployee(c *gin.Context) {
 	operatorID, ok := operatorFromClaims(c)
 	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
 	employeeID, err := parseUserIDParam(c)
@@ -432,7 +482,7 @@ func (h *OrgHandler) TransferEmployee(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid effectiveDate")
 		return
 	}
-	result, err := h.orgService.TransferEmployee(c.Request.Context(), operatorID, employeeID, service.TransferEmployeeInput{ChangeType: strings.TrimSpace(req.ChangeType), NewOrganizationID: req.NewOrganizationID, NewDepartmentID: req.NewDepartmentID, NewPositionLevelID: req.NewPositionLevelID, NewPositionTitle: req.NewPositionTitle, ChangeReason: strings.TrimSpace(req.ChangeReason), EffectiveDate: effectiveDate}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.orgService.TransferEmployee(c.Request.Context(), claims, operatorID, employeeID, service.TransferEmployeeInput{ChangeType: strings.TrimSpace(req.ChangeType), NewOrganizationID: req.NewOrganizationID, NewDepartmentID: req.NewDepartmentID, NewPositionLevelID: req.NewPositionLevelID, NewPositionTitle: req.NewPositionTitle, ChangeReason: strings.TrimSpace(req.ChangeReason), EffectiveDate: effectiveDate}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleOrgError(c, err, "failed to transfer employee")
 		return
@@ -470,8 +520,12 @@ func (h *OrgHandler) handleOrgError(c *gin.Context, err error, fallback string) 
 	case errors.Is(err, service.ErrSystemPositionLevelLocked),
 		errors.Is(err, service.ErrOrganizationInUse),
 		errors.Is(err, service.ErrDepartmentInUse),
-		errors.Is(err, service.ErrPositionLevelInUse):
+		errors.Is(err, service.ErrPositionLevelInUse),
+		errors.Is(err, service.ErrAssessmentReadOnly),
+		errors.Is(err, service.ErrAssessmentNotActive):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+	case errors.Is(err, service.ErrForbidden):
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrOrganizationNotFound),
 		errors.Is(err, service.ErrDepartmentNotFound),
 		errors.Is(err, service.ErrPositionLevelNotFound),

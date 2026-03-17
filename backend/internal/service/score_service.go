@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
@@ -89,7 +90,12 @@ func NewScoreService(db *gorm.DB, auditRepo *repository.AuditRepository, calcSer
 	return &ScoreService{db: db, auditRepo: auditRepo, calc: calcService}
 }
 
-func (s *ScoreService) ListDirectScores(ctx context.Context, filter ListDirectScoreFilter) ([]model.DirectScore, error) {
+func (s *ScoreService) ListDirectScores(ctx context.Context, claims *auth.Claims, filter ListDirectScoreFilter) ([]model.DirectScore, error) {
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+
 	query := s.db.WithContext(ctx).Model(&model.DirectScore{})
 	if filter.YearID != nil {
 		query = query.Where("year_id = ?", *filter.YearID)
@@ -103,6 +109,7 @@ func (s *ScoreService) ListDirectScores(ctx context.Context, filter ListDirectSc
 	if filter.ObjectID != nil {
 		query = query.Where("object_id = ?", *filter.ObjectID)
 	}
+	query = scope.applyDetailObjectFilter(query, "object_id")
 
 	var items []model.DirectScore
 	if err := query.Order("id DESC").Find(&items).Error; err != nil {
@@ -113,6 +120,7 @@ func (s *ScoreService) ListDirectScores(ctx context.Context, filter ListDirectSc
 
 func (s *ScoreService) CreateDirectScore(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	input CreateDirectScoreInput,
 	ipAddress string,
@@ -122,11 +130,18 @@ func (s *ScoreService) CreateDirectScore(
 	if input.YearID == 0 || input.ModuleID == 0 || input.ObjectID == 0 || !isValidPeriodCode(periodCode) {
 		return nil, ErrInvalidParam
 	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+	if !scope.allowsDetailObject(input.ObjectID) {
+		return nil, ErrForbidden
+	}
 
 	operator := operatorID
 	now := time.Now().Unix()
 	record := &model.DirectScore{}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -194,6 +209,7 @@ func (s *ScoreService) CreateDirectScore(
 
 func (s *ScoreService) BatchUpsertDirectScores(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	input BatchDirectScoreInput,
 	ipAddress string,
@@ -202,6 +218,10 @@ func (s *ScoreService) BatchUpsertDirectScores(
 	periodCode := normalizePeriodCode(input.PeriodCode)
 	if input.YearID == 0 || input.ModuleID == 0 || !isValidPeriodCode(periodCode) || len(input.Entries) == 0 {
 		return nil, ErrInvalidParam
+	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
 	}
 
 	entryMap := make(map[uint]BatchDirectScoreEntry, len(input.Entries))
@@ -220,11 +240,16 @@ func (s *ScoreService) BatchUpsertDirectScores(
 		}
 		objectIDs = append(objectIDs, entry.ObjectID)
 	}
+	for _, objectID := range objectIDs {
+		if !scope.allowsDetailObject(objectID) {
+			return nil, ErrForbidden
+		}
+	}
 
 	operator := operatorID
 	now := time.Now().Unix()
 	result := &BatchDirectScoreResult{}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := ensurePeriodWritableTx(tx, input.YearID, periodCode); err != nil {
 			return err
 		}
@@ -323,6 +348,7 @@ func (s *ScoreService) BatchUpsertDirectScores(
 
 func (s *ScoreService) UpdateDirectScore(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	scoreID uint,
 	input UpdateDirectScoreInput,
@@ -332,16 +358,23 @@ func (s *ScoreService) UpdateDirectScore(
 	if scoreID == 0 {
 		return nil, ErrInvalidParam
 	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
 
 	operator := operatorID
 	now := time.Now().Unix()
 	var record model.DirectScore
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ?", scoreID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrDirectScoreNotFound
 			}
 			return fmt.Errorf("failed to query direct score: %w", err)
+		}
+		if !scope.allowsDetailObject(record.ObjectID) {
+			return ErrForbidden
 		}
 		if err := ensurePeriodWritableTx(tx, record.YearID, record.PeriodCode); err != nil {
 			return err
@@ -388,6 +421,7 @@ func (s *ScoreService) UpdateDirectScore(
 
 func (s *ScoreService) DeleteDirectScore(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	scoreID uint,
 	ipAddress string,
@@ -395,6 +429,10 @@ func (s *ScoreService) DeleteDirectScore(
 ) error {
 	if scoreID == 0 {
 		return ErrInvalidParam
+	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return err
 	}
 
 	operator := operatorID
@@ -405,6 +443,9 @@ func (s *ScoreService) DeleteDirectScore(
 				return ErrDirectScoreNotFound
 			}
 			return fmt.Errorf("failed to query direct score: %w", err)
+		}
+		if !scope.allowsDetailObject(record.ObjectID) {
+			return ErrForbidden
 		}
 		if err := ensurePeriodWritableTx(tx, record.YearID, record.PeriodCode); err != nil {
 			return err
@@ -429,7 +470,12 @@ func (s *ScoreService) DeleteDirectScore(
 	return nil
 }
 
-func (s *ScoreService) ListExtraPoints(ctx context.Context, filter ListExtraPointFilter) ([]model.ExtraPoint, error) {
+func (s *ScoreService) ListExtraPoints(ctx context.Context, claims *auth.Claims, filter ListExtraPointFilter) ([]model.ExtraPoint, error) {
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+
 	query := s.db.WithContext(ctx).Model(&model.ExtraPoint{})
 	if filter.YearID != nil {
 		query = query.Where("year_id = ?", *filter.YearID)
@@ -443,6 +489,7 @@ func (s *ScoreService) ListExtraPoints(ctx context.Context, filter ListExtraPoin
 	if pointType := strings.ToLower(strings.TrimSpace(filter.PointType)); pointType != "" {
 		query = query.Where("point_type = ?", pointType)
 	}
+	query = scope.applyDetailObjectFilter(query, "object_id")
 
 	var items []model.ExtraPoint
 	if err := query.Order("id DESC").Find(&items).Error; err != nil {
@@ -453,6 +500,7 @@ func (s *ScoreService) ListExtraPoints(ctx context.Context, filter ListExtraPoin
 
 func (s *ScoreService) CreateExtraPoint(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	input CreateExtraPointInput,
 	ipAddress string,
@@ -461,6 +509,13 @@ func (s *ScoreService) CreateExtraPoint(
 	periodCode := normalizePeriodCode(input.PeriodCode)
 	if input.YearID == 0 || input.ObjectID == 0 || !isValidPeriodCode(periodCode) {
 		return nil, ErrInvalidParam
+	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+	if !scope.allowsDetailObject(input.ObjectID) {
+		return nil, ErrForbidden
 	}
 	reason := strings.TrimSpace(input.Reason)
 	if reason == "" {
@@ -523,6 +578,7 @@ func (s *ScoreService) CreateExtraPoint(
 
 func (s *ScoreService) UpdateExtraPoint(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	extraPointID uint,
 	input UpdateExtraPointInput,
@@ -531,6 +587,10 @@ func (s *ScoreService) UpdateExtraPoint(
 ) (*model.ExtraPoint, error) {
 	if extraPointID == 0 {
 		return nil, ErrInvalidParam
+	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
 	}
 	reason := strings.TrimSpace(input.Reason)
 	if reason == "" {
@@ -550,6 +610,9 @@ func (s *ScoreService) UpdateExtraPoint(
 				return ErrExtraPointNotFound
 			}
 			return fmt.Errorf("failed to query extra point: %w", err)
+		}
+		if !scope.allowsDetailObject(record.ObjectID) {
+			return ErrForbidden
 		}
 		if err := ensurePeriodWritableTx(tx, record.YearID, record.PeriodCode); err != nil {
 			return err
@@ -598,6 +661,7 @@ func (s *ScoreService) UpdateExtraPoint(
 
 func (s *ScoreService) ApproveExtraPoint(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	extraPointID uint,
 	ipAddress string,
@@ -606,16 +670,23 @@ func (s *ScoreService) ApproveExtraPoint(
 	if extraPointID == 0 {
 		return nil, ErrInvalidParam
 	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
 
 	operator := operatorID
 	now := time.Now().Unix()
 	var record model.ExtraPoint
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ?", extraPointID).First(&record).Error; err != nil {
 			if repository.IsRecordNotFound(err) {
 				return ErrExtraPointNotFound
 			}
 			return fmt.Errorf("failed to query extra point: %w", err)
+		}
+		if !scope.allowsDetailObject(record.ObjectID) {
+			return ErrForbidden
 		}
 		if err := ensurePeriodWritableTx(tx, record.YearID, record.PeriodCode); err != nil {
 			return err
@@ -647,6 +718,7 @@ func (s *ScoreService) ApproveExtraPoint(
 
 func (s *ScoreService) DeleteExtraPoint(
 	ctx context.Context,
+	claims *auth.Claims,
 	operatorID uint,
 	extraPointID uint,
 	ipAddress string,
@@ -654,6 +726,10 @@ func (s *ScoreService) DeleteExtraPoint(
 ) error {
 	if extraPointID == 0 {
 		return ErrInvalidParam
+	}
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return err
 	}
 
 	operator := operatorID
@@ -664,6 +740,9 @@ func (s *ScoreService) DeleteExtraPoint(
 				return ErrExtraPointNotFound
 			}
 			return fmt.Errorf("failed to query extra point: %w", err)
+		}
+		if !scope.allowsDetailObject(record.ObjectID) {
+			return ErrForbidden
 		}
 		if err := ensurePeriodWritableTx(tx, record.YearID, record.PeriodCode); err != nil {
 			return err

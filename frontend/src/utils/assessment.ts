@@ -1,4 +1,4 @@
-import type { AssessmentObjectItem, AssessmentPeriodStatus, AssessmentYearItem } from "@/types/assessment";
+﻿import type { AssessmentObjectItem, AssessmentPeriodStatus, AssessmentYearItem } from "@/types/assessment";
 
 export const PERIOD_OPTIONS = ["Q1", "Q2", "Q3", "Q4", "YEAR_END"] as const;
 
@@ -18,14 +18,12 @@ export function formatAssessmentYearLabel(year?: Pick<AssessmentYearItem, "year"
 
 export function periodStatusText(status: AssessmentPeriodStatus): string {
   switch (status) {
-    case "not_started":
-      return "未开始";
+    case "preparing":
+      return "筹备中";
     case "active":
       return "进行中";
-    case "ended":
-      return "已结束";
-    case "locked":
-      return "已锁定";
+    case "completed":
+      return "已完成";
     default:
       return status;
   }

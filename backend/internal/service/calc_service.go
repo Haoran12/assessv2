@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
 	"github.com/Knetic/govaluate"
@@ -286,7 +287,12 @@ func (s *CalculationService) Recalculate(
 	return &result, nil
 }
 
-func (s *CalculationService) ListCalculatedScores(ctx context.Context, filter ListCalculatedScoreFilter) ([]CalculatedScoreListItem, error) {
+func (s *CalculationService) ListCalculatedScores(ctx context.Context, claims *auth.Claims, filter ListCalculatedScoreFilter) ([]CalculatedScoreListItem, error) {
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+
 	type row struct {
 		model.CalculatedScore
 		ObjectName     string
@@ -315,6 +321,7 @@ func (s *CalculationService) ListCalculatedScores(ctx context.Context, filter Li
 	if objectCategory := normalizeObjectCategory(strings.TrimSpace(filter.ObjectCategory)); objectCategory != "" {
 		query = query.Where("ao.object_category = ?", objectCategory)
 	}
+	query = scope.applyReadableObjectFilter(query, "cs.object_id")
 
 	var rows []row
 	if err := query.Order("r.rank_no ASC, cs.final_score DESC, cs.id ASC").Scan(&rows).Error; err != nil {
@@ -335,10 +342,34 @@ func (s *CalculationService) ListCalculatedScores(ctx context.Context, filter Li
 	return items, nil
 }
 
-func (s *CalculationService) ListCalculatedModuleScores(ctx context.Context, calculatedScoreID uint) ([]model.CalculatedModuleScore, error) {
+func (s *CalculationService) ListCalculatedModuleScores(ctx context.Context, claims *auth.Claims, calculatedScoreID uint) ([]model.CalculatedModuleScore, error) {
 	if calculatedScoreID == 0 {
 		return nil, ErrInvalidParam
 	}
+
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+
+	type scoreOwnership struct {
+		ID       uint
+		ObjectID uint
+	}
+	var ownership scoreOwnership
+	if err := s.db.WithContext(ctx).Table("calculated_scores").
+		Select("id, object_id").
+		Where("id = ?", calculatedScoreID).
+		First(&ownership).Error; err != nil {
+		if repository.IsRecordNotFound(err) {
+			return nil, ErrAssessmentObjectNotFound
+		}
+		return nil, fmt.Errorf("failed to query calculated score ownership: %w", err)
+	}
+	if !scope.allowsDetailObject(ownership.ObjectID) {
+		return nil, ErrForbidden
+	}
+
 	var items []model.CalculatedModuleScore
 	if err := s.db.WithContext(ctx).
 		Where("calculated_score_id = ?", calculatedScoreID).
@@ -349,7 +380,12 @@ func (s *CalculationService) ListCalculatedModuleScores(ctx context.Context, cal
 	return items, nil
 }
 
-func (s *CalculationService) ListRankings(ctx context.Context, filter ListRankingFilter) ([]RankingListItem, error) {
+func (s *CalculationService) ListRankings(ctx context.Context, claims *auth.Claims, filter ListRankingFilter) ([]RankingListItem, error) {
+	scope, err := buildAssessmentAccessScope(ctx, s.db, claims)
+	if err != nil {
+		return nil, err
+	}
+
 	type row struct {
 		model.Ranking
 		ObjectName string
@@ -376,6 +412,7 @@ func (s *CalculationService) ListRankings(ctx context.Context, filter ListRankin
 	if objectCategory := normalizeObjectCategory(strings.TrimSpace(filter.ObjectCategory)); objectCategory != "" {
 		query = query.Where("r.object_category = ?", objectCategory)
 	}
+	query = scope.applyReadableObjectFilter(query, "r.object_id")
 
 	var rows []row
 	if err := query.Order("r.rank_no ASC, r.id ASC").Scan(&rows).Error; err != nil {

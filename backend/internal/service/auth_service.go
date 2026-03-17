@@ -34,13 +34,14 @@ type LoginResult struct {
 }
 
 type AuthenticatedUserDTO struct {
-	ID            uint                     `json:"id"`
-	Username      string                   `json:"username"`
-	RealName      string                   `json:"realName"`
-	Role          string                   `json:"role"`
-	Roles         []string                 `json:"roles"`
-	Permissions   []string                 `json:"permissions"`
-	Organizations []auth.OrganizationScope `json:"organizations"`
+	ID                 uint                     `json:"id"`
+	Username           string                   `json:"username"`
+	RealName           string                   `json:"realName"`
+	Role               string                   `json:"role"`
+	Roles              []string                 `json:"roles"`
+	Permissions        []string                 `json:"permissions"`
+	Organizations      []auth.OrganizationScope `json:"organizations"`
+	PermissionBindings []auth.PermissionBinding `json:"permissionBindings"`
 }
 
 func NewAuthService(
@@ -78,19 +79,20 @@ func (s *AuthService) Login(ctx context.Context, username, password, ipAddress, 
 		return nil, ErrInvalidCredentials
 	}
 
-	primaryRole, roles, permissions, orgScopes, err := extractIdentity(user)
+	primaryRole, roles, permissions, orgScopes, bindings, err := extractIdentity(user)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now()
 	claims := auth.Claims{
-		UserID:           user.ID,
-		Username:         user.Username,
-		Roles:            roles,
-		Permissions:      permissions,
-		OrgScopes:        orgScopes,
-		RegisteredClaims: jwtRegisteredClaims(user.ID, now, now.Add(s.tokenTTL)),
+		UserID:             user.ID,
+		Username:           user.Username,
+		Roles:              roles,
+		Permissions:        permissions,
+		OrgScopes:          orgScopes,
+		PermissionBindings: bindings,
+		RegisteredClaims:   jwtRegisteredClaims(user.ID, now, now.Add(s.tokenTTL)),
 	}
 	token, err := auth.SignToken(s.jwtSecret, claims)
 	if err != nil {
@@ -111,13 +113,14 @@ func (s *AuthService) Login(ctx context.Context, username, password, ipAddress, 
 		ExpiresIn:          int64(s.tokenTTL.Seconds()),
 		MustChangePassword: user.MustChangePassword && s.enforceMustChangePassword,
 		User: AuthenticatedUserDTO{
-			ID:            user.ID,
-			Username:      user.Username,
-			RealName:      user.RealName,
-			Role:          primaryRole,
-			Roles:         roles,
-			Permissions:   permissions,
-			Organizations: orgScopes,
+			ID:                 user.ID,
+			Username:           user.Username,
+			RealName:           user.RealName,
+			Role:               primaryRole,
+			Roles:              roles,
+			Permissions:        permissions,
+			Organizations:      orgScopes,
+			PermissionBindings: bindings,
 		},
 	}, nil
 }
@@ -165,22 +168,23 @@ func (s *AuthService) GetProfile(ctx context.Context, userID uint) (*Authenticat
 		return nil, false, err
 	}
 
-	primaryRole, roles, permissions, orgScopes, err := extractIdentity(user)
+	primaryRole, roles, permissions, orgScopes, bindings, err := extractIdentity(user)
 	if err != nil {
 		return nil, false, err
 	}
 	return &AuthenticatedUserDTO{
-		ID:            user.ID,
-		Username:      user.Username,
-		RealName:      user.RealName,
-		Role:          primaryRole,
-		Roles:         roles,
-		Permissions:   permissions,
-		Organizations: orgScopes,
+		ID:                 user.ID,
+		Username:           user.Username,
+		RealName:           user.RealName,
+		Role:               primaryRole,
+		Roles:              roles,
+		Permissions:        permissions,
+		Organizations:      orgScopes,
+		PermissionBindings: bindings,
 	}, user.MustChangePassword && s.enforceMustChangePassword, nil
 }
 
-func extractIdentity(user *model.User) (string, []string, []string, []auth.OrganizationScope, error) {
+func extractIdentity(user *model.User) (string, []string, []string, []auth.OrganizationScope, []auth.PermissionBinding, error) {
 	roleSet := make(map[string]struct{})
 	permissionSet := make(map[string]struct{})
 	roleCodes := make([]string, 0, len(user.UserRoles))
@@ -202,7 +206,7 @@ func extractIdentity(user *model.User) (string, []string, []string, []auth.Organ
 
 		parsedPermissions := make([]string, 0, 8)
 		if err := json.Unmarshal([]byte(userRole.Role.Permissions), &parsedPermissions); err != nil {
-			return "", nil, nil, nil, fmt.Errorf("invalid role permissions for %s: %w", code, err)
+			return "", nil, nil, nil, nil, fmt.Errorf("invalid role permissions for %s: %w", code, err)
 		}
 		for _, permission := range parsedPermissions {
 			if _, exists := permissionSet[permission]; exists {
@@ -211,6 +215,13 @@ func extractIdentity(user *model.User) (string, []string, []string, []auth.Organ
 			permissionSet[permission] = struct{}{}
 			permissions = append(permissions, permission)
 		}
+	}
+	for _, permission := range auth.PermissionsForRoles(roleCodes) {
+		if _, exists := permissionSet[permission]; exists {
+			continue
+		}
+		permissionSet[permission] = struct{}{}
+		permissions = append(permissions, permission)
 	}
 
 	orgScopes := make([]auth.OrganizationScope, 0, len(user.UserOrganizations))
@@ -222,11 +233,33 @@ func extractIdentity(user *model.User) (string, []string, []string, []auth.Organ
 			IsPrimary:        item.IsPrimary,
 		})
 	}
+	bindings := make([]auth.PermissionBinding, 0, len(user.UserPermissionBindings))
+	for _, item := range user.UserPermissionBindings {
+		bindings = append(bindings, auth.PermissionBinding{
+			RoleCode:       item.RoleCode,
+			ScopeOrgType:   item.ScopeOrgType,
+			ScopeOrgID:     item.ScopeOrgID,
+			PersonObjectID: item.PersonObjectID,
+			TeamObjectID:   item.TeamObjectID,
+			IsPrimary:      item.IsPrimary,
+		})
+	}
+	if len(bindings) == 0 {
+		for _, item := range user.UserOrganizations {
+			scopeID := item.OrganizationID
+			bindings = append(bindings, auth.PermissionBinding{
+				RoleCode:     primaryRole,
+				ScopeOrgType: item.OrganizationType,
+				ScopeOrgID:   &scopeID,
+				IsPrimary:    item.IsPrimary,
+			})
+		}
+	}
 
 	if primaryRole == "" && len(roleCodes) > 0 {
 		primaryRole = roleCodes[0]
 	}
-	return primaryRole, roleCodes, permissions, orgScopes, nil
+	return primaryRole, roleCodes, permissions, orgScopes, bindings, nil
 }
 
 func buildAuditRecord(

@@ -32,6 +32,7 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*m
 		Where("username = ? AND deleted_at IS NULL", username).
 		Preload("UserRoles.Role").
 		Preload("UserOrganizations").
+		Preload("UserPermissionBindings").
 		First(&user).Error
 	if err != nil {
 		return nil, err
@@ -45,6 +46,7 @@ func (r *UserRepository) GetByID(ctx context.Context, userID uint) (*model.User,
 		Where("id = ? AND deleted_at IS NULL", userID).
 		Preload("UserRoles.Role").
 		Preload("UserOrganizations").
+		Preload("UserPermissionBindings").
 		First(&user).Error
 	if err != nil {
 		return nil, err
@@ -81,6 +83,7 @@ func (r *UserRepository) List(ctx context.Context, filter UserListFilter) ([]mod
 	if err := base.
 		Preload("UserRoles.Role").
 		Preload("UserOrganizations").
+		Preload("UserPermissionBindings").
 		Order("id ASC").
 		Offset(filter.Offset).
 		Limit(filter.Limit).

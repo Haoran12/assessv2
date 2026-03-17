@@ -2,7 +2,7 @@
   <el-container class="app-shell">
     <el-aside width="250px" class="app-sidebar">
       <div class="brand">
-        <div class="brand-title">考核管理系统</div>
+        <div class="brand-title">中新建物流集团</div>
       </div>
       <el-menu :default-active="activePath" router>
         <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
@@ -17,7 +17,7 @@
             <el-select
               v-model="contextYearId"
               class="context-select"
-              placeholder="年度"
+              placeholder="选择年度"
               :loading="contextStore.loadingYears"
               clearable
             >
@@ -31,7 +31,7 @@
             <el-select
               v-model="contextPeriodCode"
               class="context-select"
-              placeholder="周期"
+              placeholder="选择周期"
               :loading="contextStore.loadingPeriods"
               :disabled="!contextYearId"
             >
@@ -55,7 +55,7 @@
         <div class="header-right">
           <el-dropdown trigger="click">
             <span class="username-trigger" :class="{ 'is-root': appStore.primaryRole === 'root' }">
-              {{ appStore.username || "未登录" }}
+              {{ appStore.username || "\u672a\u767b\u5f55" }}
               <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
             <template #dropdown>
@@ -63,9 +63,9 @@
                 <el-dropdown-item disabled>
                   <span class="role-tag">{{ roleLabel(appStore.primaryRole) }}</span>
                 </el-dropdown-item>
-                <el-dropdown-item divided @click="goToChangePassword">修改密码</el-dropdown-item>
-                <el-dropdown-item @click="handleLogout">退出登录</el-dropdown-item>
-                <el-dropdown-item divided @click="handleExitSystem">退出系统</el-dropdown-item>
+                <el-dropdown-item divided @click="goToChangePassword">\u4fee\u6539\u5bc6\u7801</el-dropdown-item>
+                <el-dropdown-item @click="handleLogout">\u9000\u51fa\u767b\u5f55</el-dropdown-item>
+                <el-dropdown-item divided @click="handleExitSystem">\u9000\u51fa\u7cfb\u7edf</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -102,12 +102,16 @@ interface DesktopAppBridge {
 }
 
 const navItems: NavItem[] = [
-  { path: "/overview", label: "系统概览" },
-  { path: "/org", label: "组织架构", permission: "org:view" },
-  { path: "/rules/total", label: "总分规则", permission: "rule:view" },
-  { path: "/rules/module", label: "模块规则", permission: "rule:view" },
-  { path: "/rules/grade", label: "等级规则", permission: "rule:view" },
-  { path: "/system/users", label: "用户管理", permission: "user:view" },
+  { path: "/overview", label: "\u7cfb\u7edf\u6982\u89c8" },
+  { path: "/period-management", label: "\u5468\u671f\u7ba1\u7406", permission: "assessment:view" },
+  { path: "/org", label: "\u7ec4\u7ec7\u67b6\u6784", permission: "org:view" },
+  { path: "/rules/total", label: "\u603b\u5206\u89c4\u5219", permission: "rule:view" },
+  { path: "/rules/module", label: "\u6a21\u5757\u89c4\u5219", permission: "rule:view" },
+  { path: "/rules/grade", label: "\u7b49\u7b2c\u89c4\u5219", permission: "rule:view" },
+  { path: "/system/users", label: "\u7528\u6237\u7ba1\u7406", permission: "user:view" },
+  { path: "/system/backup", label: "\u5907\u4efd\u6062\u590d", permission: "backup:view" },
+  { path: "/system/audit", label: "\u5ba1\u8ba1\u65e5\u5fd7", permission: "audit:view" },
+  { path: "/system/settings", label: "\u7cfb\u7edf\u8bbe\u7f6e", permission: "setting:view" },
 ];
 
 const route = useRoute();
@@ -153,7 +157,7 @@ watch(
     try {
       await contextStore.ensureInitialized();
     } catch (_error) {
-      ElMessage.error("全局上下文加载失败");
+      ElMessage.error("\u5168\u5c40\u4e0a\u4e0b\u6587\u52a0\u8f7d\u5931\u8d25");
     }
   },
   { immediate: true },
@@ -231,7 +235,7 @@ function periodLabel(code: AssessmentPeriodCode, name?: string): string {
 async function handleLogout(): Promise<void> {
   await appStore.logout();
   unsavedStore.clearAll();
-  ElMessage.success("已退出登录");
+  ElMessage.success("\u5df2\u9000\u51fa\u767b\u5f55");
   await router.push("/login");
 }
 
@@ -370,10 +374,10 @@ async function confirmExitIfUnsaved(): Promise<boolean> {
   }
 
   try {
-    await ElMessageBox.confirm("检测到存在未保存的数据，退出后将丢失，是否继续？", "退出提醒", {
+    await ElMessageBox.confirm("\u68c0\u6d4b\u5230\u5b58\u5728\u672a\u4fdd\u5b58\u7684\u6570\u636e\uff0c\u9000\u51fa\u540e\u5c06\u4e22\u5931\uff0c\u662f\u5426\u7ee7\u7eed\uff1f", "\u9000\u51fa\u63d0\u9192", {
       type: "warning",
-      confirmButtonText: "继续退出",
-      cancelButtonText: "取消",
+      confirmButtonText: "\u7ee7\u7eed\u9000\u51fa",
+      cancelButtonText: "\u53d6\u6d88",
     });
     return true;
   } catch (_error) {
@@ -398,7 +402,7 @@ async function handleExitSystem(): Promise<void> {
   const exited = await tryExitDesktopRuntime();
   if (!exited) {
     bypassBeforeUnloadUntil = 0;
-    ElMessage.success("已退出登录");
+    ElMessage.success("\u5df2\u9000\u51fa\u767b\u5f55");
     await router.push("/login");
   }
 }
@@ -408,9 +412,9 @@ function roleLabel(roleCode: string): string {
     case "root":
       return "Root";
     case "viewer":
-      return "查看者";
+      return "\u67e5\u770b\u8005";
     case "":
-      return "未分配角色";
+      return "\u672a\u5206\u914d\u89d2\u8272";
     default:
       return roleCode;
   }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -19,7 +20,7 @@ type App struct {
 	mu sync.RWMutex
 
 	api                http.Handler
-	sqlDB              *sql.DB
+	sqlDBs             []*sql.DB
 	closeGuardEnabled  bool
 	skipCloseGuardOnce bool
 }
@@ -35,16 +36,30 @@ func (a *App) startup(ctx context.Context) {
 	a.skipCloseGuardOnce = false
 	a.mu.Unlock()
 
-	cfg, sqlDB, engine, err := bootstrapBackend()
+	cfg, sqlDBs, engine, err := bootstrapBackend()
 	if err != nil {
 		log.Printf("desktop backend bootstrap failed: %v", err)
+		message := fmt.Sprintf(
+			"The application failed to start.\n\nReason:\n%v\n\nPlease contact support with this message.",
+			err,
+		)
+		if _, dialogErr := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:          runtime.ErrorDialog,
+			Title:         "AssessV2 Startup Failed",
+			Message:       message,
+			Buttons:       []string{"OK"},
+			DefaultButton: "OK",
+			CancelButton:  "OK",
+		}); dialogErr != nil {
+			log.Printf("show startup error dialog failed: %v", dialogErr)
+		}
 		runtime.Quit(ctx)
 		return
 	}
 
 	a.mu.Lock()
 	a.api = engine
-	a.sqlDB = sqlDB
+	a.sqlDBs = sqlDBs
 	a.mu.Unlock()
 
 	log.Printf("desktop backend ready at %s", cfg.Server.Address())
@@ -113,12 +128,15 @@ func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.sqlDB != nil {
-		if err := a.sqlDB.Close(); err != nil {
+	for _, item := range a.sqlDBs {
+		if item == nil {
+			continue
+		}
+		if err := item.Close(); err != nil {
 			log.Printf("close desktop sqlite failed: %v", err)
 		}
-		a.sqlDB = nil
 	}
+	a.sqlDBs = nil
 	a.api = nil
 
 	if err := cleanupDescendantProcesses(uint32(os.Getpid())); err != nil {

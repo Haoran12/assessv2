@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	testDefaultPassword = "#2026@hdwl"
-	testChangedPassword = "NewPass#2026"
+	testDefaultPassword = "#AssessV2@Init"
+	testChangedPassword = "NewPass#2027"
 )
 
 type apiEnvelope struct {
@@ -238,7 +238,7 @@ func TestM1RootOnlyUserGroupEndpoints(t *testing.T) {
 		t.Fatalf("expected delete in-use group status=400, got=%d body=%s", deleteRespInUse.Code, deleteRespInUse.Body.String())
 	}
 
-	viewerRoleID := mustRoleIDByCode(t, db, "viewer")
+	viewerRoleID := mustRoleIDByCode(t, db, "staff")
 	resetGroupsBody, _ := json.Marshal(map[string]any{
 		"roleIds": []uint{viewerRoleID},
 	})
@@ -325,8 +325,8 @@ func createViewerUser(t *testing.T, db *gorm.DB, username, realName string) {
 	}
 
 	var role model.Role
-	if err := db.Where("role_code = ?", "viewer").First(&role).Error; err != nil {
-		t.Fatalf("failed to query viewer role: %v", err)
+	if err := db.Where("role_code = ?", "staff").First(&role).Error; err != nil {
+		t.Fatalf("failed to query staff role: %v", err)
 	}
 	userRole := model.UserRole{
 		UserID:    user.ID,

@@ -21,7 +21,7 @@ func RequireOrgScope() gin.HandlerFunc {
 		}
 
 		c.Set(orgScopesContextKey, claims.OrgScopes)
-		if auth.HasPermission(claims.Permissions, "*") {
+		if auth.HasBusinessRole(claims.Roles, auth.RoleRoot) || auth.HasPermission(claims.Permissions, "*") {
 			c.Next()
 			return
 		}

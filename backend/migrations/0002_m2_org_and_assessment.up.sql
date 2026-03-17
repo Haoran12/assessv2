@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS assessment_periods (
     year_id INTEGER NOT NULL,
     period_code VARCHAR(20) NOT NULL,
     period_name VARCHAR(100) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'not_started',
+    status VARCHAR(20) NOT NULL DEFAULT 'preparing',
     start_date DATE,
     end_date DATE,
     created_by INTEGER,
@@ -184,4 +184,3 @@ CREATE INDEX IF NOT EXISTS idx_assessment_objects_object_type ON assessment_obje
 CREATE INDEX IF NOT EXISTS idx_assessment_objects_target_type ON assessment_objects(target_type);
 CREATE INDEX IF NOT EXISTS idx_assessment_objects_parent_object_id ON assessment_objects(parent_object_id);
 CREATE INDEX IF NOT EXISTS idx_assessment_objects_is_active ON assessment_objects(is_active);
-

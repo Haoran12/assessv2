@@ -5,5 +5,5 @@ test("login page smoke", async ({ page }) => {
 
   await expect(page.locator(".login-card")).toBeVisible();
   await expect(page.locator("input").first()).toHaveValue("root");
-  await expect(page.locator("input[type='password']")).toHaveValue("#2026@hdwl");
+  await expect(page.locator("input[type='password']")).toHaveValue("#AssessV2@Init");
 });

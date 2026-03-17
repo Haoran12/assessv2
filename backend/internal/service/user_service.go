@@ -47,6 +47,7 @@ type UserListItem struct {
 	RoleNames          []string                 `json:"roleNames"`
 	PrimaryRole        string                   `json:"primaryRole"`
 	Organizations      []auth.OrganizationScope `json:"organizations"`
+	PermissionBindings []auth.PermissionBinding `json:"permissionBindings"`
 	CreatedAt          int64                    `json:"createdAt"`
 	UpdatedAt          int64                    `json:"updatedAt"`
 }
@@ -126,7 +127,7 @@ func (s *UserService) ListUsers(ctx context.Context, input ListUsersInput) (*Lis
 
 	items := make([]UserListItem, 0, len(users))
 	for _, user := range users {
-		primaryRole, roleCodes, _, orgScopes, identityErr := extractIdentity(&user)
+		primaryRole, roleCodes, _, orgScopes, bindings, identityErr := extractIdentity(&user)
 		if identityErr != nil {
 			return nil, identityErr
 		}
@@ -142,6 +143,7 @@ func (s *UserService) ListUsers(ctx context.Context, input ListUsersInput) (*Lis
 			RoleNames:          collectRoleNames(&user),
 			PrimaryRole:        primaryRole,
 			Organizations:      orgScopes,
+			PermissionBindings: bindings,
 			CreatedAt:          user.CreatedAt,
 			UpdatedAt:          user.UpdatedAt,
 		})

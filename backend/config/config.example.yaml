@@ -18,5 +18,5 @@ auth:
   jwt_secret: "replace-with-production-secret"
 
 system:
-  default_password: "#2026@hdwl"
+  default_password: "#AssessV2@Init"
   enforce_must_change_password: false

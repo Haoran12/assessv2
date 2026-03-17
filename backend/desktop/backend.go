@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -22,39 +24,106 @@ import (
 
 const preferredDataYearFileName = ".assessment_year"
 
-func bootstrapBackend() (config.Config, *sql.DB, *gin.Engine, error) {
+func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 	if err := prepareDesktopEnv(); err != nil {
 		return config.Config{}, nil, nil, err
 	}
 
 	cfg := config.Load()
-	db, err := database.NewSQLite(cfg.Database)
+	yearDB, err := database.NewSQLite(cfg.Database)
 	if err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("initialize sqlite: %w", err)
+		return config.Config{}, nil, nil, fmt.Errorf("initialize assessment sqlite: %w", err)
 	}
 
-	sqlDB, err := db.DB()
+	accountsPath, err := defaultAccountsSQLitePath()
 	if err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("get sql db handle: %w", err)
+		return config.Config{}, nil, nil, err
 	}
-
-	migrationManager, err := migration.NewManager(db, cfg.MigrationsDir)
+	accountDBConfig := cfg.Database
+	accountDBConfig.Path = accountsPath
+	accountDB, err := database.NewSQLite(accountDBConfig)
 	if err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("initialize migration manager: %w", err)
-	}
-	if _, err := migrationManager.Up(context.Background()); err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("apply migrations: %w", err)
+		return config.Config{}, nil, nil, fmt.Errorf("initialize accounts sqlite: %w", err)
 	}
 
-	if err := database.SeedBaselineData(db, cfg.DefaultPassword); err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("seed baseline data: %w", err)
+	yearSQLDB, err := yearDB.DB()
+	if err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("get assessment sql db handle: %w", err)
+	}
+	accountSQLDB, err := accountDB.DB()
+	if err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("get accounts sql db handle: %w", err)
 	}
 
-	engine := router.New(cfg, db)
-	return cfg, sqlDB, engine, nil
+	migrationManager, err := migration.NewManager(yearDB, cfg.MigrationsDir)
+	if err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("initialize assessment migration manager: %w", err)
+	}
+	if err := runMigrationsWithChecksumRepair(context.Background(), migrationManager, "assessment"); err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("apply assessment migrations: %w", err)
+	}
+
+	accountMigrationManager, err := migration.NewManager(accountDB, cfg.MigrationsDir)
+	if err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("initialize accounts migration manager: %w", err)
+	}
+	if err := runMigrationsWithChecksumRepair(context.Background(), accountMigrationManager, "accounts"); err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("apply accounts migrations: %w", err)
+	}
+
+	if err := database.SeedAssessmentData(yearDB); err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("seed assessment baseline data: %w", err)
+	}
+	if err := database.SeedAccountsData(accountDB, cfg.DefaultPassword); err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("seed account baseline data: %w", err)
+	}
+
+	engine := router.NewWithDatabases(cfg, yearDB, accountDB)
+	return cfg, []*sql.DB{yearSQLDB, accountSQLDB}, engine, nil
+}
+
+func runMigrationsWithChecksumRepair(ctx context.Context, manager *migration.Manager, databaseName string) error {
+	if _, err := manager.Up(ctx); err != nil {
+		var checksumErr *migration.ChecksumMismatchError
+		if !errors.As(err, &checksumErr) {
+			return err
+		}
+
+		reconciledCount, reconcileErr := manager.ReconcileChecksums(ctx)
+		if reconcileErr != nil {
+			return fmt.Errorf("reconcile migration checksums for %s db failed: %w", databaseName, reconcileErr)
+		}
+		if reconciledCount == 0 {
+			return err
+		}
+
+		if _, retryErr := manager.Up(ctx); retryErr != nil {
+			return fmt.Errorf("retry migrations after checksum reconcile for %s db failed: %w", databaseName, retryErr)
+		}
+	}
+	return nil
 }
 
 func prepareDesktopEnv() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	exeDir := filepath.Dir(exePath)
+	dataRoot := filepath.Join(exeDir, "data")
+	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
+		return fmt.Errorf("create data root: %w", err)
+	}
+	if err := ensureDesktopDataLayoutCompatibility(exeDir, dataRoot); err != nil {
+		return err
+	}
+
+	if os.Getenv("ASSESS_DATA_ROOT") == "" {
+		if err := os.Setenv("ASSESS_DATA_ROOT", dataRoot); err != nil {
+			return err
+		}
+	}
+
 	if os.Getenv("ASSESS_SERVER_HOST") == "" {
 		if err := os.Setenv("ASSESS_SERVER_HOST", "127.0.0.1"); err != nil {
 			return err
@@ -93,6 +162,177 @@ func prepareDesktopEnv() error {
 	return nil
 }
 
+func ensureDesktopDataLayoutCompatibility(exeDir, dataRoot string) error {
+	if err := migrateLegacyFlatAssessmentDB(exeDir, dataRoot); err != nil {
+		return err
+	}
+	if err := migrateLegacyAccountsDB(exeDir, dataRoot); err != nil {
+		return err
+	}
+	return nil
+}
+
+func migrateLegacyFlatAssessmentDB(exeDir, dataRoot string) error {
+	legacyMain := filepath.Join(dataRoot, "assess.db")
+	if !fileExists(legacyMain) {
+		return nil
+	}
+
+	targetYear := resolvePreferredDataYear(exeDir)
+	targetDir := filepath.Join(dataRoot, strconv.Itoa(targetYear))
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return fmt.Errorf("create assessment year dir for legacy migration: %w", err)
+	}
+	targetMain := filepath.Join(targetDir, "assess.db")
+
+	if fileExists(targetMain) {
+		backupDir := filepath.Join(dataRoot, "legacy", time.Now().Format("20060102150405"))
+		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+			return fmt.Errorf("create legacy backup dir: %w", err)
+		}
+		backupMain := filepath.Join(backupDir, "assess.db")
+		if err := moveSQLiteWithSidecars(legacyMain, backupMain); err != nil {
+			return fmt.Errorf("backup legacy flat assessment db: %w", err)
+		}
+		return nil
+	}
+
+	if err := moveSQLiteWithSidecars(legacyMain, targetMain); err != nil {
+		return fmt.Errorf("migrate legacy flat assessment db: %w", err)
+	}
+	if err := persistPreferredDataYear(targetYear); err != nil {
+		return fmt.Errorf("persist preferred year after legacy migration: %w", err)
+	}
+	return nil
+}
+
+func migrateLegacyAccountsDB(exeDir, dataRoot string) error {
+	accountsMain := filepath.Join(dataRoot, "accounts", "accounts.db")
+	if fileExists(accountsMain) {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(accountsMain), 0o755); err != nil {
+		return fmt.Errorf("create accounts dir for legacy migration: %w", err)
+	}
+
+	legacyAccountsMain := filepath.Join(dataRoot, "accounts.db")
+	if fileExists(legacyAccountsMain) {
+		if err := moveSQLiteWithSidecars(legacyAccountsMain, accountsMain); err != nil {
+			return fmt.Errorf("migrate legacy flat accounts db: %w", err)
+		}
+		return nil
+	}
+
+	preferredYear := resolvePreferredDataYear(exeDir)
+	preferredYearMain := filepath.Join(dataRoot, strconv.Itoa(preferredYear), "assess.db")
+	if fileExists(preferredYearMain) {
+		if err := copySQLiteWithSidecars(preferredYearMain, accountsMain); err != nil {
+			return fmt.Errorf("bootstrap accounts db from preferred year db: %w", err)
+		}
+		return nil
+	}
+
+	if latestYear, ok := detectLatestDataYearDir(exeDir); ok {
+		latestYearMain := filepath.Join(dataRoot, strconv.Itoa(latestYear), "assess.db")
+		if fileExists(latestYearMain) {
+			if err := copySQLiteWithSidecars(latestYearMain, accountsMain); err != nil {
+				return fmt.Errorf("bootstrap accounts db from latest year db: %w", err)
+			}
+			return nil
+		}
+	}
+
+	legacyFlatAssessmentMain := filepath.Join(dataRoot, "assess.db")
+	if fileExists(legacyFlatAssessmentMain) {
+		if err := copySQLiteWithSidecars(legacyFlatAssessmentMain, accountsMain); err != nil {
+			return fmt.Errorf("bootstrap accounts db from legacy flat assessment db: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func moveSQLiteWithSidecars(srcMain, dstMain string) error {
+	if err := os.MkdirAll(filepath.Dir(dstMain), 0o755); err != nil {
+		return err
+	}
+
+	if err := moveFile(srcMain, dstMain); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		src := srcMain + suffix
+		if !fileExists(src) {
+			continue
+		}
+		if err := moveFile(src, dstMain+suffix); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copySQLiteWithSidecars(srcMain, dstMain string) error {
+	if err := os.MkdirAll(filepath.Dir(dstMain), 0o755); err != nil {
+		return err
+	}
+
+	if err := copyFile(srcMain, dstMain); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		src := srcMain + suffix
+		if !fileExists(src) {
+			continue
+		}
+		if err := copyFile(src, dstMain+suffix); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func moveFile(srcPath, dstPath string) error {
+	if err := os.Rename(srcPath, dstPath); err == nil {
+		return nil
+	}
+	if err := copyFile(srcPath, dstPath); err != nil {
+		return err
+	}
+	if err := os.Remove(srcPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func copyFile(srcPath, dstPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+	return dst.Sync()
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
 func defaultSQLitePath() (string, error) {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -107,6 +347,20 @@ func defaultSQLitePath() (string, error) {
 	}
 
 	return filepath.Join(dataDir, "assess.db"), nil
+}
+
+func defaultAccountsSQLitePath() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable path: %w", err)
+	}
+	exeDir := filepath.Dir(exePath)
+
+	accountsDir := filepath.Join(exeDir, "data", "accounts")
+	if err := os.MkdirAll(accountsDir, 0o755); err != nil {
+		return "", fmt.Errorf("create accounts data dir: %w", err)
+	}
+	return filepath.Join(accountsDir, "accounts.db"), nil
 }
 
 func resolvePreferredDataYear(exeDir string) int {
@@ -164,10 +418,6 @@ func detectLatestDataYearDir(exeDir string) (int, bool) {
 		}
 		year, ok := parseAssessmentYear(entry.Name())
 		if !ok {
-			continue
-		}
-		dbPath := filepath.Join(dataRoot, entry.Name(), "assess.db")
-		if _, err := os.Stat(dbPath); err != nil {
 			continue
 		}
 		years = append(years, year)
