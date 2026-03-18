@@ -255,13 +255,6 @@
                 <el-option label="在岗" value="active" />
                 <el-option label="离岗" value="inactive" />
               </el-select>
-              <div class="filter-switch">
-                <el-switch
-                  v-model="employeeQuery.directOnly"
-                  active-text="仅领导班子"
-                  inactive-text="全部人员"
-                />
-              </div>
               <el-input
                 v-model="employeeQuery.keyword"
                 clearable
@@ -273,7 +266,7 @@
               <el-button type="primary" :disabled="!canEdit" @click="openEmployeeDialog()">新增人员</el-button>
             </div>
 
-            <el-table v-loading="loadingEmployees" :data="filteredEmployees" border>
+            <el-table v-loading="loadingEmployees" :data="employees" border>
               <el-table-column prop="id" label="ID" width="70" />
               <el-table-column prop="empName" label="姓名" min-width="120" />
               <el-table-column label="所属组织" min-width="150">
@@ -706,7 +699,6 @@ const employees = ref<EmployeeItem[]>([]);
 const employeeQuery = reactive({
   organizationId: undefined as number | undefined,
   departmentId: undefined as number | undefined,
-  directOnly: false,
   keyword: "",
   status: "" as OrgStatus | "",
 });
@@ -1117,12 +1109,6 @@ const filteredPositionLevels = computed(() => {
 });
 
 const activePositionLevels = computed(() => positionLevels.value.filter((item) => item.status === "active"));
-const filteredEmployees = computed(() => {
-  if (!employeeQuery.directOnly) {
-    return employees.value;
-  }
-  return employees.value.filter((item) => !item.departmentId);
-});
 
 function departmentOptionsByOrg(organizationId?: number): DepartmentItem[] {
   if (!organizationId) {
@@ -1191,7 +1177,6 @@ function handleTreeNodeClick(node: TreeNodeUI): void {
     activeTab.value = "organizations";
     employeeQuery.organizationId = node.id;
     employeeQuery.departmentId = undefined;
-    employeeQuery.directOnly = false;
     void loadOrganizations();
     return;
   }
@@ -1202,7 +1187,6 @@ function handleTreeNodeClick(node: TreeNodeUI): void {
     deptQuery.organizationId = node.organizationId;
     employeeQuery.organizationId = node.organizationId;
     employeeQuery.departmentId = node.id;
-    employeeQuery.directOnly = false;
     if (!tabChanged) {
       void loadDepartments();
     }
@@ -1214,7 +1198,6 @@ function handleTreeNodeClick(node: TreeNodeUI): void {
     activeTab.value = "employees";
     employeeQuery.organizationId = node.organizationId;
     employeeQuery.departmentId = undefined;
-    employeeQuery.directOnly = !node.departmentId;
     if (!tabChanged) {
       void loadEmployees();
     }
@@ -1826,7 +1809,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-grid-employee {
-  grid-template-columns: minmax(180px, 220px) minmax(180px, 220px) 120px auto 1fr auto auto;
+  grid-template-columns: minmax(180px, 220px) minmax(180px, 220px) 120px 1fr auto auto;
   align-items: center;
 }
 
@@ -1859,13 +1842,6 @@ onBeforeUnmount(() => {
 .select-inline-clear:hover {
   color: var(--el-color-primary);
   background: var(--el-fill-color-light);
-}
-
-.filter-switch {
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  white-space: nowrap;
 }
 
 @media (max-width: 1200px) {
