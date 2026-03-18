@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 	"assessv2/backend/internal/database"
 	"assessv2/backend/internal/migration"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const preferredDataYearFileName = ".assessment_year"
@@ -28,18 +30,24 @@ func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 	}
 
 	cfg := config.Load()
-	yearDB, err := database.NewSQLite(cfg.Database)
+	yearDB, err := openSQLiteAndApplyMigrationsWithHardReset(
+		context.Background(),
+		cfg.Database,
+		cfg.BusinessMigrationsDir,
+		"assessment",
+	)
 	if err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("initialize assessment sqlite: %w", err)
 	}
 
-	accountsPath, err := defaultAccountsSQLitePath()
-	if err != nil {
-		return config.Config{}, nil, nil, err
-	}
 	accountDBConfig := cfg.Database
-	accountDBConfig.Path = accountsPath
-	accountDB, err := database.NewSQLite(accountDBConfig)
+	accountDBConfig.Path = cfg.AccountsDatabasePath
+	accountDB, err := openSQLiteAndApplyMigrationsWithHardReset(
+		context.Background(),
+		accountDBConfig,
+		cfg.AccountsMigrationsDir,
+		"accounts",
+	)
 	if err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("initialize accounts sqlite: %w", err)
 	}
@@ -53,22 +61,6 @@ func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 		return config.Config{}, nil, nil, fmt.Errorf("get accounts sql db handle: %w", err)
 	}
 
-	migrationManager, err := migration.NewManager(yearDB, cfg.BusinessMigrationsDir)
-	if err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("initialize assessment migration manager: %w", err)
-	}
-	if _, err := migrationManager.Up(context.Background()); err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("apply assessment migrations: %w", err)
-	}
-
-	accountMigrationManager, err := migration.NewManager(accountDB, cfg.AccountsMigrationsDir)
-	if err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("initialize accounts migration manager: %w", err)
-	}
-	if _, err := accountMigrationManager.Up(context.Background()); err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("apply accounts migrations: %w", err)
-	}
-
 	if err := database.SeedAssessmentData(yearDB); err != nil {
 		return config.Config{}, nil, nil, fmt.Errorf("seed assessment baseline data: %w", err)
 	}
@@ -78,6 +70,91 @@ func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 
 	engine := router.NewWithDatabases(cfg, yearDB, accountDB)
 	return cfg, []*sql.DB{yearSQLDB, accountSQLDB}, engine, nil
+}
+
+func openSQLiteAndApplyMigrationsWithHardReset(
+	ctx context.Context,
+	dbConfig config.DatabaseConfig,
+	migrationsDir string,
+	databaseName string,
+) (*gorm.DB, error) {
+	db, err := database.NewSQLite(dbConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	applyErr := applyMigrations(ctx, db, migrationsDir)
+	if applyErr == nil {
+		return db, nil
+	}
+
+	var checksumErr *migration.ChecksumMismatchError
+	if !errors.As(applyErr, &checksumErr) {
+		return nil, applyErr
+	}
+
+	if err := closeSQLiteDB(db); err != nil {
+		return nil, fmt.Errorf("close %s database before reset: %w", databaseName, err)
+	}
+
+	backupPath, err := backupAndResetIncompatibleSQLite(dbConfig.Path, databaseName)
+	if err != nil {
+		return nil, err
+	}
+
+	reopenedDB, err := database.NewSQLite(dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf("re-open %s database after reset: %w", databaseName, err)
+	}
+	if err := applyMigrations(ctx, reopenedDB, migrationsDir); err != nil {
+		return nil, fmt.Errorf("apply %s migrations after reset: %w", databaseName, err)
+	}
+
+	fmt.Printf(
+		"[desktop] detected incompatible %s migration history (version=%d file=%s), backed up old DB to %s and rebuilt schema\n",
+		databaseName,
+		checksumErr.Version,
+		checksumErr.File,
+		backupPath,
+	)
+
+	return reopenedDB, nil
+}
+
+func applyMigrations(ctx context.Context, db *gorm.DB, migrationsDir string) error {
+	manager, err := migration.NewManager(db, migrationsDir)
+	if err != nil {
+		return err
+	}
+	_, err = manager.Up(ctx)
+	return err
+}
+
+func closeSQLiteDB(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
+func backupAndResetIncompatibleSQLite(dbPath, databaseName string) (string, error) {
+	if strings.TrimSpace(dbPath) == "" {
+		return "", fmt.Errorf("reset %s database failed: empty db path", databaseName)
+	}
+	if !fileExists(dbPath) {
+		return "", fmt.Errorf("reset %s database failed: db file not found: %s", databaseName, dbPath)
+	}
+
+	backupRoot := filepath.Join(filepath.Dir(dbPath), "incompatible", time.Now().Format("20060102150405"))
+	backupMain := filepath.Join(backupRoot, fmt.Sprintf("%s.db", databaseName))
+	if err := moveSQLiteWithSidecars(dbPath, backupMain); err != nil {
+		return "", fmt.Errorf("backup incompatible %s database: %w", databaseName, err)
+	}
+	return backupMain, nil
 }
 
 func prepareDesktopEnv() error {
