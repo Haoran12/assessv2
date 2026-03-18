@@ -18,6 +18,13 @@ import (
 
 var settingKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{2,100}$`)
 
+var voteGradeOptionSet = map[string]struct{}{
+	"excellent": {},
+	"good":      {},
+	"average":   {},
+	"poor":      {},
+}
+
 const (
 	objectLinkTypeMaxLength = 30
 	objectLinkTypeMaxCount  = 20

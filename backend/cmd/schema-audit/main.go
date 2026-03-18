@@ -64,14 +64,44 @@ func (a *schemaAudit) run() error {
 	}
 
 	businessRequiredTables := []string{
-		"assessment_years",
-		"assessment_objects",
+		"assessment_sessions",
+		"assessment_session_periods",
+		"assessment_object_groups",
+		"assessment_session_objects",
+		"rule_files",
+		"rule_file_hides",
+		"assessment_rule_bindings",
 		"system_settings",
 		"audit_logs",
 	}
 	for _, table := range businessRequiredTables {
 		if err := assertTableExists(a.businessDB, table, true); err != nil {
 			return fmt.Errorf("business schema incomplete: %w", err)
+		}
+	}
+
+	businessLegacyTables := []string{
+		"assessment_years",
+		"assessment_periods",
+		"assessment_objects",
+		"assessment_rules",
+		"rule_bindings",
+		"rule_templates",
+		"score_modules",
+		"direct_scores",
+		"vote_groups",
+		"vote_tasks",
+		"vote_records",
+		"extra_points",
+		"calculated_scores",
+		"calculated_module_scores",
+		"rankings",
+		"assessment_object_user_links",
+		"resource_permissions",
+	}
+	for _, table := range businessLegacyTables {
+		if err := assertTableExists(a.businessDB, table, false); err != nil {
+			return fmt.Errorf("business legacy table should be removed: %w", err)
 		}
 	}
 
@@ -124,6 +154,7 @@ func (a *schemaAudit) assertNoLegacySettingKeys() error {
 SELECT COUNT(1)
 FROM system_settings
 WHERE setting_key LIKE 'legacy.%'
+   OR setting_key LIKE 'resource.default_permission.%'
    OR setting_key IN (
        'assessment.org_scopes',
        'assessment.permission_bindings_legacy_fallback'

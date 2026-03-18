@@ -14,17 +14,3 @@ func resolveBusinessWriteOperatorRefTx(tx *gorm.DB, operatorID uint) *uint {
 	value := operatorID
 	return &value
 }
-
-func resolveRequiredBusinessUserIDTx(tx *gorm.DB, userID uint) (uint, error) {
-	_ = tx
-	if userID == 0 {
-		return 0, ErrInvalidParam
-	}
-	return userID, nil
-}
-
-func ensureBusinessUsersExistTx(tx *gorm.DB, userIDs []uint) error {
-	_ = tx
-	_ = userIDs
-	return nil
-}

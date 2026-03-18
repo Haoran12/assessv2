@@ -35,9 +35,6 @@ func SeedAssessmentData(db *gorm.DB) error {
 	if err := seedDefaultAssessmentCategories(db); err != nil {
 		return err
 	}
-	if err := seedResourcePermissionSettings(db); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -224,10 +221,7 @@ func seedSystemRoles(db *gorm.DB) error {
 			Permissions: []string{
 				"assessment:view", "assessment:update",
 				"rule:view", "rule:update",
-				"score:view", "score:update",
 				"org:view", "org:update",
-				"vote:view", "vote:submit", "vote:manage", "vote:detail:view",
-				"report:view",
 				"backup:view", "backup:update",
 				"audit:view", "audit:rollback",
 				"setting:view", "setting:update",
@@ -239,8 +233,7 @@ func seedSystemRoles(db *gorm.DB) error {
 			RoleName:    "Leader",
 			Description: "领导角色，可查看授权范围内结果并执行投票相关操作",
 			Permissions: []string{
-				"assessment:view", "rule:view", "score:view",
-				"vote:view", "vote:submit", "report:view",
+				"assessment:view", "rule:view",
 			},
 			IsSystem: true,
 		},
@@ -249,8 +242,7 @@ func seedSystemRoles(db *gorm.DB) error {
 			RoleName:    "Staff",
 			Description: "员工角色，可查看与本人相关的数据并执行基础投票操作",
 			Permissions: []string{
-				"assessment:view", "rule:view", "score:view",
-				"vote:view", "vote:submit", "report:view",
+				"assessment:view", "rule:view",
 			},
 			IsSystem: true,
 		},
@@ -291,25 +283,6 @@ func seedSystemRoles(db *gorm.DB) error {
 			}
 		}
 
-		var legacyViewer model.Role
-		err := tx.Where("role_code = ?", "viewer").First(&legacyViewer).Error
-		switch {
-		case errors.Is(err, gorm.ErrRecordNotFound):
-			return nil
-		case err != nil:
-			return fmt.Errorf("failed to query legacy role viewer: %w", err)
-		}
-
-		var assignedCount int64
-		if countErr := tx.Model(&model.UserRole{}).Where("role_id = ?", legacyViewer.ID).Count(&assignedCount).Error; countErr != nil {
-			return fmt.Errorf("failed to query legacy role viewer usage: %w", countErr)
-		}
-		if assignedCount > 0 {
-			return fmt.Errorf("legacy role viewer is still assigned to %d users; please reassign to staff before startup", assignedCount)
-		}
-		if deleteErr := tx.Delete(&model.Role{}, legacyViewer.ID).Error; deleteErr != nil {
-			return fmt.Errorf("failed to delete legacy role viewer: %w", deleteErr)
-		}
 		return nil
 	})
 }
@@ -425,16 +398,4 @@ func seedDefaultPositionLevels(db *gorm.DB) error {
 func seedDefaultAssessmentCategories(db *gorm.DB) error {
 	_ = db
 	return nil
-}
-
-func seedResourcePermissionSettings(db *gorm.DB) error {
-	now := time.Now().Unix()
-	seeds := []model.SystemSetting{
-		{SettingKey: "resource.default_permission.assessment_year", SettingValue: "420", SettingType: "number", Description: "Default mode for assessment session resources", IsSystem: true, UpdatedAt: now},
-		{SettingKey: "resource.default_permission.assessment_rule", SettingValue: "420", SettingType: "number", Description: "Default mode for assessment rule resources", IsSystem: true, UpdatedAt: now},
-		{SettingKey: "resource.default_permission.rule_template", SettingValue: "420", SettingType: "number", Description: "Default mode for rule template resources", IsSystem: true, UpdatedAt: now},
-		{SettingKey: "resource.default_permission.direct_score", SettingValue: "384", SettingType: "number", Description: "Default mode for direct score resources", IsSystem: true, UpdatedAt: now},
-		{SettingKey: "resource.default_permission.extra_point", SettingValue: "416", SettingType: "number", Description: "Default mode for extra point resources", IsSystem: true, UpdatedAt: now},
-	}
-	return upsertSystemSettings(db, seeds, true)
 }

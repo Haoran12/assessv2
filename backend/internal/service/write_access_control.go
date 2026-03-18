@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/auth"
-	"assessv2/backend/internal/model"
 	"gorm.io/gorm"
 )
 
@@ -141,109 +140,6 @@ func requireOrgWriteScope(ctx context.Context, db *gorm.DB, claims *auth.Claims)
 		unrestricted: false,
 		allowedOrgID: allowedOrgID,
 	}, nil
-}
-
-func requireAssessmentYearWriteScope(ctx context.Context, db *gorm.DB, claims *auth.Claims, yearID uint) error {
-	if yearID == 0 {
-		return ErrInvalidParam
-	}
-	if err := requireRootOrAssessmentAdminClaims(claims); err != nil {
-		return err
-	}
-	if isRootClaims(claims) {
-		return nil
-	}
-
-	scope, err := buildAssessmentAccessScope(ctx, db, claims)
-	if err != nil {
-		return err
-	}
-
-	var objectIDs []uint
-	if err := db.WithContext(ctx).Table("assessment_objects").
-		Where("year_id = ? AND is_active = 1", yearID).
-		Pluck("id", &objectIDs).Error; err != nil {
-		return fmt.Errorf("failed to load assessment objects for year scope check: %w", err)
-	}
-	if len(objectIDs) == 0 {
-		return ErrForbidden
-	}
-	for _, objectID := range objectIDs {
-		if scope.allowsDetailObject(objectID) {
-			continue
-		}
-		return ErrForbidden
-	}
-	return nil
-}
-
-func requireCreateAssessmentYearScope(ctx context.Context, db *gorm.DB, claims *auth.Claims) error {
-	if isRootClaims(claims) {
-		return nil
-	}
-	_, err := resolveGroupScopedOrganizationIDs(ctx, db, claims)
-	return err
-}
-
-func requireRuleDimensionWriteScope(
-	ctx context.Context,
-	db *gorm.DB,
-	claims *auth.Claims,
-	yearID uint,
-	objectType string,
-	objectCategory string,
-) error {
-	if err := requireRootOrAssessmentAdminClaims(claims); err != nil {
-		return err
-	}
-	if isRootClaims(claims) {
-		return nil
-	}
-
-	scope, err := buildAssessmentAccessScope(ctx, db, claims)
-	if err != nil {
-		return err
-	}
-
-	normalizedCategory := normalizeObjectCategory(objectCategory)
-	baseQuery := db.WithContext(ctx).
-		Where("year_id = ? AND is_active = 1 AND object_type = ?", yearID, objectType)
-
-	var objectIDs []uint
-	segmentCode := normalizeSegmentCode(normalizedCategory)
-	if segmentCode == "" {
-		if err := baseQuery.Model(&model.AssessmentObject{}).
-			Where("object_category = ?", normalizedCategory).
-			Pluck("id", &objectIDs).Error; err != nil {
-			return fmt.Errorf("failed to load assessment objects for rule scope check: %w", err)
-		}
-	} else {
-		var objects []model.AssessmentObject
-		if err := baseQuery.Model(&model.AssessmentObject{}).Find(&objects).Error; err != nil {
-			return fmt.Errorf("failed to load assessment objects for segment rule scope check: %w", err)
-		}
-		segmentMap, segmentErr := buildObjectSegmentMapTx(db.WithContext(ctx), objects)
-		if segmentErr != nil {
-			return segmentErr
-		}
-		for _, object := range objects {
-			if segmentMap[object.ID] != segmentCode {
-				continue
-			}
-			objectIDs = append(objectIDs, object.ID)
-		}
-	}
-
-	if len(objectIDs) == 0 {
-		return ErrForbidden
-	}
-	for _, objectID := range objectIDs {
-		if scope.allowsDetailObject(objectID) {
-			continue
-		}
-		return ErrForbidden
-	}
-	return nil
 }
 
 func isRecordNotFound(err error) bool {

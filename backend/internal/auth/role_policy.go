@@ -10,12 +10,6 @@ const (
 	RoleAssessmentAdmin = "assessment_admin"
 	RoleLeader          = "leader"
 	RoleStaff           = "staff"
-
-	// Legacy role codes kept for compatibility with historical data.
-	RoleViewerLegacy       = "viewer"
-	RoleGroupAdminLegacy   = "group_admin"
-	RoleCompanyAdminLegacy = "company_admin"
-	RoleDeptAdminLegacy    = "dept_admin"
 )
 
 var rolePermissions = map[string][]string{
@@ -24,15 +18,8 @@ var rolePermissions = map[string][]string{
 		"assessment:update",
 		"rule:view",
 		"rule:update",
-		"score:view",
-		"score:update",
 		"org:view",
 		"org:update",
-		"vote:view",
-		"vote:submit",
-		"vote:manage",
-		"vote:detail:view",
-		"report:view",
 		"backup:view",
 		"backup:update",
 		"audit:view",
@@ -43,18 +30,10 @@ var rolePermissions = map[string][]string{
 	RoleLeader: {
 		"assessment:view",
 		"rule:view",
-		"score:view",
-		"vote:view",
-		"vote:submit",
-		"report:view",
 	},
 	RoleStaff: {
 		"assessment:view",
 		"rule:view",
-		"score:view",
-		"vote:view",
-		"vote:submit",
-		"report:view",
 	},
 }
 
@@ -69,10 +48,6 @@ func NormalizeRoleCode(code string) string {
 		return RoleLeader
 	case RoleStaff:
 		return RoleStaff
-	case RoleViewerLegacy:
-		return RoleStaff
-	case RoleGroupAdminLegacy, RoleCompanyAdminLegacy, RoleDeptAdminLegacy:
-		return RoleAssessmentAdmin
 	default:
 		return roleCode
 	}

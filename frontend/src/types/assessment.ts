@@ -14,8 +14,6 @@ export type AssessmentObjectCategory =
   | "department_deputy"
   | "general_management_personnel";
 export type GlobalAssessmentObjectCategory = AssessmentObjectCategory | "all";
-export type AssessmentPeriodStatus = "preparing" | "active" | "completed";
-export type AssessmentYearStatus = "preparing" | "active" | "completed";
 
 export interface AssessmentSessionItem {
   id: number;
@@ -77,46 +75,6 @@ export interface AssessmentObjectCandidateItem {
   departmentName?: string;
   recommendedObjectType: AssessmentObjectType;
   recommendedGroupCode: string;
-}
-
-// Legacy compatibility types (deprecated)
-export interface AssessmentYearItem {
-  id: number;
-  year: number;
-  status: AssessmentYearStatus;
-  description: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface AssessmentPeriodItem {
-  id: number;
-  yearId: number;
-  periodCode: AssessmentPeriodCode;
-  periodName: string;
-  status: AssessmentPeriodStatus;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface AssessmentPeriodTemplateItem {
-  periodCode: AssessmentPeriodCode;
-  periodName: string;
-  sortOrder: number;
-}
-
-export interface AssessmentObjectItem {
-  id: number;
-  yearId: number;
-  objectType: AssessmentObjectType;
-  objectCategory: AssessmentObjectCategory;
-  targetId: number;
-  targetType: "organization" | "department" | "employee" | "leadership_team";
-  objectName: string;
-  parentObjectId?: number;
-  isActive: boolean;
-  createdAt: number;
-  updatedAt: number;
 }
 
 export interface AssessmentSessionDetail {
