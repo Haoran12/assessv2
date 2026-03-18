@@ -986,6 +986,16 @@ function dateText(value?: string): string {
   return value;
 }
 
+function dateInputText(value?: string): string {
+  if (!value) {
+    return "";
+  }
+  if (value.includes("T")) {
+    return value.slice(0, 10);
+  }
+  return value;
+}
+
 function organizationFormSignature(): string {
   return JSON.stringify({
     id: organizationForm.id,
@@ -1547,7 +1557,7 @@ function openEmployeeDialog(item?: EmployeeItem): void {
       departmentId: item.departmentId,
       positionLevelId: item.positionLevelId,
       positionTitle: item.positionTitle,
-      hireDate: dateText(item.hireDate),
+      hireDate: dateInputText(item.hireDate),
       status: item.status,
     });
   } else {

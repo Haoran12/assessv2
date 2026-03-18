@@ -23,8 +23,6 @@ type AssessmentService struct {
 type CreateAssessmentYearInput struct {
 	Year           int
 	Description    string
-	StartDate      *time.Time
-	EndDate        *time.Time
 	CopyFromYearID *uint
 }
 
@@ -56,9 +54,6 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 	if input.Year < 2000 || input.Year > 9999 {
 		return nil, ErrInvalidParam
 	}
-	if input.StartDate != nil && input.EndDate != nil && input.StartDate.After(*input.EndDate) {
-		return nil, ErrInvalidParam
-	}
 	if err := ensureAssessmentYearDataDirectory(input.Year); err != nil {
 		return nil, err
 	}
@@ -87,7 +82,7 @@ func (s *AssessmentService) CreateYear(ctx context.Context, claims *auth.Claims,
 		if err != nil {
 			return fmt.Errorf("failed to load assessment period templates: %w", err)
 		}
-		periods, err := buildPeriodsFromTemplates(year.ID, year.Year, operatorRef, templates)
+		periods, err := buildPeriodsFromTemplates(year.ID, operatorRef, templates)
 		if err != nil {
 			return err
 		}
@@ -561,8 +556,6 @@ func createAssessmentYearTx(tx *gorm.DB, input CreateAssessmentYearInput, operat
 	year := &model.AssessmentYear{
 		Year:        input.Year,
 		Status:      assessmentStatusPreparing,
-		StartDate:   input.StartDate,
-		EndDate:     input.EndDate,
 		Description: strings.TrimSpace(input.Description),
 		CreatedBy:   operatorID,
 		UpdatedBy:   operatorID,
@@ -581,8 +574,6 @@ func createAssessmentYearTx(tx *gorm.DB, input CreateAssessmentYearInput, operat
 		"year":        input.Year,
 		"year_name":   strconv.Itoa(input.Year),
 		"status":      assessmentStatusPreparing,
-		"start_date":  input.StartDate,
-		"end_date":    input.EndDate,
 		"description": strings.TrimSpace(input.Description),
 		"created_by":  operatorID,
 		"updated_by":  operatorID,

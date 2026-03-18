@@ -15,12 +15,6 @@
       <el-table v-loading="loadingYears" :data="years" border>
         <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="year" label="年度" width="100" />
-        <el-table-column label="开始日期" width="120">
-          <template #default="{ row }">{{ dateText(row.startDate) }}</template>
-        </el-table-column>
-        <el-table-column label="结束日期" width="120">
-          <template #default="{ row }">{{ dateText(row.endDate) }}</template>
-        </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-tag :type="yearStatusTagType(row.status)">{{ yearStatusText(row.status) }}</el-tag>
@@ -76,12 +70,6 @@
         <el-table-column label="周期名称" min-width="160">
           <template #default="{ row }">{{ periodDisplayLabel(row.periodCode, row.periodName) }}</template>
         </el-table-column>
-        <el-table-column label="开始日期" width="120">
-          <template #default="{ row }">{{ dateText(row.startDate) }}</template>
-        </el-table-column>
-        <el-table-column label="结束日期" width="120">
-          <template #default="{ row }">{{ dateText(row.endDate) }}</template>
-        </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-tag :type="periodStatusTagType(row.status)">{{ periodStatusText(row.status) }}</el-tag>
@@ -131,16 +119,6 @@
             <el-input v-model="row.periodName" placeholder="例如 1月 / 一季度" />
           </template>
         </el-table-column>
-        <el-table-column label="开始(月-日)" width="140">
-          <template #default="{ row }">
-            <el-input v-model="row.startDay" placeholder="MM-DD" />
-          </template>
-        </el-table-column>
-        <el-table-column label="结束(月-日)" width="140">
-          <template #default="{ row }">
-            <el-input v-model="row.endDay" placeholder="MM-DD" />
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ $index }">
             <el-button link type="danger" @click="removeTemplateRow($index)">删除</el-button>
@@ -160,22 +138,6 @@
       <el-form label-width="110px">
         <el-form-item label="年度" required>
           <el-input-number v-model="createYearForm.year" :min="2000" :max="9999" controls-position="right" />
-        </el-form-item>
-        <el-form-item label="开始日期">
-          <el-date-picker
-            v-model="createYearForm.startDate"
-            type="date"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item label="结束日期">
-          <el-date-picker
-            v-model="createYearForm.endDate"
-            type="date"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-          />
         </el-form-item>
         <el-form-item label="复制上年对象">
           <el-select v-model="createYearForm.copyFromYearId" clearable filterable style="width: 100%">
@@ -249,8 +211,6 @@ const createYearDialogVisible = ref(false);
 const creatingYear = ref(false);
 const createYearForm = reactive({
   year: new Date().getFullYear(),
-  startDate: "",
-  endDate: "",
   copyFromYearId: undefined as number | undefined,
   description: "",
 });
@@ -263,8 +223,6 @@ const copyFromYearOptions = computed(() =>
 function createYearFormSignature(): string {
   return JSON.stringify({
     year: createYearForm.year,
-    startDate: createYearForm.startDate,
-    endDate: createYearForm.endDate,
     copyFromYearId: createYearForm.copyFromYearId,
     description: createYearForm.description,
   });
@@ -273,16 +231,6 @@ function createYearFormSignature(): string {
 function resetCreateYearBaseline(): void {
   createYearBaseline.value = createYearFormSignature();
   unsavedStore.clearDirty(dirtySourceId);
-}
-
-function dateText(value?: string): string {
-  if (!value) {
-    return "-";
-  }
-  if (value.includes("T")) {
-    return value.slice(0, 10);
-  }
-  return value;
 }
 
 function yearStatusText(status: AssessmentYearStatus): string {
@@ -367,8 +315,6 @@ function addTemplateRow(): void {
   periodTemplates.value.push({
     periodCode: "",
     periodName: "",
-    startDay: "",
-    endDay: "",
     sortOrder: periodTemplates.value.length + 1,
   });
 }
@@ -386,8 +332,6 @@ async function savePeriodTemplates(): Promise<void> {
   const normalized = periodTemplates.value.map((item, index) => ({
     periodCode: item.periodCode.trim().toUpperCase(),
     periodName: item.periodName.trim(),
-    startDay: item.startDay?.trim() || undefined,
-    endDay: item.endDay?.trim() || undefined,
     sortOrder: index + 1,
   }));
 
@@ -465,8 +409,6 @@ async function reloadCurrentYearData(): Promise<void> {
 
 function openCreateYearDialog(): void {
   createYearForm.year = new Date().getFullYear();
-  createYearForm.startDate = "";
-  createYearForm.endDate = "";
   createYearForm.copyFromYearId = undefined;
   createYearForm.description = "";
   resetCreateYearBaseline();
@@ -478,17 +420,11 @@ async function submitCreateYear(): Promise<void> {
     ElMessage.warning("请填写有效年度");
     return;
   }
-  if (createYearForm.startDate && createYearForm.endDate && createYearForm.startDate > createYearForm.endDate) {
-    ElMessage.warning("开始日期不能晚于结束日期");
-    return;
-  }
 
   creatingYear.value = true;
   try {
     const result = await createAssessmentYear({
       year: createYearForm.year,
-      startDate: createYearForm.startDate || undefined,
-      endDate: createYearForm.endDate || undefined,
       copyFromYearId: createYearForm.copyFromYearId,
       description: createYearForm.description.trim() || undefined,
     });

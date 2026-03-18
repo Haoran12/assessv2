@@ -246,6 +246,42 @@ func TestM2EmployeeTransferWritesHistory(t *testing.T) {
 	}
 }
 
+func TestM2UpdateEmployeeAcceptsPlaceholderHireDate(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+
+	staffLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
+	company := createOrganization(t, db, "Company C", "company", "active", nil)
+	dept := createDepartment(t, db, "Dept C1", company.ID, "active")
+	employee := createEmployee(t, db, "Carol", company.ID, &dept.ID, staffLevelID, "active")
+
+	updateBody, _ := json.Marshal(map[string]any{
+		"empName":         "Carol Updated",
+		"organizationId":  company.ID,
+		"departmentId":    dept.ID,
+		"positionLevelId": staffLevelID,
+		"positionTitle":   "Manager",
+		"hireDate":        "-",
+		"status":          "active",
+	})
+	updateReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/org/employees/%d", employee.ID), bytes.NewReader(updateBody))
+	updateReq.Header.Set("Authorization", "Bearer "+rootToken)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	engine.ServeHTTP(updateResp, updateReq)
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected update employee status=200, got=%d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	var updated model.Employee
+	if err := db.Where("id = ?", employee.ID).First(&updated).Error; err != nil {
+		t.Fatalf("failed to query updated employee: %v", err)
+	}
+	if updated.HireDate != nil {
+		t.Fatalf("expected updated hireDate=nil when payload is placeholder '-', got=%v", updated.HireDate)
+	}
+}
+
 func TestM2RootCanDeleteOrganizationDepartmentEmployee(t *testing.T) {
 	engine, db := setupTestServer(t)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)

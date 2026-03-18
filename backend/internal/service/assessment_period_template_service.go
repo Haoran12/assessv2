@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,13 +16,9 @@ import (
 
 const assessmentPeriodTemplatesSettingKey = "assessment.period_templates"
 
-var monthDayPattern = regexp.MustCompile(`^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$`)
-
 type AssessmentPeriodTemplateItem struct {
 	PeriodCode string `json:"periodCode"`
 	PeriodName string `json:"periodName"`
-	StartDay   string `json:"startDay,omitempty"`
-	EndDay     string `json:"endDay,omitempty"`
 	SortOrder  int    `json:"sortOrder"`
 }
 
@@ -121,27 +116,16 @@ func (s *AssessmentService) loadPeriodTemplatesTx(tx *gorm.DB) ([]AssessmentPeri
 
 func buildPeriodsFromTemplates(
 	yearID uint,
-	year int,
 	operatorID *uint,
 	templates []AssessmentPeriodTemplateItem,
 ) ([]model.AssessmentPeriod, error) {
 	items := make([]model.AssessmentPeriod, 0, len(templates))
 	for _, template := range templates {
-		startDate, err := monthDayToDate(year, template.StartDay)
-		if err != nil {
-			return nil, err
-		}
-		endDate, err := monthDayToDate(year, template.EndDay)
-		if err != nil {
-			return nil, err
-		}
 		items = append(items, model.AssessmentPeriod{
 			YearID:     yearID,
 			PeriodCode: template.PeriodCode,
 			PeriodName: template.PeriodName,
 			Status:     assessmentStatusPreparing,
-			StartDate:  startDate,
-			EndDate:    endDate,
 			CreatedBy:  operatorID,
 			UpdatedBy:  operatorID,
 		})
@@ -180,23 +164,12 @@ func normalizePeriodTemplateItems(input []AssessmentPeriodTemplateItem) ([]Asses
 	for index, item := range input {
 		code := normalizePeriodCode(item.PeriodCode)
 		name := strings.TrimSpace(item.PeriodName)
-		startDay := strings.TrimSpace(item.StartDay)
-		endDay := strings.TrimSpace(item.EndDay)
 		sortOrder := item.SortOrder
 
 		if !isValidPeriodCode(code) || name == "" {
 			return nil, ErrInvalidPeriodTemplate
 		}
 		if len(name) > 100 {
-			return nil, ErrInvalidPeriodTemplate
-		}
-		if startDay != "" && !monthDayPattern.MatchString(startDay) {
-			return nil, ErrInvalidPeriodTemplate
-		}
-		if endDay != "" && !monthDayPattern.MatchString(endDay) {
-			return nil, ErrInvalidPeriodTemplate
-		}
-		if (startDay == "") != (endDay == "") {
 			return nil, ErrInvalidPeriodTemplate
 		}
 		if _, exists := seen[code]; exists {
@@ -210,8 +183,6 @@ func normalizePeriodTemplateItems(input []AssessmentPeriodTemplateItem) ([]Asses
 		items = append(items, AssessmentPeriodTemplateItem{
 			PeriodCode: code,
 			PeriodName: name,
-			StartDay:   startDay,
-			EndDay:     endDay,
 			SortOrder:  sortOrder,
 		})
 	}
@@ -230,25 +201,10 @@ func normalizePeriodTemplateItems(input []AssessmentPeriodTemplateItem) ([]Asses
 
 func defaultPeriodTemplates() []AssessmentPeriodTemplateItem {
 	return []AssessmentPeriodTemplateItem{
-		{PeriodCode: "Q1", PeriodName: "\u7b2c\u4e00\u5b63\u5ea6", StartDay: "01-01", EndDay: "03-31", SortOrder: 1},
-		{PeriodCode: "Q2", PeriodName: "\u7b2c\u4e8c\u5b63\u5ea6", StartDay: "04-01", EndDay: "06-30", SortOrder: 2},
-		{PeriodCode: "Q3", PeriodName: "\u7b2c\u4e09\u5b63\u5ea6", StartDay: "07-01", EndDay: "09-30", SortOrder: 3},
-		{PeriodCode: "Q4", PeriodName: "\u7b2c\u56db\u5b63\u5ea6", StartDay: "10-01", EndDay: "12-31", SortOrder: 4},
-		{PeriodCode: "YEAR_END", PeriodName: "\u5e74\u7ec8\u8003\u6838", StartDay: "12-01", EndDay: "12-31", SortOrder: 5},
+		{PeriodCode: "Q1", PeriodName: "\u7b2c\u4e00\u5b63\u5ea6", SortOrder: 1},
+		{PeriodCode: "Q2", PeriodName: "\u7b2c\u4e8c\u5b63\u5ea6", SortOrder: 2},
+		{PeriodCode: "Q3", PeriodName: "\u7b2c\u4e09\u5b63\u5ea6", SortOrder: 3},
+		{PeriodCode: "Q4", PeriodName: "\u7b2c\u56db\u5b63\u5ea6", SortOrder: 4},
+		{PeriodCode: "YEAR_END", PeriodName: "\u5e74\u7ec8\u8003\u6838", SortOrder: 5},
 	}
-}
-
-func monthDayToDate(year int, monthDay string) (*time.Time, error) {
-	text := strings.TrimSpace(monthDay)
-	if text == "" {
-		return nil, nil
-	}
-	if !monthDayPattern.MatchString(text) {
-		return nil, ErrInvalidPeriodTemplate
-	}
-	date, err := time.ParseInLocation("2006-01-02", fmt.Sprintf("%04d-%s", year, text), time.Local)
-	if err != nil {
-		return nil, ErrInvalidPeriodTemplate
-	}
-	return &date, nil
 }

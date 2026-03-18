@@ -88,14 +88,6 @@ func seedSystemSettings(db *gorm.DB) error {
 			UpdatedAt:    now,
 		},
 		{
-			SettingKey:   "assessment.default_period_range",
-			SettingValue: `{"Q1":"01-01~03-31","Q2":"04-01~06-30","Q3":"07-01~09-30","Q4":"10-01~12-31","YEAR_END":"12-01~12-31"}`,
-			SettingType:  "json",
-			Description:  "Default assessment period date ranges",
-			IsSystem:     true,
-			UpdatedAt:    now,
-		},
-		{
 			SettingKey:   "assessment.ranking_rule",
 			SettingValue: "dense",
 			SettingType:  "string",

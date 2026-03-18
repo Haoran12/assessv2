@@ -27,9 +27,6 @@
         </el-form-item>
 
         <el-divider content-position="left">考核设置</el-divider>
-        <el-form-item label="默认周期范围(JSON)">
-          <el-input v-model="form.assessmentDefaultPeriodRange" type="textarea" :rows="4" />
-        </el-form-item>
         <el-form-item label="排名规则">
           <el-input v-model="form.assessmentRankingRule" placeholder="例如 dense / competition" />
         </el-form-item>
@@ -88,7 +85,6 @@ const form = reactive({
   systemLogo: "",
   systemTimezone: "Asia/Shanghai",
   scoreDecimalPlaces: 2,
-  assessmentDefaultPeriodRange: "{}",
   assessmentRankingRule: "dense",
   voteDeadlineTime: "18:00",
   securityPasswordPolicy: "{}",
@@ -108,7 +104,6 @@ function formSignature(): string {
     systemLogo: form.systemLogo,
     systemTimezone: form.systemTimezone,
     scoreDecimalPlaces: form.scoreDecimalPlaces,
-    assessmentDefaultPeriodRange: form.assessmentDefaultPeriodRange,
     assessmentRankingRule: form.assessmentRankingRule,
     voteDeadlineTime: form.voteDeadlineTime,
     securityPasswordPolicy: form.securityPasswordPolicy,
@@ -144,7 +139,6 @@ function applySettings(result: SystemSettingsResponse): void {
   form.systemLogo = settingString(result, "system.logo", "");
   form.systemTimezone = settingString(result, "system.timezone", "Asia/Shanghai");
   form.scoreDecimalPlaces = settingNumber(result, "score.decimal_places", 2);
-  form.assessmentDefaultPeriodRange = settingJSONText(result, "assessment.default_period_range", {});
   form.assessmentRankingRule = settingString(result, "assessment.ranking_rule", "dense");
   form.voteDeadlineTime = settingString(result, "vote.deadline_time", "18:00");
   form.securityPasswordPolicy = settingJSONText(result, "security.password_policy", {});
@@ -166,10 +160,8 @@ async function handleSave(): Promise<void> {
     return;
   }
 
-  let assessmentPeriodRangeObject: unknown;
   let passwordPolicyObject: unknown;
   try {
-    assessmentPeriodRangeObject = JSON.parse(form.assessmentDefaultPeriodRange);
     passwordPolicyObject = JSON.parse(form.securityPasswordPolicy);
   } catch (_error) {
     ElMessage.warning("JSON 配置格式不正确，请检查后重试");
@@ -183,7 +175,6 @@ async function handleSave(): Promise<void> {
       { settingKey: "system.logo", settingValue: form.systemLogo.trim() },
       { settingKey: "system.timezone", settingValue: form.systemTimezone.trim() },
       { settingKey: "score.decimal_places", settingValue: Number(form.scoreDecimalPlaces) },
-      { settingKey: "assessment.default_period_range", settingValue: assessmentPeriodRangeObject },
       { settingKey: "assessment.ranking_rule", settingValue: form.assessmentRankingRule.trim() },
       { settingKey: "vote.deadline_time", settingValue: form.voteDeadlineTime.trim() },
       { settingKey: "security.password_policy", settingValue: passwordPolicyObject },

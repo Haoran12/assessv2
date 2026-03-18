@@ -21,8 +21,6 @@ export interface AssessmentYearItem {
   id: number;
   year: number;
   status: AssessmentYearStatus;
-  startDate?: string;
-  endDate?: string;
   description: string;
   createdAt: number;
   updatedAt: number;
@@ -34,8 +32,6 @@ export interface AssessmentPeriodItem {
   periodCode: AssessmentPeriodCode;
   periodName: string;
   status: AssessmentPeriodStatus;
-  startDate?: string;
-  endDate?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -43,8 +39,6 @@ export interface AssessmentPeriodItem {
 export interface AssessmentPeriodTemplateItem {
   periodCode: AssessmentPeriodCode;
   periodName: string;
-  startDay?: string;
-  endDay?: string;
   sortOrder: number;
 }
 
@@ -65,8 +59,6 @@ export interface AssessmentObjectItem {
 export interface CreateAssessmentYearPayload {
   year: number;
   description?: string;
-  startDate?: string;
-  endDate?: string;
   copyFromYearId?: number;
 }
 

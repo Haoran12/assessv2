@@ -22,8 +22,6 @@ func NewAssessmentHandler(assessmentService *service.AssessmentService) *Assessm
 type createAssessmentYearRequest struct {
 	Year           int    `json:"year"`
 	Description    string `json:"description"`
-	StartDate      string `json:"startDate"`
-	EndDate        string `json:"endDate"`
 	CopyFromYearID *uint  `json:"copyFromYearId"`
 }
 
@@ -34,8 +32,6 @@ type updateStatusRequest struct {
 type assessmentPeriodTemplateItemRequest struct {
 	PeriodCode string `json:"periodCode"`
 	PeriodName string `json:"periodName"`
-	StartDay   string `json:"startDay"`
-	EndDay     string `json:"endDay"`
 	SortOrder  int    `json:"sortOrder"`
 }
 
@@ -67,17 +63,7 @@ func (h *AssessmentHandler) CreateYear(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid assessment year payload")
 		return
 	}
-	startDate, err := parseDateOrNil(req.StartDate)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid startDate")
-		return
-	}
-	endDate, err := parseDateOrNil(req.EndDate)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid endDate")
-		return
-	}
-	result, err := h.assessmentService.CreateYear(c.Request.Context(), claims, operatorID, service.CreateAssessmentYearInput{Year: req.Year, Description: strings.TrimSpace(req.Description), StartDate: startDate, EndDate: endDate, CopyFromYearID: req.CopyFromYearID}, c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.assessmentService.CreateYear(c.Request.Context(), claims, operatorID, service.CreateAssessmentYearInput{Year: req.Year, Description: strings.TrimSpace(req.Description), CopyFromYearID: req.CopyFromYearID}, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		h.handleAssessmentError(c, err, "failed to create assessment year")
 		return
@@ -157,8 +143,6 @@ func (h *AssessmentHandler) UpdatePeriodTemplates(c *gin.Context) {
 		items = append(items, service.AssessmentPeriodTemplateItem{
 			PeriodCode: strings.TrimSpace(item.PeriodCode),
 			PeriodName: strings.TrimSpace(item.PeriodName),
-			StartDay:   strings.TrimSpace(item.StartDay),
-			EndDay:     strings.TrimSpace(item.EndDay),
 			SortOrder:  item.SortOrder,
 		})
 	}

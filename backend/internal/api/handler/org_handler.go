@@ -547,8 +547,11 @@ func operatorFromClaims(c *gin.Context) (uint, bool) {
 
 func parseDateOrNil(value string) (*time.Time, error) {
 	text := strings.TrimSpace(value)
-	if text == "" {
+	if text == "" || text == "-" {
 		return nil, nil
+	}
+	if len(text) >= 10 && strings.Contains(text, "T") {
+		text = text[:10]
 	}
 	parsed, err := time.Parse("2006-01-02", text)
 	if err != nil {
