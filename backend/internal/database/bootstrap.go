@@ -103,6 +103,14 @@ func seedSystemSettings(db *gorm.DB) error {
 			UpdatedAt:    now,
 		},
 		{
+			SettingKey:   "vote.grade_scores",
+			SettingValue: `{"excellent":100,"good":85,"average":70,"poor":60}`,
+			SettingType:  "json",
+			Description:  "Base score mapping for vote grade options",
+			IsSystem:     true,
+			UpdatedAt:    now,
+		},
+		{
 			SettingKey:   "security.password_policy",
 			SettingValue: `{"minLength":8,"requireUpper":true,"requireLower":true,"requireNumber":true,"requireSymbol":true}`,
 			SettingType:  "json",

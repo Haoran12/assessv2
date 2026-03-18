@@ -33,6 +33,18 @@
         <el-form-item label="投票截止时间">
           <el-input v-model="form.voteDeadlineTime" placeholder="HH:mm，例如 18:00" />
         </el-form-item>
+        <el-form-item label="投票优秀档分值">
+          <el-input-number v-model="form.voteExcellentScore" :min="0" :max="100" />
+        </el-form-item>
+        <el-form-item label="投票良好档分值">
+          <el-input-number v-model="form.voteGoodScore" :min="0" :max="100" />
+        </el-form-item>
+        <el-form-item label="投票中等档分值">
+          <el-input-number v-model="form.voteAverageScore" :min="0" :max="100" />
+        </el-form-item>
+        <el-form-item label="投票较差档分值">
+          <el-input-number v-model="form.votePoorScore" :min="0" :max="100" />
+        </el-form-item>
 
         <el-divider content-position="left">安全设置</el-divider>
         <el-form-item label="密码复杂度策略(JSON)">
@@ -87,6 +99,10 @@ const form = reactive({
   scoreDecimalPlaces: 2,
   assessmentRankingRule: "dense",
   voteDeadlineTime: "18:00",
+  voteExcellentScore: 100,
+  voteGoodScore: 85,
+  voteAverageScore: 70,
+  votePoorScore: 60,
   securityPasswordPolicy: "{}",
   securitySessionTimeoutMinutes: 120,
   auditRetentionDays: 180,
@@ -106,6 +122,10 @@ function formSignature(): string {
     scoreDecimalPlaces: form.scoreDecimalPlaces,
     assessmentRankingRule: form.assessmentRankingRule,
     voteDeadlineTime: form.voteDeadlineTime,
+    voteExcellentScore: form.voteExcellentScore,
+    voteGoodScore: form.voteGoodScore,
+    voteAverageScore: form.voteAverageScore,
+    votePoorScore: form.votePoorScore,
     securityPasswordPolicy: form.securityPasswordPolicy,
     securitySessionTimeoutMinutes: form.securitySessionTimeoutMinutes,
     auditRetentionDays: form.auditRetentionDays,
@@ -141,6 +161,10 @@ function applySettings(result: SystemSettingsResponse): void {
   form.scoreDecimalPlaces = settingNumber(result, "score.decimal_places", 2);
   form.assessmentRankingRule = settingString(result, "assessment.ranking_rule", "dense");
   form.voteDeadlineTime = settingString(result, "vote.deadline_time", "18:00");
+  form.voteExcellentScore = settingVoteGradeScore(result, "excellent", 100);
+  form.voteGoodScore = settingVoteGradeScore(result, "good", 85);
+  form.voteAverageScore = settingVoteGradeScore(result, "average", 70);
+  form.votePoorScore = settingVoteGradeScore(result, "poor", 60);
   form.securityPasswordPolicy = settingJSONText(result, "security.password_policy", {});
   form.securitySessionTimeoutMinutes = settingNumber(result, "security.session_timeout_minutes", 120);
   form.auditRetentionDays = settingNumber(result, "audit.retention_days", 180);
@@ -157,6 +181,19 @@ async function handleSave(): Promise<void> {
   }
   if (!isTimeText(form.backupAutoTime) || !isTimeText(form.voteDeadlineTime)) {
     ElMessage.warning("时间格式必须为 HH:mm，例如 02:00");
+    return;
+  }
+  const voteGradeScores = {
+    excellent: Number(form.voteExcellentScore),
+    good: Number(form.voteGoodScore),
+    average: Number(form.voteAverageScore),
+    poor: Number(form.votePoorScore),
+  };
+  const invalidVoteGradeScore = Object.values(voteGradeScores).some(
+    (value) => !Number.isFinite(value) || value < 0 || value > 100,
+  );
+  if (invalidVoteGradeScore) {
+    ElMessage.warning("投票档位分值必须在 0-100 之间");
     return;
   }
 
@@ -177,6 +214,7 @@ async function handleSave(): Promise<void> {
       { settingKey: "score.decimal_places", settingValue: Number(form.scoreDecimalPlaces) },
       { settingKey: "assessment.ranking_rule", settingValue: form.assessmentRankingRule.trim() },
       { settingKey: "vote.deadline_time", settingValue: form.voteDeadlineTime.trim() },
+      { settingKey: "vote.grade_scores", settingValue: voteGradeScores },
       { settingKey: "security.password_policy", settingValue: passwordPolicyObject },
       { settingKey: "security.session_timeout_minutes", settingValue: Number(form.securitySessionTimeoutMinutes) },
       { settingKey: "audit.retention_days", settingValue: Number(form.auditRetentionDays) },
@@ -223,6 +261,18 @@ function settingBoolean(result: SystemSettingsResponse, key: string, fallback: b
   const value = findSettingValue(result, key);
   if (typeof value === "boolean") {
     return value;
+  }
+  return fallback;
+}
+
+function settingVoteGradeScore(result: SystemSettingsResponse, gradeOption: string, fallback: number): number {
+  const value = findSettingValue(result, "vote.grade_scores");
+  if (typeof value !== "object" || value == null || Array.isArray(value)) {
+    return fallback;
+  }
+  const score = (value as Record<string, unknown>)[gradeOption];
+  if (typeof score === "number" && Number.isFinite(score)) {
+    return score;
   }
   return fallback;
 }

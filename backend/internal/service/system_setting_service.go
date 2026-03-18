@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +21,9 @@ var settingKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{2,100}$`)
 const (
 	objectLinkTypeMaxLength = 30
 	objectLinkTypeMaxCount  = 20
+
+	voteGradeScoreMin = 0
+	voteGradeScoreMax = 100
 )
 
 type SystemSettingService struct {
@@ -283,6 +287,10 @@ func validateSettingValue(settingKey, settingType, value string) error {
 		if err := validateObjectLinkTypeSetting(value); err != nil {
 			return ErrInvalidSettingValue
 		}
+	case "vote.grade_scores":
+		if err := validateVoteGradeScoresSetting(value); err != nil {
+			return ErrInvalidSettingValue
+		}
 	}
 
 	switch settingType {
@@ -328,6 +336,43 @@ func validateObjectLinkTypeSetting(value string) error {
 			return ErrInvalidSettingValue
 		}
 		seen[normalized] = struct{}{}
+	}
+	return nil
+}
+
+func validateVoteGradeScoresSetting(value string) error {
+	var raw any
+	if err := json.Unmarshal([]byte(value), &raw); err != nil {
+		return err
+	}
+
+	object, ok := raw.(map[string]any)
+	if !ok {
+		return ErrInvalidSettingValue
+	}
+
+	normalizedScores := make(map[string]float64, len(object))
+	for key, rawScore := range object {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if _, exists := voteGradeOptionSet[normalizedKey]; !exists {
+			return ErrInvalidSettingValue
+		}
+		if _, duplicated := normalizedScores[normalizedKey]; duplicated {
+			return ErrInvalidSettingValue
+		}
+
+		score, ok := rawScore.(float64)
+		if !ok || math.IsNaN(score) || math.IsInf(score, 0) {
+			return ErrInvalidSettingValue
+		}
+		if score < voteGradeScoreMin || score > voteGradeScoreMax {
+			return ErrInvalidSettingValue
+		}
+		normalizedScores[normalizedKey] = score
+	}
+
+	if len(normalizedScores) != len(voteGradeOptionSet) {
+		return ErrInvalidSettingValue
 	}
 	return nil
 }

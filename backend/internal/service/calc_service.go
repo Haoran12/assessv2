@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -27,10 +28,12 @@ const (
 	ruleMatchModeBinding = "binding_owner_segment"
 	ruleMatchModeSegment = "segment"
 	ruleMatchModeLegacy  = "legacy_object_category"
+
+	voteGradeScoresSettingKey = "vote.grade_scores"
 )
 
 var (
-	voteGradeBaseScore = map[string]float64{
+	defaultVoteGradeScores = map[string]float64{
 		"excellent": 100,
 		"good":      85,
 		"average":   70,
@@ -237,6 +240,10 @@ func (s *CalculationService) Recalculate(
 		if err != nil {
 			return err
 		}
+		voteGradeScores, err := s.loadVoteGradeScoresTx(tx)
+		if err != nil {
+			return err
+		}
 		parentScoreMap, parentRankMap, err := s.loadExistingParentContextTx(tx, input.YearID, periodCode, objectIDs)
 		if err != nil {
 			return err
@@ -262,6 +269,7 @@ func (s *CalculationService) Recalculate(
 				directScoreMap[objectID],
 				extraPointMap[objectID],
 				voteAggMap[objectID],
+				voteGradeScores,
 				parentScoreMap,
 				parentRankMap,
 				quarterScoreMap[objectID],
@@ -770,6 +778,27 @@ func (s *CalculationService) loadVoteAggMapTx(tx *gorm.DB, yearID uint, periodCo
 	return result, nil
 }
 
+func (s *CalculationService) loadVoteGradeScoresTx(tx *gorm.DB) (map[string]float64, error) {
+	defaults := cloneVoteGradeScores(defaultVoteGradeScores)
+
+	var setting model.SystemSetting
+	err := tx.Select("setting_value").
+		Where("setting_key = ?", voteGradeScoresSettingKey).
+		First(&setting).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return defaults, nil
+	case err != nil:
+		return nil, fmt.Errorf("failed to load vote grade scores: %w", err)
+	}
+
+	scores, parseErr := parseVoteGradeScoresSetting(setting.SettingValue)
+	if parseErr != nil {
+		return defaults, nil
+	}
+	return scores, nil
+}
+
 func (s *CalculationService) loadExistingParentContextTx(
 	tx *gorm.DB,
 	yearID uint,
@@ -846,6 +875,7 @@ func (s *CalculationService) calculateObjectScore(
 	directMap map[uint]float64,
 	extraPoints float64,
 	voteAggByModule map[uint][]voteAggRow,
+	voteGradeScores map[string]float64,
 	parentScoreMap map[uint]float64,
 	parentRankMap map[uint]int,
 	quarterScoreMap map[string]float64,
@@ -855,6 +885,9 @@ func (s *CalculationService) calculateObjectScore(
 	}
 	if voteAggByModule == nil {
 		voteAggByModule = map[uint][]voteAggRow{}
+	}
+	if voteGradeScores == nil {
+		voteGradeScores = cloneVoteGradeScores(defaultVoteGradeScores)
 	}
 	if quarterScoreMap == nil {
 		quarterScoreMap = map[string]float64{}
@@ -886,7 +919,7 @@ func (s *CalculationService) calculateObjectScore(
 			rawScore = roundToScale(directMap[module.ID], 6)
 			scoreDetail["source"] = "direct_scores"
 		case "vote":
-			rawScore = roundToScale(calculateVoteModuleRawScore(module, voteGroupsByModule[module.ID], voteAggByModule[module.ID]), 6)
+			rawScore = roundToScale(calculateVoteModuleRawScore(module, voteGroupsByModule[module.ID], voteAggByModule[module.ID], voteGradeScores), 6)
 			scoreDetail["source"] = "vote_records"
 		case "custom":
 			value, evalErr := evaluateCustomExpression(module.Expression, customExpressionContext{
@@ -1181,9 +1214,12 @@ func (s *CalculationService) loadModulePriorityForRankingTx(tx *gorm.DB, calcula
 	return result, nil
 }
 
-func calculateVoteModuleRawScore(module model.ScoreModule, groups []model.VoteGroup, rows []voteAggRow) float64 {
+func calculateVoteModuleRawScore(module model.ScoreModule, groups []model.VoteGroup, rows []voteAggRow, voteGradeScores map[string]float64) float64 {
 	if len(groups) == 0 {
 		return 0
+	}
+	if voteGradeScores == nil {
+		voteGradeScores = defaultVoteGradeScores
 	}
 	type groupAgg struct {
 		Total int
@@ -1191,7 +1227,7 @@ func calculateVoteModuleRawScore(module model.ScoreModule, groups []model.VoteGr
 	}
 	aggByGroup := make(map[uint]*groupAgg, len(groups))
 	for _, row := range rows {
-		baseScore, ok := voteGradeBaseScore[strings.ToLower(strings.TrimSpace(row.GradeOption))]
+		baseScore, ok := voteGradeScores[strings.ToLower(strings.TrimSpace(row.GradeOption))]
 		if !ok {
 			continue
 		}
@@ -1221,6 +1257,39 @@ func calculateVoteModuleRawScore(module model.ScoreModule, groups []model.VoteGr
 		total = clamp(total, 0, *module.MaxScore)
 	}
 	return total
+}
+
+func parseVoteGradeScoresSetting(value string) (map[string]float64, error) {
+	var raw map[string]float64
+	if err := json.Unmarshal([]byte(strings.TrimSpace(value)), &raw); err != nil {
+		return nil, err
+	}
+	result := make(map[string]float64, len(raw))
+	for key, score := range raw {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if _, ok := voteGradeOptionSet[normalizedKey]; !ok {
+			return nil, fmt.Errorf("invalid vote grade option")
+		}
+		if _, exists := result[normalizedKey]; exists {
+			return nil, fmt.Errorf("duplicate vote grade option")
+		}
+		if math.IsNaN(score) || math.IsInf(score, 0) || score < 0 || score > 100 {
+			return nil, fmt.Errorf("invalid vote grade score")
+		}
+		result[normalizedKey] = score
+	}
+	if len(result) != len(voteGradeOptionSet) {
+		return nil, fmt.Errorf("incomplete vote grade score settings")
+	}
+	return result, nil
+}
+
+func cloneVoteGradeScores(source map[string]float64) map[string]float64 {
+	result := make(map[string]float64, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 func resolveModuleCalcOrder(modules []model.ScoreModule) ([]model.ScoreModule, error) {
