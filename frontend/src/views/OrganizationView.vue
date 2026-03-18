@@ -67,7 +67,7 @@
             </div>
 
             <el-table v-loading="loadingOrganizations" :data="organizations" border>
-              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="orgName" label="组织名称" min-width="180" />
               <el-table-column prop="orgType" label="类型" width="110">
                 <template #default="{ row }">
@@ -124,7 +124,7 @@
             </div>
 
             <el-table v-loading="loadingDepartments" :data="departments" border>
-              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="deptName" label="部门名称" min-width="180" />
               <el-table-column label="所属组织" min-width="170">
                 <template #default="{ row }">
@@ -171,7 +171,7 @@
             </div>
 
             <el-table v-loading="loadingPositionLevels" :data="filteredPositionLevels" border>
-              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="levelName" label="分类名称" min-width="160" />
               <el-table-column label="状态" width="100">
                 <template #default="{ row }">
@@ -267,7 +267,7 @@
             </div>
 
             <el-table v-loading="loadingEmployees" :data="employees" border>
-              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="empName" label="姓名" min-width="120" />
               <el-table-column label="所属组织" min-width="150">
                 <template #default="{ row }">
