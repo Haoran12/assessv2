@@ -26,7 +26,7 @@
 
       <template v-else>
         <el-alert
-          title="总分 = Σ(模块分数 × 模块权重) + 权重外加减分"
+          title="总分 = Σ(模块分数 × 模块权重) + 额外加减分"
           type="info"
           :closable="false"
           class="mb-12"

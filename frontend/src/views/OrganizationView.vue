@@ -199,10 +199,69 @@
 
           <el-tab-pane label="人员管理" name="employees">
             <div class="toolbar-grid toolbar-grid-employee">
+              <div class="employee-filter-select-wrap">
+                <el-select
+                  v-model="employeeQuery.organizationId"
+                  class="employee-filter-select"
+                  filterable
+                  placeholder="所属组织"
+                  @change="handleEmployeeOrganizationFilterChange"
+                >
+                  <el-option
+                    v-for="org in organizations"
+                    :key="org.id"
+                    :label="org.orgName"
+                    :value="org.id"
+                  />
+                </el-select>
+                <button
+                  v-if="employeeQuery.organizationId"
+                  type="button"
+                  class="select-inline-clear"
+                  aria-label="清除所属组织"
+                  @mousedown.prevent.stop
+                  @click.prevent.stop="clearEmployeeOrganizationFilter"
+                >
+                  ×
+                </button>
+              </div>
+              <div class="employee-filter-select-wrap">
+                <el-select
+                  v-model="employeeQuery.departmentId"
+                  class="employee-filter-select"
+                  filterable
+                  placeholder="所属部门"
+                  @change="handleEmployeeDepartmentFilterChange"
+                >
+                  <el-option
+                    v-for="dept in employeeDepartmentFilterOptions"
+                    :key="dept.id"
+                    :label="dept.deptName"
+                    :value="dept.id"
+                  />
+                </el-select>
+                <button
+                  v-if="employeeQuery.departmentId"
+                  type="button"
+                  class="select-inline-clear"
+                  aria-label="清除所属部门"
+                  @mousedown.prevent.stop
+                  @click.prevent.stop="clearEmployeeDepartmentFilter"
+                >
+                  ×
+                </button>
+              </div>
               <el-select v-model="employeeQuery.status" clearable placeholder="状态" @change="loadEmployees">
                 <el-option label="在岗" value="active" />
                 <el-option label="离岗" value="inactive" />
               </el-select>
+              <div class="filter-switch">
+                <el-switch
+                  v-model="employeeQuery.directOnly"
+                  active-text="仅领导班子"
+                  inactive-text="全部人员"
+                />
+              </div>
               <el-input
                 v-model="employeeQuery.keyword"
                 clearable
@@ -214,7 +273,7 @@
               <el-button type="primary" :disabled="!canEdit" @click="openEmployeeDialog()">新增人员</el-button>
             </div>
 
-            <el-table v-loading="loadingEmployees" :data="employees" border>
+            <el-table v-loading="loadingEmployees" :data="filteredEmployees" border>
               <el-table-column prop="id" label="ID" width="70" />
               <el-table-column prop="empName" label="姓名" min-width="120" />
               <el-table-column label="所属组织" min-width="150">
@@ -618,7 +677,9 @@ const positionLevelDirtySourceId = "org:position-level-dialog";
 const employeeDirtySourceId = "org:employee-dialog";
 const transferDirtySourceId = "org:transfer-dialog";
 
-const activeTab = ref("organizations");
+type OrgManagementTab = "organizations" | "departments" | "positionLevels" | "employees";
+
+const activeTab = ref<OrgManagementTab>("organizations");
 
 const treeKeyword = ref("");
 const includeInactive = ref(false);
@@ -645,6 +706,7 @@ const employees = ref<EmployeeItem[]>([]);
 const employeeQuery = reactive({
   organizationId: undefined as number | undefined,
   departmentId: undefined as number | undefined,
+  directOnly: false,
   keyword: "",
   status: "" as OrgStatus | "",
 });
@@ -1055,6 +1117,12 @@ const filteredPositionLevels = computed(() => {
 });
 
 const activePositionLevels = computed(() => positionLevels.value.filter((item) => item.status === "active"));
+const filteredEmployees = computed(() => {
+  if (!employeeQuery.directOnly) {
+    return employees.value;
+  }
+  return employees.value.filter((item) => !item.departmentId);
+});
 
 function departmentOptionsByOrg(organizationId?: number): DepartmentItem[] {
   if (!organizationId) {
@@ -1063,37 +1131,94 @@ function departmentOptionsByOrg(organizationId?: number): DepartmentItem[] {
   return departments.value.filter((item) => item.organizationId === organizationId);
 }
 
+const employeeDepartmentFilterOptions = computed(() => departmentOptionsByOrg(employeeQuery.organizationId));
+
+function selectedEmployeeAffiliationSeed(node = selectedTreeNode.value): {
+  organizationId?: number;
+  departmentId?: number;
+} {
+  if (!node) {
+    return {};
+  }
+  if (node.nodeType === "organization") {
+    return {
+      organizationId: node.id,
+    };
+  }
+  if (node.nodeType === "department") {
+    return {
+      organizationId: node.organizationId,
+      departmentId: node.id,
+    };
+  }
+  return {
+    organizationId: node.organizationId,
+    departmentId: node.departmentId,
+  };
+}
+
+function clearEmployeeOrganizationFilter(): void {
+  employeeQuery.organizationId = undefined;
+  void loadEmployees();
+}
+
+function clearEmployeeDepartmentFilter(): void {
+  employeeQuery.departmentId = undefined;
+  void loadEmployees();
+}
+
+function handleEmployeeOrganizationFilterChange(): void {
+  if (employeeQuery.organizationId && employeeQuery.departmentId) {
+    const belongs = departmentOptionsByOrg(employeeQuery.organizationId).some(
+      (item) => item.id === employeeQuery.departmentId,
+    );
+    if (!belongs) {
+      employeeQuery.departmentId = undefined;
+    }
+  }
+  void loadEmployees();
+}
+
+function handleEmployeeDepartmentFilterChange(): void {
+  void loadEmployees();
+}
+
 function handleTreeNodeClick(node: TreeNodeUI): void {
   selectedTreeNode.value = node;
 
   if (node.nodeType === "organization") {
     deptQuery.organizationId = node.id;
+    activeTab.value = "organizations";
     employeeQuery.organizationId = node.id;
     employeeQuery.departmentId = undefined;
+    employeeQuery.directOnly = false;
+    void loadOrganizations();
+    return;
   }
 
   if (node.nodeType === "department") {
-    if (node.organizationId) {
-      deptQuery.organizationId = node.organizationId;
-      employeeQuery.organizationId = node.organizationId;
-    }
+    const tabChanged = activeTab.value !== "departments";
+    activeTab.value = "departments";
+    deptQuery.organizationId = node.organizationId;
+    employeeQuery.organizationId = node.organizationId;
     employeeQuery.departmentId = node.id;
+    employeeQuery.directOnly = false;
+    if (!tabChanged) {
+      void loadDepartments();
+    }
+    return;
   }
 
   if (node.nodeType === "employee") {
-    if (node.organizationId) {
-      employeeQuery.organizationId = node.organizationId;
+    const tabChanged = activeTab.value !== "employees";
+    activeTab.value = "employees";
+    employeeQuery.organizationId = node.organizationId;
+    employeeQuery.departmentId = undefined;
+    employeeQuery.directOnly = !node.departmentId;
+    if (!tabChanged) {
+      void loadEmployees();
     }
-    if (node.departmentId) {
-      employeeQuery.departmentId = node.departmentId;
-    }
-  }
-
-  if (activeTab.value === "departments") {
-    void loadDepartments();
-  }
-  if (activeTab.value === "employees") {
-    void loadEmployees();
+    return;
   }
 }
 
@@ -1443,11 +1568,12 @@ function openEmployeeDialog(item?: EmployeeItem): void {
       status: item.status,
     });
   } else {
+    const seed = selectedEmployeeAffiliationSeed();
     Object.assign(employeeForm, {
       id: null,
       empName: "",
-      organizationId: selectedTreeNode.value?.organizationId,
-      departmentId: selectedTreeNode.value?.nodeType === "department" ? selectedTreeNode.value.id : undefined,
+      organizationId: seed.organizationId,
+      departmentId: seed.departmentId,
       positionLevelId: activePositionLevels.value[0]?.id,
       positionTitle: "",
       hireDate: "",
@@ -1700,7 +1826,46 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-grid-employee {
-  grid-template-columns: 120px 1fr auto auto;
+  grid-template-columns: minmax(180px, 220px) minmax(180px, 220px) 120px auto 1fr auto auto;
+  align-items: center;
+}
+
+.employee-filter-select-wrap {
+  position: relative;
+}
+
+.employee-filter-select-wrap :deep(.el-select__wrapper) {
+  padding-right: 38px;
+}
+
+.select-inline-clear {
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  line-height: 14px;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.select-inline-clear:hover {
+  color: var(--el-color-primary);
+  background: var(--el-fill-color-light);
+}
+
+.filter-switch {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  white-space: nowrap;
 }
 
 @media (max-width: 1200px) {
