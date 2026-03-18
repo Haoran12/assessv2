@@ -2,7 +2,7 @@
 <template>
   <div class="org-view">
     <el-row :gutter="16" class="layout-row">
-      <el-col :xs="24" :lg="8">
+      <el-col :xs="24" :lg="7">
         <el-card class="tree-card" shadow="never">
           <template #header>
             <div class="card-header">
@@ -36,18 +36,15 @@
             @node-click="handleTreeNodeClick"
           >
             <template #default="{ data }">
-              <div class="tree-node-row">
+              <div class="tree-node-row" :class="{ 'is-inactive-row': data.status === 'inactive' }">
                 <span class="tree-node-title">{{ data.name }}</span>
-                <el-tag size="small" :type="statusTagType(data.status)">
-                  {{ statusText(data.status) }}
-                </el-tag>
               </div>
             </template>
           </el-tree>
         </el-card>
       </el-col>
 
-      <el-col :xs="24" :lg="16">
+      <el-col :xs="24" :lg="17">
         <el-tabs v-model="activeTab" type="border-card">
           <el-tab-pane label="组织管理" name="organizations">
             <div class="toolbar-grid">
@@ -66,17 +63,17 @@
               <el-button type="primary" :disabled="!canEdit" @click="openOrganizationDialog()">新增组织</el-button>
             </div>
 
-            <el-table v-loading="loadingOrganizations" :data="organizations" border>
+            <el-table
+              v-loading="loadingOrganizations"
+              :data="organizations"
+              border
+              :row-class-name="rowClassByStatus"
+            >
               <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="orgName" label="组织名称" min-width="180" />
               <el-table-column prop="orgType" label="类型" width="110">
                 <template #default="{ row }">
                   {{ row.orgType === "group" ? "集团" : "公司" }}
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="180" fixed="right">
@@ -123,17 +120,17 @@
               <el-button type="primary" :disabled="!canEdit" @click="openDepartmentDialog()">新增部门</el-button>
             </div>
 
-            <el-table v-loading="loadingDepartments" :data="departments" border>
+            <el-table
+              v-loading="loadingDepartments"
+              :data="departments"
+              border
+              :row-class-name="rowClassByStatus"
+            >
               <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="deptName" label="部门名称" min-width="180" />
               <el-table-column label="所属组织" min-width="170">
                 <template #default="{ row }">
                   {{ organizationName(row.organizationId) }}
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="180" fixed="right">
@@ -170,14 +167,14 @@
               </el-button>
             </div>
 
-            <el-table v-loading="loadingPositionLevels" :data="filteredPositionLevels" border>
+            <el-table
+              v-loading="loadingPositionLevels"
+              :data="filteredPositionLevels"
+              border
+              :row-class-name="rowClassByStatus"
+            >
               <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="levelName" label="分类名称" min-width="160" />
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
-                </template>
-              </el-table-column>
               <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
               <el-table-column label="操作" width="180" fixed="right">
                 <template #default="{ row }">
@@ -266,7 +263,12 @@
               <el-button type="primary" :disabled="!canEdit" @click="openEmployeeDialog()">新增人员</el-button>
             </div>
 
-            <el-table v-loading="loadingEmployees" :data="employees" border>
+            <el-table
+              v-loading="loadingEmployees"
+              :data="employees"
+              border
+              :row-class-name="rowClassByStatus"
+            >
               <el-table-column type="index" label="序号" width="70" />
               <el-table-column prop="empName" label="姓名" min-width="120" />
               <el-table-column label="所属组织" min-width="150">
@@ -285,17 +287,7 @@
                 </template>
               </el-table-column>
               <el-table-column prop="positionTitle" label="岗位" min-width="130" />
-              <el-table-column label="入职日期" min-width="130">
-                <template #default="{ row }">
-                  {{ row.hireDate ? dateText(row.hireDate) : "-" }}
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" min-width="280" fixed="right">
+              <el-table-column label="操作" min-width="250" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" :disabled="!canEdit" @click="openEmployeeDialog(row)">
                     编辑
@@ -951,31 +943,9 @@ function normalizeTree(nodes: OrgTreeNode[]): TreeNodeUI[] {
   }));
 }
 
-function statusTagType(status?: string): "success" | "warning" | "info" | "danger" {
-  switch (status) {
-    case "active":
-      return "success";
-    case "inactive":
-      return "info";
-    default:
-      return "warning";
-  }
+function rowClassByStatus({ row }: { row: { status?: string } }): string {
+  return row.status === "inactive" ? "is-inactive-row" : "";
 }
-
-function statusText(status?: string): string {
-  if (!status) {
-    return "-";
-  }
-  switch (status) {
-    case "active":
-      return "启用";
-    case "inactive":
-      return "停用";
-    default:
-      return status;
-  }
-}
-
 function dateText(value?: string): string {
   if (!value) {
     return "-";
@@ -1811,6 +1781,15 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.tree-node-row.is-inactive-row {
+  color: var(--el-text-color-secondary);
+}
+
+:deep(.el-table .is-inactive-row > td) {
+  color: var(--el-text-color-secondary);
+  background-color: var(--el-fill-color-light);
+}
+
 .toolbar-grid {
   display: grid;
   grid-template-columns: 1fr 140px auto auto;
@@ -1869,3 +1848,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
