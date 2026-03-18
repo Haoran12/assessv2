@@ -1,0 +1,1 @@
+-- no-op: one-way cleanup migration for obsolete legacy setting keys
