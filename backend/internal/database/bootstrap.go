@@ -380,46 +380,11 @@ func seedDefaultPositionLevels(db *gorm.DB) error {
 	}
 
 	seeds := []positionLevelSeed{
-		{
-			LevelCode:       "leadership_main",
-			LevelName:       "领导班子正职",
-			Description:     "用于个人考核分类：领导班子正职",
-			IsSystem:        true,
-			IsForAssessment: true,
-			SortOrder:       1,
-		},
-		{
-			LevelCode:       "leadership_deputy",
-			LevelName:       "领导班子副职",
-			Description:     "用于个人考核分类：领导班子副职",
-			IsSystem:        true,
-			IsForAssessment: true,
-			SortOrder:       2,
-		},
-		{
-			LevelCode:       "department_main",
-			LevelName:       "部门正职",
-			Description:     "用于个人考核分类：部门正职",
-			IsSystem:        true,
-			IsForAssessment: true,
-			SortOrder:       3,
-		},
-		{
-			LevelCode:       "department_deputy",
-			LevelName:       "部门副职",
-			Description:     "用于个人考核分类：部门副职",
-			IsSystem:        true,
-			IsForAssessment: true,
-			SortOrder:       4,
-		},
-		{
-			LevelCode:       "general_management_personnel",
-			LevelName:       "一般管理人员",
-			Description:     "用于个人考核分类：一般管理人员",
-			IsSystem:        true,
-			IsForAssessment: true,
-			SortOrder:       5,
-		},
+		{LevelCode: "leadership_main", LevelName: "Leadership Main", Description: "Assessment category: leadership main", IsSystem: true, IsForAssessment: true, SortOrder: 1},
+		{LevelCode: "leadership_deputy", LevelName: "Leadership Deputy", Description: "Assessment category: leadership deputy", IsSystem: true, IsForAssessment: true, SortOrder: 2},
+		{LevelCode: "department_main", LevelName: "Department Main", Description: "Assessment category: department main", IsSystem: true, IsForAssessment: true, SortOrder: 3},
+		{LevelCode: "department_deputy", LevelName: "Department Deputy", Description: "Assessment category: department deputy", IsSystem: true, IsForAssessment: true, SortOrder: 4},
+		{LevelCode: "general_management_personnel", LevelName: "General Staff", Description: "Assessment category: general staff", IsSystem: true, IsForAssessment: true, SortOrder: 5},
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
@@ -457,107 +422,19 @@ func seedDefaultPositionLevels(db *gorm.DB) error {
 		return nil
 	})
 }
-
 func seedDefaultAssessmentCategories(db *gorm.DB) error {
-	type assessmentCategorySeed struct {
-		CategoryCode string
-		CategoryName string
-		ObjectType   string
-		SortOrder    int
-	}
-
-	seeds := []assessmentCategorySeed{
-		{CategoryCode: "group", CategoryName: "集团", ObjectType: "team", SortOrder: 1},
-		{CategoryCode: "group_leadership_team", CategoryName: "集团领导班子", ObjectType: "team", SortOrder: 2},
-		{CategoryCode: "group_department", CategoryName: "集团部门", ObjectType: "team", SortOrder: 3},
-		{CategoryCode: "subsidiary_company", CategoryName: "权属企业", ObjectType: "team", SortOrder: 4},
-		{CategoryCode: "subsidiary_company_leadership_team", CategoryName: "权属企业领导班子", ObjectType: "team", SortOrder: 5},
-		{CategoryCode: "subsidiary_company_department", CategoryName: "权属企业部门", ObjectType: "team", SortOrder: 6},
-		{CategoryCode: "leadership_main", CategoryName: "领导班子正职", ObjectType: "individual", SortOrder: 101},
-		{CategoryCode: "leadership_deputy", CategoryName: "领导班子副职", ObjectType: "individual", SortOrder: 102},
-		{CategoryCode: "department_main", CategoryName: "部门正职", ObjectType: "individual", SortOrder: 103},
-		{CategoryCode: "department_deputy", CategoryName: "部门副职", ObjectType: "individual", SortOrder: 104},
-		{CategoryCode: "general_management_personnel", CategoryName: "一般管理人员", ObjectType: "individual", SortOrder: 105},
-	}
-
-	return db.Transaction(func(tx *gorm.DB) error {
-		for _, item := range seeds {
-			var existing model.AssessmentCategory
-			err := tx.Where("category_code = ?", item.CategoryCode).First(&existing).Error
-			switch {
-			case errors.Is(err, gorm.ErrRecordNotFound):
-				record := model.AssessmentCategory{
-					CategoryCode: item.CategoryCode,
-					CategoryName: item.CategoryName,
-					ObjectType:   item.ObjectType,
-					SortOrder:    item.SortOrder,
-					IsSystem:     true,
-					Status:       "active",
-				}
-				if createErr := tx.Create(&record).Error; createErr != nil {
-					return fmt.Errorf("failed to create assessment category %s: %w", item.CategoryCode, createErr)
-				}
-			case err != nil:
-				return fmt.Errorf("failed to query assessment category %s: %w", item.CategoryCode, err)
-			default:
-				existing.CategoryName = item.CategoryName
-				existing.ObjectType = item.ObjectType
-				existing.SortOrder = item.SortOrder
-				existing.IsSystem = true
-				existing.Status = "active"
-				if saveErr := tx.Save(&existing).Error; saveErr != nil {
-					return fmt.Errorf("failed to update assessment category %s: %w", item.CategoryCode, saveErr)
-				}
-			}
-		}
-		return nil
-	})
+	_ = db
+	return nil
 }
 
 func seedResourcePermissionSettings(db *gorm.DB) error {
 	now := time.Now().Unix()
 	seeds := []model.SystemSetting{
-		{
-			SettingKey:   "resource.default_permission.assessment_year",
-			SettingValue: "420",
-			SettingType:  "number",
-			Description:  "考核年度默认权限模式 (0644: Owner可读写, Group可读, Others可读)",
-			IsSystem:     true,
-			UpdatedAt:    now,
-		},
-		{
-			SettingKey:   "resource.default_permission.assessment_rule",
-			SettingValue: "420",
-			SettingType:  "number",
-			Description:  "考核规则默认权限模式 (0644: Owner可读写, Group可读, Others可读)",
-			IsSystem:     true,
-			UpdatedAt:    now,
-		},
-		{
-			SettingKey:   "resource.default_permission.rule_template",
-			SettingValue: "420",
-			SettingType:  "number",
-			Description:  "规则模板默认权限模式 (0644: Owner可读写, Group可读, Others可读)",
-			IsSystem:     true,
-			UpdatedAt:    now,
-		},
-		{
-			SettingKey:   "resource.default_permission.direct_score",
-			SettingValue: "384",
-			SettingType:  "number",
-			Description:  "直接评分默认权限模式 (0600: 仅Owner可读写)",
-			IsSystem:     true,
-			UpdatedAt:    now,
-		},
-		{
-			SettingKey:   "resource.default_permission.extra_point",
-			SettingValue: "416",
-			SettingType:  "number",
-			Description:  "加减分默认权限模式 (0640: Owner可读写, Group可读)",
-			IsSystem:     true,
-			UpdatedAt:    now,
-		},
+		{SettingKey: "resource.default_permission.assessment_year", SettingValue: "420", SettingType: "number", Description: "Default mode for assessment session resources", IsSystem: true, UpdatedAt: now},
+		{SettingKey: "resource.default_permission.assessment_rule", SettingValue: "420", SettingType: "number", Description: "Default mode for assessment rule resources", IsSystem: true, UpdatedAt: now},
+		{SettingKey: "resource.default_permission.rule_template", SettingValue: "420", SettingType: "number", Description: "Default mode for rule template resources", IsSystem: true, UpdatedAt: now},
+		{SettingKey: "resource.default_permission.direct_score", SettingValue: "384", SettingType: "number", Description: "Default mode for direct score resources", IsSystem: true, UpdatedAt: now},
+		{SettingKey: "resource.default_permission.extra_point", SettingValue: "416", SettingType: "number", Description: "Default mode for extra point resources", IsSystem: true, UpdatedAt: now},
 	}
-
 	return upsertSystemSettings(db, seeds, true)
 }

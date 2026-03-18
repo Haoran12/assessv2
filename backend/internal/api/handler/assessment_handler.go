@@ -12,43 +12,52 @@ import (
 )
 
 type AssessmentHandler struct {
-	assessmentService *service.AssessmentService
+	service *service.AssessmentSessionService
 }
 
-func NewAssessmentHandler(assessmentService *service.AssessmentService) *AssessmentHandler {
-	return &AssessmentHandler{assessmentService: assessmentService}
+func NewAssessmentHandler(sessionService *service.AssessmentSessionService) *AssessmentHandler {
+	return &AssessmentHandler{service: sessionService}
 }
 
-type createAssessmentYearRequest struct {
+type createAssessmentSessionRequest struct {
 	Year           int    `json:"year"`
+	OrganizationID uint   `json:"organizationId"`
+	DisplayName    string `json:"displayName"`
 	Description    string `json:"description"`
-	CopyFromYearID *uint  `json:"copyFromYearId"`
 }
 
-type updateStatusRequest struct {
-	Status string `json:"status"`
+type updateAssessmentSessionRequest struct {
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
 }
 
-type assessmentPeriodTemplateItemRequest struct {
-	PeriodCode string `json:"periodCode"`
-	PeriodName string `json:"periodName"`
-	SortOrder  int    `json:"sortOrder"`
+type updatePeriodsRequest struct {
+	Items []service.SessionPeriodItem `json:"items"`
 }
 
-type updatePeriodTemplatesRequest struct {
-	Items []assessmentPeriodTemplateItemRequest `json:"items"`
+type updateObjectGroupsRequest struct {
+	Items []service.SessionObjectGroupItem `json:"items"`
 }
 
-func (h *AssessmentHandler) ListYears(c *gin.Context) {
-	result, err := h.assessmentService.ListYears(c.Request.Context())
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to query assessment years")
+type updateObjectsRequest struct {
+	Items []service.SessionObjectUpsertItem `json:"items"`
+}
+
+func (h *AssessmentHandler) ListSessions(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
-	response.Success(c, gin.H{"items": result})
+	items, err := h.service.ListSessions(c.Request.Context(), claims)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to query assessment sessions")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
 }
 
-func (h *AssessmentHandler) CreateYear(c *gin.Context) {
+func (h *AssessmentHandler) CreateSession(c *gin.Context) {
 	operatorID, ok := operatorFromClaims(c)
 	if !ok {
 		return
@@ -58,111 +67,51 @@ func (h *AssessmentHandler) CreateYear(c *gin.Context) {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
-	var req createAssessmentYearRequest
+	var req createAssessmentSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid assessment year payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid assessment session payload")
 		return
 	}
-	result, err := h.assessmentService.CreateYear(c.Request.Context(), claims, operatorID, service.CreateAssessmentYearInput{Year: req.Year, Description: strings.TrimSpace(req.Description), CopyFromYearID: req.CopyFromYearID}, c.ClientIP(), c.GetHeader("User-Agent"))
-	if err != nil {
-		h.handleAssessmentError(c, err, "failed to create assessment year")
-		return
-	}
-	response.Success(c, result)
-}
-
-func (h *AssessmentHandler) UpdateYearStatus(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
-	if !ok {
-		return
-	}
-	claims, ok := middleware.ClaimsFromContext(c)
-	if !ok {
-		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
-		return
-	}
-	yearID, err := parseUserIDParam(c)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid year id")
-		return
-	}
-	var req updateStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid year status payload")
-		return
-	}
-	result, err := h.assessmentService.UpdateYearStatus(c.Request.Context(), claims, operatorID, yearID, strings.TrimSpace(req.Status), c.ClientIP(), c.GetHeader("User-Agent"))
-	if err != nil {
-		h.handleAssessmentError(c, err, "failed to update year status")
-		return
-	}
-	response.Success(c, result)
-}
-
-func (h *AssessmentHandler) ListPeriods(c *gin.Context) {
-	yearID, err := parseUserIDParam(c)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid year id")
-		return
-	}
-	result, err := h.assessmentService.ListPeriods(c.Request.Context(), yearID)
-	if err != nil {
-		h.handleAssessmentError(c, err, "failed to query periods")
-		return
-	}
-	response.Success(c, gin.H{"items": result})
-}
-
-func (h *AssessmentHandler) ListPeriodTemplates(c *gin.Context) {
-	result, err := h.assessmentService.ListPeriodTemplates(c.Request.Context())
-	if err != nil {
-		h.handleAssessmentError(c, err, "failed to query period templates")
-		return
-	}
-	response.Success(c, gin.H{"items": result})
-}
-
-func (h *AssessmentHandler) UpdatePeriodTemplates(c *gin.Context) {
-	operatorID, ok := operatorFromClaims(c)
-	if !ok {
-		return
-	}
-	claims, ok := middleware.ClaimsFromContext(c)
-	if !ok {
-		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
-		return
-	}
-	var req updatePeriodTemplatesRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid period templates payload")
-		return
-	}
-
-	items := make([]service.AssessmentPeriodTemplateItem, 0, len(req.Items))
-	for _, item := range req.Items {
-		items = append(items, service.AssessmentPeriodTemplateItem{
-			PeriodCode: strings.TrimSpace(item.PeriodCode),
-			PeriodName: strings.TrimSpace(item.PeriodName),
-			SortOrder:  item.SortOrder,
-		})
-	}
-
-	result, err := h.assessmentService.UpdatePeriodTemplates(
+	result, err := h.service.CreateSession(
 		c.Request.Context(),
 		claims,
 		operatorID,
-		items,
+		service.CreateAssessmentSessionInput{
+			Year:           req.Year,
+			OrganizationID: req.OrganizationID,
+			DisplayName:    strings.TrimSpace(req.DisplayName),
+			Description:    strings.TrimSpace(req.Description),
+		},
 		c.ClientIP(),
 		c.GetHeader("User-Agent"),
 	)
 	if err != nil {
-		h.handleAssessmentError(c, err, "failed to update period templates")
+		h.handleAssessmentError(c, err, "failed to create assessment session")
 		return
 	}
-	response.Success(c, gin.H{"items": result})
+	response.Success(c, result)
 }
 
-func (h *AssessmentHandler) UpdatePeriodStatus(c *gin.Context) {
+func (h *AssessmentHandler) GetSession(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	result, err := h.service.GetSession(c.Request.Context(), claims, sessionID)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to query assessment session")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AssessmentHandler) UpdateSession(c *gin.Context) {
 	operatorID, ok := operatorFromClaims(c)
 	if !ok {
 		return
@@ -172,19 +121,30 @@ func (h *AssessmentHandler) UpdatePeriodStatus(c *gin.Context) {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
-	periodID, err := parseUserIDParam(c)
+	sessionID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid period id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
 		return
 	}
-	var req updateStatusRequest
+	var req updateAssessmentSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid period status payload")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid assessment payload")
 		return
 	}
-	result, err := h.assessmentService.UpdatePeriodStatus(c.Request.Context(), claims, operatorID, periodID, strings.TrimSpace(req.Status), c.ClientIP(), c.GetHeader("User-Agent"))
+	result, err := h.service.UpdateSession(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		service.UpdateAssessmentSessionInput{
+			DisplayName: strings.TrimSpace(req.DisplayName),
+			Description: strings.TrimSpace(req.Description),
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
 	if err != nil {
-		h.handleAssessmentError(c, err, "failed to update period status")
+		h.handleAssessmentError(c, err, "failed to update assessment session")
 		return
 	}
 	response.Success(c, result)
@@ -196,38 +156,191 @@ func (h *AssessmentHandler) ListObjects(c *gin.Context) {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
-	yearID, err := parseUserIDParam(c)
+	sessionID, err := parseUserIDParam(c)
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid year id")
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
 		return
 	}
-	result, err := h.assessmentService.ListObjects(c.Request.Context(), claims, yearID)
+	items, err := h.service.ListObjects(c.Request.Context(), claims, sessionID)
 	if err != nil {
-		h.handleAssessmentError(c, err, "failed to query assessment objects")
+		h.handleAssessmentError(c, err, "failed to list assessment objects")
 		return
 	}
-	response.Success(c, gin.H{"items": result})
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) ListObjectCandidates(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	items, err := h.service.ListObjectCandidates(c.Request.Context(), claims, sessionID, c.Query("keyword"))
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to list assessment object candidates")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) ReplaceObjects(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	var req updateObjectsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid assessment objects payload")
+		return
+	}
+	items, err := h.service.ReplaceObjects(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		req.Items,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to replace assessment objects")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) ReplacePeriods(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	var req updatePeriodsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid periods payload")
+		return
+	}
+	items, err := h.service.ReplacePeriods(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		req.Items,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to replace periods")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) ReplaceObjectGroups(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	var req updateObjectGroupsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid object groups payload")
+		return
+	}
+	items, err := h.service.ReplaceObjectGroups(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		req.Items,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to replace object groups")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) ResetObjects(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	items, err := h.service.ResetObjectsToDefault(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to reset assessment objects")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
 }
 
 func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, service.ErrInvalidParam),
-		errors.Is(err, service.ErrInvalidYearStatus),
-		errors.Is(err, service.ErrInvalidYearTransition),
-		errors.Is(err, service.ErrInvalidPeriodStatus),
-		errors.Is(err, service.ErrInvalidPeriodTransition),
-		errors.Is(err, service.ErrInvalidPeriodTemplate):
+		errors.Is(err, service.ErrInvalidPeriodTemplate),
+		errors.Is(err, service.ErrInvalidRuleObjectType),
+		errors.Is(err, service.ErrInvalidRuleObjectCategory):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
-	case errors.Is(err, service.ErrYearAlreadyExists),
-		errors.Is(err, service.ErrAssessmentReadOnly),
-		errors.Is(err, service.ErrAssessmentNotActive),
-		errors.Is(err, service.ErrPeriodNotActive):
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrForbidden):
 		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrYearNotFound),
+		errors.Is(err, service.ErrOrganizationNotFound),
 		errors.Is(err, service.ErrPeriodNotFound):
 		response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())
+	case errors.Is(err, service.ErrYearAlreadyExists):
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	default:
 		response.Error(c, http.StatusInternalServerError, response.CodeInternal, fallback)
 	}

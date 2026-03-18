@@ -1,254 +1,199 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
-import { listAssessmentPeriods, listAssessmentYears } from "@/api/assessment";
-import { listAssessmentCategories } from "@/api/org";
 import {
-  allAssessmentCategories,
-  applyAssessmentCategoryDefinitions,
-  assessmentCategoryLabel,
-  isAssessmentObjectCategory,
-} from "@/constants/assessmentCategories";
+  getAssessmentSession,
+  listAssessmentSessions,
+} from "@/api/assessment";
 import type {
-  GlobalAssessmentObjectCategory,
-  AssessmentPeriodCode,
-  AssessmentPeriodItem,
-  AssessmentYearItem,
+  AssessmentObjectGroupItem,
+  AssessmentSessionDetail,
+  AssessmentSessionItem,
 } from "@/types/assessment";
-import type { AssessmentCategoryItem } from "@/types/org";
 
-const YEAR_KEY = "assessv2_context_year_id";
+const SESSION_KEY = "assessv2_context_session_id";
 const PERIOD_KEY = "assessv2_context_period_code";
-const OBJECT_CATEGORY_KEY = "assessv2_context_object_category";
-const LEGACY_OBJECT_TYPE_KEY = "assessv2_context_object_type";
+const GROUP_KEY = "assessv2_context_group_code";
 
-const DEFAULT_PERIOD: AssessmentPeriodCode = "";
-const DEFAULT_OBJECT_CATEGORY: GlobalAssessmentObjectCategory = "all";
-
-function objectCategorySet(): Set<GlobalAssessmentObjectCategory> {
-  const result = new Set<GlobalAssessmentObjectCategory>(["all"]);
-  for (const item of allAssessmentCategories()) {
-    result.add(item);
-  }
-  return result;
-}
-
-function readStoredYearId(): number | undefined {
-  const value = localStorage.getItem(YEAR_KEY);
-  if (!value) {
+function readStoredSessionId(): number | undefined {
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (!raw) {
     return undefined;
   }
-  const parsed = Number(value);
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return undefined;
   }
   return parsed;
 }
 
-function readStoredPeriodCode(): AssessmentPeriodCode {
-  const value = (localStorage.getItem(PERIOD_KEY) || "").trim().toUpperCase();
-  if (value) {
-    return value as AssessmentPeriodCode;
-  }
-  return DEFAULT_PERIOD;
-}
-
-function mapLegacyObjectTypeToCategory(value: string | null): GlobalAssessmentObjectCategory {
-  if (value === "all") {
-    return value;
-  }
-  return DEFAULT_OBJECT_CATEGORY;
-}
-
-function readStoredObjectCategory(): GlobalAssessmentObjectCategory {
-  const value = localStorage.getItem(OBJECT_CATEGORY_KEY) as GlobalAssessmentObjectCategory | null;
-  if (value && objectCategorySet().has(value)) {
-    return value;
-  }
-
-  const legacyType = localStorage.getItem(LEGACY_OBJECT_TYPE_KEY);
-  return mapLegacyObjectTypeToCategory(legacyType);
+function readStoredText(key: string): string {
+  return String(localStorage.getItem(key) || "").trim();
 }
 
 export const useContextStore = defineStore("context", () => {
-  const years = ref<AssessmentYearItem[]>([]);
-  const periods = ref<AssessmentPeriodItem[]>([]);
-  const assessmentCategories = ref<AssessmentCategoryItem[]>([]);
+  const sessions = ref<AssessmentSessionItem[]>([]);
+  const periods = ref<AssessmentSessionDetail["periods"]>([]);
+  const objectGroups = ref<AssessmentObjectGroupItem[]>([]);
 
-  const yearId = ref<number | undefined>(readStoredYearId());
-  const periodCode = ref<AssessmentPeriodCode>(readStoredPeriodCode());
-  const objectCategory = ref<GlobalAssessmentObjectCategory>(readStoredObjectCategory());
+  const sessionId = ref<number | undefined>(readStoredSessionId());
+  const periodCode = ref<string>(readStoredText(PERIOD_KEY));
+  const objectGroupCode = ref<string>(readStoredText(GROUP_KEY));
 
-  const loadingYears = ref(false);
-  const loadingPeriods = ref(false);
-  const loadingCategories = ref(false);
+  const loadingSessions = ref(false);
+  const loadingDetail = ref(false);
   const initialized = ref(false);
 
-  const currentYear = computed(() => years.value.find((item) => item.id === yearId.value));
+  const currentSession = computed(() => sessions.value.find((item) => item.id === sessionId.value));
   const currentPeriod = computed(() => periods.value.find((item) => item.periodCode === periodCode.value));
-  const categoryOptions = computed(() => {
-    const items = [...assessmentCategories.value].sort((a, b) => {
-      if (a.sortOrder !== b.sortOrder) {
-        return a.sortOrder - b.sortOrder;
-      }
-      return a.id - b.id;
-    });
-    const categoryItems =
-      items.length > 0
-        ? items.map((item) => ({
-            value: item.categoryCode as GlobalAssessmentObjectCategory,
-            label: item.categoryName,
-          }))
-        : allAssessmentCategories().map((code) => ({
-            value: code as GlobalAssessmentObjectCategory,
-            label: assessmentCategoryLabel(code),
-          }));
+  const currentObjectGroup = computed(() =>
+    objectGroups.value.find((item) => item.groupCode === objectGroupCode.value),
+  );
 
-    return [
-      { value: "all" as GlobalAssessmentObjectCategory, label: "全部分类" },
-      ...categoryItems,
-    ];
-  });
+  const objectGroupOptions = computed(() =>
+    [...objectGroups.value]
+      .sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) {
+          return a.sortOrder - b.sortOrder;
+        }
+        return a.id - b.id;
+      })
+      .map((item) => ({
+        value: item.groupCode,
+        label: `${item.objectType === "team" ? "团体" : "个人"} - ${item.groupName}`,
+      })),
+  );
 
-  function setPeriodCode(value: AssessmentPeriodCode): void {
-    const normalized = String(value || "").trim().toUpperCase() as AssessmentPeriodCode;
-    const nextValue =
-      periods.value.length > 0 && !periods.value.some((item) => item.periodCode === normalized)
-        ? periods.value[0].periodCode
-        : normalized;
-    periodCode.value = nextValue;
-    if (nextValue) {
-      localStorage.setItem(PERIOD_KEY, nextValue);
+  function persistSession(value: number | undefined): void {
+    sessionId.value = value;
+    if (value && value > 0) {
+      localStorage.setItem(SESSION_KEY, String(value));
+      return;
+    }
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  function persistPeriod(value: string): void {
+    periodCode.value = value;
+    if (value) {
+      localStorage.setItem(PERIOD_KEY, value);
       return;
     }
     localStorage.removeItem(PERIOD_KEY);
   }
 
-  function setObjectCategory(value: GlobalAssessmentObjectCategory | string): void {
-    const nextValue = objectCategorySet().has(value as GlobalAssessmentObjectCategory)
-      ? (value as GlobalAssessmentObjectCategory)
-      : DEFAULT_OBJECT_CATEGORY;
-    objectCategory.value = nextValue;
-    localStorage.setItem(OBJECT_CATEGORY_KEY, nextValue);
-    localStorage.removeItem(LEGACY_OBJECT_TYPE_KEY);
-  }
-
-  function persistYear(value: number | undefined): void {
-    yearId.value = value;
+  function persistGroup(value: string): void {
+    objectGroupCode.value = value;
     if (value) {
-      localStorage.setItem(YEAR_KEY, String(value));
+      localStorage.setItem(GROUP_KEY, value);
       return;
     }
-    localStorage.removeItem(YEAR_KEY);
+    localStorage.removeItem(GROUP_KEY);
   }
 
-  function normalizePeriodSelection(): void {
+  function normalizeSelections(): void {
     if (periods.value.length === 0) {
-      setPeriodCode(DEFAULT_PERIOD);
-      return;
+      persistPeriod("");
+    } else if (!periods.value.some((item) => item.periodCode === periodCode.value)) {
+      persistPeriod(periods.value[0].periodCode);
     }
 
-    if (!periods.value.some((item) => item.periodCode === periodCode.value)) {
-      setPeriodCode(periods.value[0].periodCode);
+    if (objectGroups.value.length === 0) {
+      persistGroup("");
+    } else if (!objectGroups.value.some((item) => item.groupCode === objectGroupCode.value)) {
+      persistGroup(objectGroups.value[0].groupCode);
     }
   }
 
-  async function loadPeriodsForYear(targetYearId?: number): Promise<void> {
-    if (!targetYearId) {
+  async function loadSessionDetail(targetSessionId?: number): Promise<void> {
+    if (!targetSessionId) {
       periods.value = [];
+      objectGroups.value = [];
+      normalizeSelections();
       return;
     }
-
-    loadingPeriods.value = true;
+    loadingDetail.value = true;
     try {
-      periods.value = await listAssessmentPeriods(targetYearId);
-      normalizePeriodSelection();
+      const detail = await getAssessmentSession(targetSessionId);
+      periods.value = detail.periods;
+      objectGroups.value = detail.objectGroups;
+      normalizeSelections();
     } finally {
-      loadingPeriods.value = false;
+      loadingDetail.value = false;
     }
   }
 
-  async function setYear(value: number | undefined): Promise<void> {
-    persistYear(value);
-    await loadPeriodsForYear(value);
+  async function setSession(value: number | undefined): Promise<void> {
+    persistSession(value);
+    await loadSessionDetail(value);
   }
 
-  async function refreshAssessmentCategories(): Promise<void> {
-    loadingCategories.value = true;
-    try {
-      const items = await listAssessmentCategories({ status: "active" });
-      assessmentCategories.value = items;
-      applyAssessmentCategoryDefinitions(
-        items.map((item) => ({
-          categoryCode: item.categoryCode,
-          categoryName: item.categoryName,
-          objectType: item.objectType,
-          sortOrder: item.sortOrder,
-        })),
-      );
-    } finally {
-      loadingCategories.value = false;
+  function setPeriodCode(value: string): void {
+    const normalized = String(value || "").trim().toUpperCase();
+    if (normalized && !periods.value.some((item) => item.periodCode === normalized)) {
+      persistPeriod(periods.value[0]?.periodCode || "");
+      return;
     }
+    persistPeriod(normalized);
   }
 
-  async function refreshPeriods(): Promise<void> {
-    await loadPeriodsForYear(yearId.value);
+  function setObjectGroupCode(value: string): void {
+    const normalized = String(value || "").trim();
+    if (normalized && !objectGroups.value.some((item) => item.groupCode === normalized)) {
+      persistGroup(objectGroups.value[0]?.groupCode || "");
+      return;
+    }
+    persistGroup(normalized);
   }
 
   async function ensureInitialized(force = false): Promise<void> {
     if (initialized.value && !force) {
       return;
     }
-
-    loadingYears.value = true;
+    loadingSessions.value = true;
     try {
-      try {
-        await refreshAssessmentCategories();
-      } catch (_error) {
-        // Fall back to built-in category dictionary when category metadata API is unavailable.
-      }
-      years.value = await listAssessmentYears();
-      if (years.value.length === 0) {
-        await setYear(undefined);
+      sessions.value = await listAssessmentSessions();
+      if (sessions.value.length === 0) {
+        await setSession(undefined);
       } else {
-        if (!yearId.value || !years.value.some((item) => item.id === yearId.value)) {
-          persistYear(years.value[0].id);
+        const hit = sessionId.value && sessions.value.some((item) => item.id === sessionId.value);
+        if (!hit) {
+          persistSession(sessions.value[0].id);
         }
-        await loadPeriodsForYear(yearId.value);
+        await loadSessionDetail(sessionId.value);
       }
-
-      if (!objectCategorySet().has(objectCategory.value)) {
-        setObjectCategory(DEFAULT_OBJECT_CATEGORY);
-      }
-      if (objectCategory.value !== "all" && !isAssessmentObjectCategory(objectCategory.value)) {
-        setObjectCategory(DEFAULT_OBJECT_CATEGORY);
-      }
-      normalizePeriodSelection();
-
       initialized.value = true;
     } finally {
-      loadingYears.value = false;
+      loadingSessions.value = false;
     }
   }
 
+  async function refreshSessions(): Promise<void> {
+    await ensureInitialized(true);
+  }
+
+  async function refreshCurrentDetail(): Promise<void> {
+    await loadSessionDetail(sessionId.value);
+  }
+
   return {
-    years,
+    sessions,
     periods,
-    assessmentCategories,
-    yearId,
+    objectGroups,
+    sessionId,
     periodCode,
-    objectCategory,
-    currentYear,
+    objectGroupCode,
+    currentSession,
     currentPeriod,
-    categoryOptions,
-    loadingYears,
-    loadingPeriods,
-    loadingCategories,
+    currentObjectGroup,
+    objectGroupOptions,
+    loadingSessions,
+    loadingDetail,
     initialized,
-    setYear,
+    setSession,
     setPeriodCode,
-    setObjectCategory,
-    refreshPeriods,
-    refreshAssessmentCategories,
+    setObjectGroupCode,
+    refreshSessions,
+    refreshCurrentDetail,
     ensureInitialized,
   };
 });

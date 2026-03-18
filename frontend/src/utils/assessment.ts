@@ -1,45 +1,17 @@
-import type {
-  AssessmentObjectItem,
-  AssessmentPeriodCode,
-  AssessmentPeriodStatus,
-  AssessmentYearItem,
-} from "@/types/assessment";
-
-const PERIOD_DISPLAY_LABELS: Record<string, string> = {
-  Q1: "一季度",
-  Q2: "二季度",
-  Q3: "三季度",
-  Q4: "四季度",
-  YEAR_END: "年终",
-};
-
-export function periodDisplayLabel(code: AssessmentPeriodCode, name?: string): string {
-  const periodName = name?.trim();
+export function periodDisplayLabel(code: string, name?: string): string {
+  const periodName = String(name || "").trim();
   if (periodName) {
     return periodName;
   }
   const normalizedCode = String(code || "").trim().toUpperCase();
-  return PERIOD_DISPLAY_LABELS[normalizedCode] ?? code;
-}
-
-export function formatAssessmentYearLabel(year?: Pick<AssessmentYearItem, "year">): string {
-  if (!year) {
-    return "-";
-  }
-  return `${year.year}年度`;
-}
-
-export function periodStatusText(status: AssessmentPeriodStatus): string {
-  switch (status) {
-    case "preparing":
-      return "筹备中";
-    case "active":
-      return "进行中";
-    case "completed":
-      return "已完成";
-    default:
-      return status;
-  }
+  const mapping: Record<string, string> = {
+    Q1: "第一季度",
+    Q2: "第二季度",
+    Q3: "第三季度",
+    Q4: "第四季度",
+    YEAR_END: "年终",
+  };
+  return mapping[normalizedCode] || normalizedCode || "-";
 }
 
 export function formatTimestamp(timestamp?: number): string {
@@ -53,16 +25,15 @@ export function formatTimestamp(timestamp?: number): string {
   return date.toLocaleString();
 }
 
-export function toObjectNameMap(items: AssessmentObjectItem[]): Record<number, string> {
-  return items.reduce<Record<number, string>>((acc, item) => {
-    acc[item.id] = item.objectName;
-    return acc;
-  }, {});
-}
-
-export function formatFloat(value: number, digits = 2): string {
-  if (!Number.isFinite(value)) {
-    return "-";
+export function periodStatusText(status: string): string {
+  switch (status) {
+    case "preparing":
+      return "筹备中";
+    case "active":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    default:
+      return status;
   }
-  return value.toFixed(digits);
 }

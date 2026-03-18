@@ -1,61 +1,81 @@
 import { http } from "@/api/http";
 import type {
-  AssessmentObjectItem,
-  AssessmentPeriodItem,
-  AssessmentPeriodStatus,
-  AssessmentPeriodTemplateItem,
-  AssessmentYearItem,
-  AssessmentYearStatus,
-  CreateAssessmentYearPayload,
-  CreateAssessmentYearResult,
+  AssessmentObjectCandidateItem,
+  AssessmentSessionDetail,
+  AssessmentSessionItem,
+  AssessmentSessionObjectItem,
+  CreateAssessmentSessionPayload,
+  UpdateAssessmentObjectGroupsPayload,
+  UpdateAssessmentObjectsPayload,
+  UpdateAssessmentPeriodsPayload,
+  UpdateAssessmentSessionPayload,
 } from "@/types/assessment";
 
-export async function listAssessmentYears(): Promise<AssessmentYearItem[]> {
-  const response = await http.get("/api/assessment/years");
-  return (response.data?.data?.items ?? []) as AssessmentYearItem[];
+export async function listAssessmentSessions(): Promise<AssessmentSessionItem[]> {
+  const response = await http.get("/api/assessment/sessions");
+  return (response.data?.data?.items ?? []) as AssessmentSessionItem[];
 }
 
-export async function createAssessmentYear(
-  payload: CreateAssessmentYearPayload,
-): Promise<CreateAssessmentYearResult> {
-  const response = await http.post("/api/assessment/years", payload);
-  return response.data?.data as CreateAssessmentYearResult;
+export async function createAssessmentSession(payload: CreateAssessmentSessionPayload): Promise<AssessmentSessionDetail> {
+  const response = await http.post("/api/assessment/sessions", payload);
+  return response.data?.data as AssessmentSessionDetail;
 }
 
-export async function updateAssessmentYearStatus(
-  yearId: number,
-  status: AssessmentYearStatus,
-): Promise<AssessmentYearItem> {
-  const response = await http.put(`/api/assessment/years/${yearId}/status`, { status });
-  return response.data?.data as AssessmentYearItem;
+export async function getAssessmentSession(sessionId: number): Promise<AssessmentSessionDetail> {
+  const response = await http.get(`/api/assessment/sessions/${sessionId}`);
+  return response.data?.data as AssessmentSessionDetail;
 }
 
-export async function listAssessmentPeriods(yearId: number): Promise<AssessmentPeriodItem[]> {
-  const response = await http.get(`/api/assessment/years/${yearId}/periods`);
-  return (response.data?.data?.items ?? []) as AssessmentPeriodItem[];
+export async function updateAssessmentSession(
+  sessionId: number,
+  payload: UpdateAssessmentSessionPayload,
+): Promise<AssessmentSessionDetail> {
+  const response = await http.put(`/api/assessment/sessions/${sessionId}`, payload);
+  return response.data?.data as AssessmentSessionDetail;
 }
 
-export async function listAssessmentPeriodTemplates(): Promise<AssessmentPeriodTemplateItem[]> {
-  const response = await http.get("/api/assessment/period-templates");
-  return (response.data?.data?.items ?? []) as AssessmentPeriodTemplateItem[];
+export async function updateAssessmentPeriods(
+  sessionId: number,
+  payload: UpdateAssessmentPeriodsPayload,
+) {
+  const response = await http.put(`/api/assessment/sessions/${sessionId}/periods`, payload);
+  return (response.data?.data?.items ?? []) as AssessmentSessionDetail["periods"];
 }
 
-export async function updateAssessmentPeriodTemplates(
-  items: AssessmentPeriodTemplateItem[],
-): Promise<AssessmentPeriodTemplateItem[]> {
-  const response = await http.put("/api/assessment/period-templates", { items });
-  return (response.data?.data?.items ?? []) as AssessmentPeriodTemplateItem[];
+export async function updateAssessmentObjectGroups(
+  sessionId: number,
+  payload: UpdateAssessmentObjectGroupsPayload,
+) {
+  const response = await http.put(`/api/assessment/sessions/${sessionId}/object-groups`, payload);
+  return (response.data?.data?.items ?? []) as AssessmentSessionDetail["objectGroups"];
 }
 
-export async function updateAssessmentPeriodStatus(
-  periodId: number,
-  status: AssessmentPeriodStatus,
-): Promise<AssessmentPeriodItem> {
-  const response = await http.put(`/api/assessment/periods/${periodId}/status`, { status });
-  return response.data?.data as AssessmentPeriodItem;
+export async function listAssessmentSessionObjects(sessionId: number): Promise<AssessmentSessionObjectItem[]> {
+  const response = await http.get(`/api/assessment/sessions/${sessionId}/objects`);
+  return (response.data?.data?.items ?? []) as AssessmentSessionObjectItem[];
 }
 
-export async function listAssessmentObjects(yearId: number): Promise<AssessmentObjectItem[]> {
-  const response = await http.get(`/api/assessment/years/${yearId}/objects`);
-  return (response.data?.data?.items ?? []) as AssessmentObjectItem[];
+export async function listAssessmentObjectCandidates(
+  sessionId: number,
+  keyword?: string,
+): Promise<AssessmentObjectCandidateItem[]> {
+  const response = await http.get(`/api/assessment/sessions/${sessionId}/object-candidates`, {
+    params: {
+      keyword: keyword?.trim() || undefined,
+    },
+  });
+  return (response.data?.data?.items ?? []) as AssessmentObjectCandidateItem[];
+}
+
+export async function updateAssessmentObjects(
+  sessionId: number,
+  payload: UpdateAssessmentObjectsPayload,
+): Promise<AssessmentSessionObjectItem[]> {
+  const response = await http.put(`/api/assessment/sessions/${sessionId}/objects`, payload);
+  return (response.data?.data?.items ?? []) as AssessmentSessionObjectItem[];
+}
+
+export async function resetAssessmentSessionObjects(sessionId: number): Promise<AssessmentSessionObjectItem[]> {
+  const response = await http.post(`/api/assessment/sessions/${sessionId}/objects/reset-default`);
+  return (response.data?.data?.items ?? []) as AssessmentSessionObjectItem[];
 }

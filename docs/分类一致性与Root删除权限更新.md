@@ -1,103 +1,98 @@
-# 分类一致性与 Root 删除权限更新（2026-03-13）
+﻿# 分类一致性与 Root 删除权限更新（场次重构后）
 
-## 1. 分类体系（统一口径）
+- 日期：2026-03-18
+- 版本：v3.0
 
-本次明确并固定以下分类体系：
+## 1. 背景
 
-- 团体分类：
-  - `group`（集团）
-  - `group_leadership_team`（集团领导班子）
-  - `group_department`（集团部门）
-  - `subsidiary_company`（权属企业）
-  - `subsidiary_company_leadership_team`（权属企业领导班子）
-  - `subsidiary_company_department`（权属企业部门）
-- 个人分类：
-  - `leadership_main`（领导班子正职）
-  - `leadership_deputy`（领导班子副职）
-  - `department_main`（部门正职）
-  - `department_deputy`（部门副职）
-  - `general_management_personnel`（一般管理人员）
+旧版本的“全局分类 + 年度规则”已下线，现行系统使用“场次对象分组 + 规则绑定拷贝”。
 
-## 2. 数据库调整
+本更新用于明确两件事：
 
-新增主数据表：`assessment_categories`
+- 分类（对象分组）的一致性口径
+- Root 与 Admin 在删除类操作上的权限边界
 
-- 字段：
-  - `category_code`（唯一编码）
-  - `category_name`（展示名称）
-  - `object_type`（`team` / `individual`）
-  - `sort_order`、`is_system`、`status`
-  - `created_at`、`updated_at`
-- 迁移文件：
-  - `backend/migrations/0008_assessment_categories.up.sql`
-  - `backend/migrations/0008_assessment_categories.down.sql`
-- 种子数据：
-  - 在 `SeedBaselineData` 中新增 `seedDefaultAssessmentCategories`，写入 11 个默认分类。
+## 2. 分类一致性口径
+
+## 2.1 分类来源
+
+当前主流程分类来自场次内对象分组（`assessment_object_groups`），而非全局 `assessment_categories`。
+
+TopBar “考核对象类型”数据源：
+
+- 当前选中场次的对象分组列表
+
+## 2.2 默认分组口径
+
+默认分组（创建场次后自动生成）：
+
+- 团体：`dept`、`child_org`
+- 个人：`dept_main`、`dept_deputy`、`general_staff`、`child_leadership_main`、`child_leadership_deputy`
+
+一致性规则：
+
+- 分组编码在单场次内唯一。
+- 分组编码用于规则绑定键，不建议随意变更历史在用编码。
+
+## 2.3 对象与分类关联
+
+- 对象记录通过 `group_code` 归类。
+- 对象的 `targetType/targetId` 必须能在候选池中找到。
+- 对象主属性改动在组织模块进行，场次对象仅维护分组与排序。
+
+## 3. 删除权限更新
+
+## 3.1 规则文件删除
+
+基础规则（`isCopy=false`）：
+
+- 仅 Root 可删除。
+- Admin 不可删除，可隐藏/恢复显示。
+
+拷贝规则（`isCopy=true`）：
+
+- Root 可删除任意拷贝规则。
+- Admin 仅可删除 `ownerOrgId=自己组织` 的拷贝规则。
+
+## 3.2 绑定删除影响
+
+删除规则文件时：
+
+- 同步删除相关绑定关系
+- 同步删除隐藏记录
+- 尝试删除对应物理文件
+
+## 3.3 组织数据删除
+
+组织、部门、员工删除权限由组织模块规则控制，原则上：
+
+- Root 可全局操作
+- 非 Root 需满足组织写入范围
 
 说明：
-- `position_levels` 继续用于“人员职级/岗位分类”管理。
-- TopBar 与规则的“对象分类”不再由前端散落常量独立维护，而是通过分类主数据统一输出。
 
-## 3. 后端调整
+- 该部分与场次规则权限分开治理，不互相替代。
 
-### 3.1 新增分类查询接口
+## 4. 前端交互更新点
 
-- `GET /api/org/assessment-categories`
-- 权限：`assessment:view`
-- 用途：供 TopBar、规则页、上下文模块统一读取分类主数据。
+规则管理页：
 
-### 3.2 Root 删除权限增强
+- 通过 `canDelete` 控制删除按钮显隐。
+- 通过 `hiddenByCurrentOrg` + `isCopy` 控制“隐藏/恢复”按钮。
+- 删除前统一二次确认。
 
-新增 Root 专属删除接口：
+考核管理页：
 
-- `DELETE /api/org/organizations/:id`
-- `DELETE /api/org/departments/:id`
-- `DELETE /api/org/employees/:id`
+- 对象分组与对象变更均限制在当前场次。
 
-并保留：
+## 5. 验收场景
 
-- `DELETE /api/org/position-levels/:id`（Root）
+1. Admin 尝试删除基础规则 -> 拒绝。
+2. Admin 删除自己组织拷贝规则 -> 成功。
+3. Admin 删除他组织拷贝规则 -> 拒绝。
+4. Root 删除任意规则文件 -> 成功。
+5. 绑定后编辑拷贝规则，不影响源规则与其他组织拷贝。
 
-删除规则：
+---
 
-- 组织删除前会校验是否仍有子组织/部门/人员。
-- 部门删除前会校验是否仍有子部门/人员。
-- 人员删除为软删除（设置 `deleted_at`）。
-- 分类删除允许 Root 执行；若仍被引用（在用）则按业务规则拒绝。
-
-## 4. 前端交互调整
-
-### 4.1 TopBar 分类统一来源
-
-- `context store` 初始化时调用 `/api/org/assessment-categories`。
-- TopBar 分类选项改为使用上下文 store 提供的统一选项。
-- 本地存储分类值会按当前有效分类集合进行校验与归一化。
-
-### 4.2 规则页面分类来源统一
-
-- `RulesView` 移除本地硬编码 `categoryMap`。
-- 规则筛选/创建/模板应用的分类选项统一复用分类定义。
-
-### 4.3 组织架构页面 Root 删除能力
-
-- `OrganizationView` 新增 Root 可见删除按钮：
-  - 组织
-  - 部门
-  - 人员
-  - 分类（含系统分类，仍受“被引用不可删”约束）
-- 组织架构四个列表（组织/部门/分类/人员）首列展示“序号”而非数据库 `id`；序号仅按当前表格数据从 1 递增
-
-## 5. 验证
-
-后端测试：
-
-- `go test ./internal/api/router -run TestM2 -count=1` 通过
-- 新增测试覆盖：
-  - 分类列表接口返回默认 11 类及团队/个人分布
-  - Root 删除组织/部门/人员成功
-  - 非 Root 删除组织/部门/人员被拒绝
-  - Root 可删除系统分类
-
-前端检查：
-
-- `npm run typecheck` 通过
+本文件用于统一“分类口径”和“删除权限边界”，与《06-权限管理系统设计方案》共同生效。

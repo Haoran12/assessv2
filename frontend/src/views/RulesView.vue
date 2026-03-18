@@ -1,16 +1,21 @@
-<template>
+﻿<template>
   <div class="rules-view">
     <el-card>
       <template #header>
         <div class="card-header">
           <div>
-            <strong>总分规则</strong>
+            <strong>规则管理</strong>
             <div class="subtitle">{{ contextText }}</div>
           </div>
           <div class="header-actions">
-            <el-button :loading="loading" @click="loadRuleForContext">刷新</el-button>
-            <el-button type="primary" :loading="saving" :disabled="!canSave" @click="saveModules">
-              保存
+            <el-button :loading="loading" @click="loadData">刷新</el-button>
+            <el-button
+              v-if="isRoot"
+              type="primary"
+              :disabled="!contextStore.sessionId"
+              @click="createGlobalRule"
+            >
+              新建基础规则
             </el-button>
           </div>
         </div>
@@ -24,677 +29,916 @@
         class="mb-12"
       />
 
-      <template v-else>
-        <el-alert
-          title="总分 = Σ(模块分数 × 模块权重) + 额外加减分"
-          type="info"
-          :closable="false"
-          class="mb-12"
-        />
-
-        <el-empty v-if="!loading && editableModules.length === 0" description="当前尚未配置模块，请新增后保存" />
-
-        <el-table v-loading="loading" :data="editableModules" border>
-          <el-table-column type="index" label="#" width="60" />
-          <el-table-column label="模块名称" min-width="260">
-            <template #default="{ row }">
-              <el-input v-model="row.moduleName" maxlength="100" />
+      <el-row :gutter="12">
+        <el-col :md="10" :sm="24" :xs="24">
+          <el-card shadow="never" class="inner-card">
+            <template #header>
+              <div class="inner-header">
+                <strong>规则文件库</strong>
+                <el-switch
+                  v-model="includeHidden"
+                  active-text="显示隐藏"
+                  inactive-text="隐藏过滤"
+                  @change="loadFilesOnly"
+                />
+              </div>
             </template>
-          </el-table-column>
-          <el-table-column label="模块权重(%)" width="190">
-            <template #default="{ row }">
-              <el-input-number
-                v-model="row.weightPercent"
-                :min="0"
-                :max="100"
-                :precision="2"
-                :step="0.5"
-                controls-position="right"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column label="计算方式" width="180">
-            <template #default="{ row }">
-              <el-select v-model="row.calculationMethod" style="width: 140px">
-                <el-option label="直接录入" value="manual" />
-                <el-option label="投票计算" value="vote" />
-                <el-option label="自定义规则" value="formula" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="100" fixed="right">
-            <template #default="{ $index }">
-              <el-button link type="danger" @click="removeModule($index)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
 
-        <div class="table-actions">
-          <el-button :disabled="!canEdit || loading" @click="addModule">新增模块</el-button>
-          <div class="weight-sum" :class="{ invalid: !weightSumValid }">
-            权重和（不含加减分模块）：{{ weightSumPercent.toFixed(2) }}%
-          </div>
-        </div>
+            <el-table v-loading="loadingFiles" :data="ruleFiles" border height="600" @row-click="pickRule">
+              <el-table-column prop="id" label="ID" width="80" />
+              <el-table-column label="名称" min-width="180">
+                <template #default="{ row }">
+                  <div class="rule-name-cell">
+                    <span>{{ row.ruleName }}</span>
+                    <el-tag size="small" :type="row.isCopy ? 'success' : 'info'">
+                      {{ row.isCopy ? "拷贝" : "基础" }}
+                    </el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="190" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" :disabled="!canBind" @click.stop="bindRule(row)">绑定</el-button>
+                  <el-button
+                    v-if="!row.isCopy && !row.hiddenByCurrentOrg && !isRoot"
+                    link
+                    @click.stop="hideRule(row)"
+                  >
+                    隐藏
+                  </el-button>
+                  <el-button
+                    v-if="!row.isCopy && row.hiddenByCurrentOrg && !isRoot"
+                    link
+                    type="warning"
+                    @click.stop="unhideRule(row)"
+                  >
+                    恢复
+                  </el-button>
+                  <el-button v-if="row.canDelete" link type="danger" @click.stop="removeRule(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+        </el-col>
 
-        <el-alert
-          v-if="!weightSumValid"
-          title="参与折算模块的权重和必须等于 100%"
-          type="warning"
-          :closable="false"
-          class="mb-12"
-        />
+        <el-col :md="14" :sm="24" :xs="24">
+          <el-card shadow="never" class="inner-card">
+            <template #header>
+              <div class="inner-header">
+                <strong>结构化规则编辑</strong>
+                <el-tag v-if="activeBindingRuleName" type="warning">当前绑定：{{ activeBindingRuleName }}</el-tag>
+              </div>
+            </template>
 
-        <el-alert
-          :title="extraModuleTip"
-          type="info"
-          :closable="false"
-        />
-      </template>
+            <el-empty v-if="!selectedRule" description="请选择一个规则文件" />
+            <template v-else>
+              <el-form label-width="90px" class="rule-meta-form">
+                <el-form-item label="规则名">
+                  <el-input v-model="editForm.ruleName" :disabled="!canEditRule" />
+                </el-form-item>
+                <el-form-item label="说明">
+                  <el-input
+                    v-model="editForm.description"
+                    type="textarea"
+                    :rows="2"
+                    :disabled="!canEditRule"
+                  />
+                </el-form-item>
+              </el-form>
+
+              <div class="section-block">
+                <div class="section-head">
+                  <strong>分数计算（两级）</strong>
+                  <el-button size="small" :disabled="!canEditRule" @click="addModule">新增模块</el-button>
+                </div>
+                <el-table :data="scoreModules" border>
+                  <el-table-column label="模块名称" min-width="160">
+                    <template #default="{ row }">
+                      <span>{{ row.moduleName }}</span>
+                      <el-tag v-if="row.isExtra" size="small" type="warning" class="ml-6">额外</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="权重" width="110">
+                    <template #default="{ row }">
+                      <span>{{ row.isExtra ? "-" : row.weight }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="计分方式" width="130">
+                    <template #default="{ row }">
+                      {{ methodLabel(row.method) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="二级子模块" width="120">
+                    <template #default="{ row }">
+                      {{ row.subModules.length }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="160" fixed="right">
+                    <template #default="{ row }">
+                      <el-button link type="primary" @click="openModuleDetail(row)">详情</el-button>
+                      <el-button
+                        link
+                        type="danger"
+                        :disabled="!canEditRule || row.isExtra"
+                        @click="removeModule(row)"
+                      >
+                        删除
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div class="formula-text">
+                  总权重：{{ totalWeight }}。总分 = Σ(单模块分数 * 权重 / Σ总权重) + 额外加减分
+                </div>
+              </div>
+
+              <div class="section-block">
+                <div class="section-head">
+                  <strong>等第划分</strong>
+                  <el-button size="small" :disabled="!canEditRule" @click="addGradeRule">新增等第</el-button>
+                </div>
+                <el-table :data="ruleContent.gradeRules" border>
+                  <el-table-column label="等第" width="120">
+                    <template #default="{ row }">
+                      <el-input v-model="row.grade" :disabled="!canEditRule" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="最低分" width="140">
+                    <template #default="{ row }">
+                      <el-input-number v-model="row.min" :disabled="!canEditRule" :step="0.1" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="最高分" width="140">
+                    <template #default="{ row }">
+                      <el-input-number v-model="row.max" :disabled="!canEditRule" :step="0.1" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="100">
+                    <template #default="{ $index }">
+                      <el-button link type="danger" :disabled="!canEditRule" @click="removeGradeRule($index)">删除</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+
+              <div class="editor-actions">
+                <el-button type="primary" :disabled="!canEditRule || saving" :loading="saving" @click="saveRule">
+                  保存规则
+                </el-button>
+              </div>
+
+              <el-collapse class="json-preview">
+                <el-collapse-item title="JSON预览（只读）" name="preview">
+                  <el-input :model-value="structuredJsonPreview" type="textarea" :rows="10" readonly />
+                </el-collapse-item>
+              </el-collapse>
+            </template>
+          </el-card>
+        </el-col>
+      </el-row>
     </el-card>
+
+    <el-dialog v-model="moduleDialogVisible" title="模块详情" width="900px">
+      <el-form label-width="110px" class="module-dialog-form">
+        <el-form-item label="模块名称" required>
+          <el-input v-model="moduleForm.moduleName" :disabled="!canEditRule" />
+        </el-form-item>
+        <el-form-item label="权重" v-if="!moduleForm.isExtra">
+          <el-input-number v-model="moduleForm.weight" :disabled="!canEditRule" :min="0" :step="1" />
+        </el-form-item>
+        <el-form-item label="计分方式">
+          <el-select v-model="moduleForm.method" :disabled="!canEditRule" style="width: 220px">
+            <el-option label="直接录入" value="direct_input" />
+            <el-option label="投票" value="vote" />
+            <el-option label="自定义脚本" value="custom_script" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="直接录入配置" v-if="moduleForm.method === 'direct_input'">
+          <div class="inline-form-row">
+            <el-input-number v-model="moduleForm.detail.directInput.min" :disabled="!canEditRule" :step="0.1" />
+            <span class="inline-label">最小分</span>
+            <el-input-number v-model="moduleForm.detail.directInput.max" :disabled="!canEditRule" :step="0.1" />
+            <span class="inline-label">最大分</span>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="投票配置" v-if="moduleForm.method === 'vote'">
+          <el-input
+            v-model="moduleForm.detail.vote.ballotTemplate"
+            :disabled="!canEditRule"
+            type="textarea"
+            :rows="2"
+            placeholder="描述投票模板或规则说明"
+          />
+        </el-form-item>
+
+        <el-form-item label="脚本配置" v-if="moduleForm.method === 'custom_script'">
+          <el-input
+            v-model="moduleForm.detail.customScript.script"
+            :disabled="!canEditRule"
+            type="textarea"
+            :rows="6"
+            placeholder="填写自定义评分脚本"
+          />
+        </el-form-item>
+
+        <el-form-item label="二级子模块">
+          <div class="submodule-editor">
+            <div class="submodule-toolbar">
+              <el-button size="small" :disabled="!canEditRule" @click="addSubModule">新增子模块</el-button>
+            </div>
+            <el-table :data="moduleForm.subModules" border>
+              <el-table-column label="名称" min-width="180">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" :disabled="!canEditRule" />
+                </template>
+              </el-table-column>
+              <el-table-column label="权重" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.weight" :disabled="!canEditRule" :min="0" :step="1" />
+                </template>
+              </el-table-column>
+              <el-table-column label="计分方式" width="140">
+                <template #default="{ row }">
+                  <el-select v-model="row.method" :disabled="!canEditRule" style="width: 120px">
+                    <el-option label="直接录入" value="direct_input" />
+                    <el-option label="投票" value="vote" />
+                    <el-option label="脚本" value="custom_script" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="100">
+                <template #default="{ $index }">
+                  <el-button link type="danger" :disabled="!canEditRule" @click="removeSubModule($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="moduleDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!canEditRule" @click="saveModuleDetail">保存模块</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { createRule, getRule, listRules, updateRule } from "@/api/rules";
-import { objectTypeByCategory, assessmentCategoryLabel } from "@/constants/assessmentCategories";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
-import { useUnsavedStore } from "@/stores/unsaved";
-import { periodDisplayLabel } from "@/utils/assessment";
-import type { AssessmentObjectCategory, AssessmentObjectType } from "@/types/assessment";
-import type { CreateRulePayload, RuleDetail, RuleModule, RuleVoteGroup, UpdateRulePayload } from "@/types/rules";
+import {
+  createRuleFile,
+  deleteRuleFile,
+  hideRuleFile,
+  listRuleBindings,
+  listRuleFiles,
+  selectRuleBinding,
+  unhideRuleFile,
+  updateRuleFile,
+} from "@/api/rules";
+import type { RuleBindingItem, RuleFileItem } from "@/types/rules";
 
-type UiMethod = "manual" | "vote" | "formula";
+type ScoreMethod = "direct_input" | "vote" | "custom_script";
 
-interface EditableModuleRow {
+interface RuleDetailConfig {
+  directInput: {
+    min: number;
+    max: number;
+  };
+  vote: {
+    ballotTemplate: string;
+  };
+  customScript: {
+    script: string;
+  };
+}
+
+interface ScoreSubModule {
+  id: string;
+  name: string;
+  weight: number;
+  method: ScoreMethod;
+}
+
+interface ScoreModule {
+  moduleKey: string;
   moduleName: string;
-  weightPercent: number;
-  calculationMethod: UiMethod;
-  sourceModule?: RuleModule;
+  weight: number;
+  method: ScoreMethod;
+  isExtra: boolean;
+  subModules: ScoreSubModule[];
+  detail: RuleDetailConfig;
 }
 
-interface RuleMeta {
-  id?: number;
-  ruleName: string;
-  description: string;
-  isActive: boolean;
+interface GradeRule {
+  grade: string;
+  min: number;
+  max: number;
 }
 
-interface ActiveContext {
-  yearId: number;
-  periodCode: string;
-  objectCategory: AssessmentObjectCategory;
-  objectType: AssessmentObjectType;
+interface StructuredRuleContent {
+  version: number;
+  scoreModules: ScoreModule[];
+  gradeRules: GradeRule[];
 }
 
 const appStore = useAppStore();
 const contextStore = useContextStore();
-const unsavedStore = useUnsavedStore();
 
 const loading = ref(false);
+const loadingFiles = ref(false);
 const saving = ref(false);
-const contextWarning = ref("");
-const editableModules = ref<EditableModuleRow[]>([]);
-const extraModules = ref<RuleModule[]>([]);
-const ruleMeta = ref<RuleMeta>({
-  id: undefined,
+
+const includeHidden = ref(false);
+const ruleFiles = ref<RuleFileItem[]>([]);
+const bindings = ref<RuleBindingItem[]>([]);
+const selectedRule = ref<RuleFileItem | null>(null);
+const editForm = reactive({
   ruleName: "",
   description: "",
-  isActive: true,
 });
-const baselineSignature = ref("");
-const dirtySourceId = "rules-total";
 
-const canEdit = computed(() => appStore.hasPermission("rule:update"));
+const ruleContent = reactive<StructuredRuleContent>(defaultRuleContent());
 
-const activeContext = computed<ActiveContext | null>(() => {
-  if (!contextStore.yearId) {
-    return null;
-  }
-  const periodCode = contextStore.periodCode?.trim();
-  if (!periodCode) {
-    return null;
-  }
-  if (contextStore.objectCategory === "all") {
-    return null;
-  }
-  const category = contextStore.objectCategory as AssessmentObjectCategory;
-  return {
-    yearId: contextStore.yearId,
-    periodCode,
-    objectCategory: category,
-    objectType: objectTypeByCategory(category),
-  };
-});
+const moduleDialogVisible = ref(false);
+const moduleEditingKey = ref("");
+const moduleForm = reactive<ScoreModule>(newRegularModule("", 0));
+
+const contextWarning = ref("");
+
+const isRoot = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
+const canBind = computed(
+  () =>
+    appStore.hasPermission("rule:update") &&
+    !!contextStore.sessionId &&
+    !!contextStore.periodCode &&
+    !!contextStore.objectGroupCode,
+);
+const canEditRule = computed(() => !!selectedRule.value?.canEdit);
+
+const scoreModules = computed(() => ruleContent.scoreModules);
+const totalWeight = computed(() =>
+  ruleContent.scoreModules.filter((item) => !item.isExtra).reduce((sum, item) => sum + asNumber(item.weight, 0), 0),
+);
+
+const structuredJsonPreview = computed(() => JSON.stringify(normalizeRuleContent(ruleContent), null, 2));
 
 const contextText = computed(() => {
-  const yearText = contextStore.currentYear
-    ? `${contextStore.currentYear.year}年`
-    : "未选择年度";
-  const periodText = contextStore.periodCode
-    ? periodDisplayLabel(contextStore.periodCode, contextStore.currentPeriod?.periodName)
-    : "未选择周期";
-  const categoryText =
-    contextStore.objectCategory === "all"
-      ? "全部分类"
-      : assessmentCategoryLabel(contextStore.objectCategory);
-  const objectTypeText =
-    contextStore.objectCategory === "all"
-      ? "未确定"
-      : objectTypeByCategory(contextStore.objectCategory) === "team"
-        ? "团体"
-        : "个人";
-  return `当前上下文：${yearText} / ${periodText} / ${objectTypeText} / ${categoryText}`;
+  const sessionText = contextStore.currentSession?.displayName || "未选择场次";
+  const periodText = contextStore.currentPeriod?.periodName || "未选择周期";
+  const groupText = contextStore.currentObjectGroup?.groupName || "未选择对象类型";
+  return `当前上下文：${sessionText} / ${periodText} / ${groupText}`;
 });
 
-const weightSumPercent = computed(() =>
-  editableModules.value.reduce((sum, item) => sum + normalizeWeightPercent(item.weightPercent), 0),
+const activeBinding = computed(() =>
+  bindings.value.find(
+    (item) => item.periodCode === contextStore.periodCode && item.objectGroupCode === contextStore.objectGroupCode,
+  ),
 );
 
-const weightSumValid = computed(() => Math.abs(roundTo2(weightSumPercent.value) - 100) < 0.001);
+const activeBindingRuleName = computed(() => activeBinding.value?.ruleFile?.ruleName || "");
 
-const canSave = computed(
-  () =>
-    canEdit.value &&
-    !loading.value &&
-    !saving.value &&
-    !!activeContext.value &&
-    editableModules.value.length > 0 &&
-    weightSumValid.value,
-);
+function defaultDetailConfig(): RuleDetailConfig {
+  return {
+    directInput: {
+      min: 0,
+      max: 100,
+    },
+    vote: {
+      ballotTemplate: "",
+    },
+    customScript: {
+      script: "",
+    },
+  };
+}
 
-const extraModuleTip = computed(() => {
-  const fixedName = extraModules.value[0]?.moduleName || "权重外加减分";
-  return `固定模块：「${fixedName}」不参与权重和校验。`;
-});
+function newSubModule(seed: string, index: number): ScoreSubModule {
+  return {
+    id: `sub_${Date.now()}_${index}`,
+    name: seed || `子模块${index + 1}`,
+    weight: 100,
+    method: "direct_input",
+  };
+}
 
-function buildContextWarning(): string {
-  if (!contextStore.yearId) {
-    return "请先在顶部选择年度";
+function newRegularModule(seed: string, index: number): ScoreModule {
+  const key = `module_${Date.now()}_${index}`;
+  return {
+    moduleKey: key,
+    moduleName: seed || `模块${index + 1}`,
+    weight: 10,
+    method: "direct_input",
+    isExtra: false,
+    subModules: [newSubModule("", 0)],
+    detail: defaultDetailConfig(),
+  };
+}
+
+function newExtraModule(): ScoreModule {
+  return {
+    moduleKey: "extra_adjust",
+    moduleName: "额外加减分模块",
+    weight: 0,
+    method: "direct_input",
+    isExtra: true,
+    subModules: [],
+    detail: defaultDetailConfig(),
+  };
+}
+
+function defaultRuleContent(): StructuredRuleContent {
+  return {
+    version: 2,
+    scoreModules: [
+      {
+        moduleKey: "base_performance",
+        moduleName: "基础绩效",
+        weight: 100,
+        method: "direct_input",
+        isExtra: false,
+        subModules: [
+          {
+            id: "base_daily",
+            name: "日常工作",
+            weight: 100,
+            method: "direct_input",
+          },
+        ],
+        detail: defaultDetailConfig(),
+      },
+      newExtraModule(),
+    ],
+    gradeRules: [
+      { grade: "A", min: 90, max: 100 },
+      { grade: "B", min: 80, max: 89.99 },
+      { grade: "C", min: 70, max: 79.99 },
+      { grade: "D", min: 0, max: 69.99 },
+    ],
+  };
+}
+
+function methodLabel(method: ScoreMethod): string {
+  switch (method) {
+    case "direct_input":
+      return "直接录入";
+    case "vote":
+      return "投票";
+    case "custom_script":
+      return "自定义脚本";
+    default:
+      return method;
   }
-  if (!contextStore.periodCode?.trim()) {
-    return "请先在顶部选择周期";
+}
+
+function normalizeMethod(value: unknown): ScoreMethod {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "vote" || text === "voting") {
+    return "vote";
   }
-  if (contextStore.objectCategory === "all") {
-    return "请先在顶部选择具体考核对象分类";
+  if (text === "custom_script" || text === "script" || text === "custom") {
+    return "custom_script";
+  }
+  return "direct_input";
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function cloneContent(content: StructuredRuleContent): StructuredRuleContent {
+  return JSON.parse(JSON.stringify(content)) as StructuredRuleContent;
+}
+
+function normalizeSubModule(raw: any, index: number): ScoreSubModule {
+  return {
+    id: String(raw?.id || `sub_${Date.now()}_${index}`),
+    name: String(raw?.name || raw?.moduleName || `子模块${index + 1}`).trim(),
+    weight: Math.max(0, asNumber(raw?.weight, 0)),
+    method: normalizeMethod(raw?.method),
+  };
+}
+
+function normalizeModule(raw: any, index: number): ScoreModule {
+  const isExtra = Boolean(raw?.isExtra);
+  const key = String(raw?.moduleKey || `module_${index + 1}`).trim() || `module_${index + 1}`;
+  const subModulesRaw = Array.isArray(raw?.subModules) ? raw.subModules : [];
+  const subModules = subModulesRaw.map((item, subIndex) => normalizeSubModule(item, subIndex));
+  return {
+    moduleKey: isExtra ? "extra_adjust" : key,
+    moduleName: String(raw?.moduleName || `模块${index + 1}`).trim(),
+    weight: isExtra ? 0 : Math.max(0, asNumber(raw?.weight, 0)),
+    method: normalizeMethod(raw?.method),
+    isExtra,
+    subModules,
+    detail: {
+      directInput: {
+        min: asNumber(raw?.detail?.directInput?.min, 0),
+        max: asNumber(raw?.detail?.directInput?.max, 100),
+      },
+      vote: {
+        ballotTemplate: String(raw?.detail?.vote?.ballotTemplate || ""),
+      },
+      customScript: {
+        script: String(raw?.detail?.customScript?.script || ""),
+      },
+    },
+  };
+}
+
+function normalizeRuleContent(input: StructuredRuleContent | Record<string, any>): StructuredRuleContent {
+  const raw = input as any;
+  const sourceModules = Array.isArray(raw?.scoreModules)
+    ? raw.scoreModules
+    : Array.isArray(raw?.scoreCalculation?.modules)
+      ? raw.scoreCalculation.modules
+      : [];
+
+  const modules = sourceModules.map((item, index) => normalizeModule(item, index));
+  const regularModules = modules.filter((item) => !item.isExtra);
+  const extraModules = modules.filter((item) => item.isExtra);
+  const normalizedModules = [...regularModules, extraModules[0] || newExtraModule()];
+
+  const gradeRaw = Array.isArray(raw?.gradeRules)
+    ? raw.gradeRules
+    : Array.isArray(raw?.grade?.rules)
+      ? raw.grade.rules
+      : [];
+  const gradeRules = gradeRaw
+    .map((item: any) => ({
+      grade: String(item?.grade || "").trim(),
+      min: asNumber(item?.min, 0),
+      max: asNumber(item?.max, 0),
+    }))
+    .filter((item: GradeRule) => item.grade !== "");
+
+  return {
+    version: asNumber(raw?.version, 2),
+    scoreModules: normalizedModules,
+    gradeRules: gradeRules.length > 0 ? gradeRules : cloneContent(defaultRuleContent()).gradeRules,
+  };
+}
+
+function parseRuleContent(raw: string): StructuredRuleContent {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return cloneContent(defaultRuleContent());
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return normalizeRuleContent(parsed as Record<string, any>);
+  } catch (_error) {
+    return cloneContent(defaultRuleContent());
+  }
+}
+
+function fillEditor(rule: RuleFileItem | null): void {
+  if (!rule) {
+    editForm.ruleName = "";
+    editForm.description = "";
+    Object.assign(ruleContent, defaultRuleContent());
+    return;
+  }
+  editForm.ruleName = rule.ruleName;
+  editForm.description = rule.description || "";
+  Object.assign(ruleContent, parseRuleContent(rule.contentJson || ""));
+}
+
+function pickRule(row: RuleFileItem): void {
+  selectedRule.value = row;
+  fillEditor(row);
+}
+
+function validateContext(): string {
+  if (!contextStore.sessionId) {
+    return "请先选择考核场次";
+  }
+  if (!contextStore.periodCode) {
+    return "请先选择周期";
+  }
+  if (!contextStore.objectGroupCode) {
+    return "请先选择考核对象类型";
   }
   return "";
 }
 
-function roundTo2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function roundTo4(value: number): number {
-  return Math.round(value * 10000) / 10000;
-}
-
-function normalizeWeightPercent(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  if (value < 0) {
-    return 0;
-  }
-  if (value > 100) {
-    return 100;
-  }
-  return roundTo2(value);
-}
-
-function toUiMethod(module: RuleModule): UiMethod {
-  if (module.moduleCode === "vote") {
-    return "vote";
-  }
-  if (module.moduleCode === "custom") {
-    return "formula";
-  }
-  return "manual";
-}
-
-function defaultRuleName(ctx: ActiveContext): string {
-  const periodText = periodDisplayLabel(ctx.periodCode, contextStore.currentPeriod?.periodName);
-  return `${ctx.yearId}-${periodText}-${assessmentCategoryLabel(ctx.objectCategory)}-总分规则`;
-}
-
-function defaultExtraModule(sortOrder: number, usedKeys: Set<string>): RuleModule {
-  let moduleKey = "extra_points";
-  let suffix = 1;
-  while (usedKeys.has(moduleKey)) {
-    suffix += 1;
-    moduleKey = `extra_points_${suffix}`;
-  }
-  usedKeys.add(moduleKey);
-  return {
-    moduleCode: "extra",
-    moduleKey,
-    moduleName: "权重外加减分",
-    sortOrder,
-    isActive: true,
-  };
-}
-
-function normalizeVoteGroups(groups: RuleVoteGroup[] | undefined): RuleVoteGroup[] {
-  if (!groups || groups.length === 0) {
-    return [
-      {
-        groupCode: "custom_group",
-        groupName: "默认分组",
-        weight: 1,
-        voterType: "custom",
-        maxScore: 100,
-        sortOrder: 1,
-        isActive: true,
-      },
-    ];
-  }
-
-  const normalized = groups.map((group, index) => ({
-    ...group,
-    groupCode: String(group.groupCode || `group_${index + 1}`).trim(),
-    groupName: String(group.groupName || `分组${index + 1}`).trim(),
-    weight: Number.isFinite(group.weight) && group.weight > 0 ? Number(group.weight) : 0,
-    voterType: String(group.voterType || "custom").trim() || "custom",
-    maxScore: Number.isFinite(group.maxScore) && group.maxScore > 0 ? Number(group.maxScore) : 100,
-    sortOrder: index + 1,
-    isActive: group.isActive !== false,
-  }));
-
-  const sum = normalized.reduce((acc, item) => acc + item.weight, 0);
-  if (sum <= 0) {
-    normalized[0].weight = 1;
-    return normalized;
-  }
-
-  if (Math.abs(sum - 1) > 0.00001) {
-    const scaled = normalized.map((item) => ({ ...item, weight: roundTo4(item.weight / sum) }));
-    const scaledSum = scaled.reduce((acc, item) => acc + item.weight, 0);
-    const delta = roundTo4(1 - scaledSum);
-    scaled[scaled.length - 1].weight = roundTo4(scaled[scaled.length - 1].weight + delta);
-    return scaled;
-  }
-
-  return normalized;
-}
-
-function fallbackModuleKey(moduleName: string, index: number, usedKeys: Set<string>): string {
-  const base = moduleName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  let candidate = base ? `${base}_${index + 1}` : `module_${index + 1}`;
-  let suffix = 1;
-  while (usedKeys.has(candidate)) {
-    suffix += 1;
-    candidate = `${base || `module_${index + 1}`}_${suffix}`;
-  }
-  usedKeys.add(candidate);
-  return candidate;
-}
-
-function currentSignature(): string {
-  return JSON.stringify({
-    context: {
-      yearId: contextStore.yearId || null,
-      periodCode: contextStore.periodCode || "",
-      objectCategory: contextStore.objectCategory,
-    },
-    ruleId: ruleMeta.value.id || null,
-    modules: editableModules.value.map((item) => ({
-      moduleName: item.moduleName,
-      weightPercent: roundTo2(item.weightPercent),
-      calculationMethod: item.calculationMethod,
-      sourceModuleCode: item.sourceModule?.moduleCode || "",
-      sourceModuleKey: item.sourceModule?.moduleKey || "",
-    })),
-  });
-}
-
-function resetBaseline(): void {
-  baselineSignature.value = currentSignature();
-  unsavedStore.clearDirty(dirtySourceId);
-}
-
-function applyRuleDetail(detail: RuleDetail, ctx: ActiveContext): void {
-  ruleMeta.value = {
-    id: detail.rule.id,
-    ruleName: detail.rule.ruleName,
-    description: detail.rule.description || "",
-    isActive: detail.rule.isActive,
-  };
-
-  const modules = [...detail.modules].sort((a, b) => {
-    if (a.sortOrder !== b.sortOrder) {
-      return a.sortOrder - b.sortOrder;
-    }
-    return (a.id || 0) - (b.id || 0);
-  });
-
-  const normals: EditableModuleRow[] = [];
-  const extras: RuleModule[] = [];
-
-  for (const module of modules) {
-    if (module.moduleCode === "extra") {
-      extras.push(module);
-      continue;
-    }
-    normals.push({
-      moduleName: module.moduleName,
-      weightPercent: roundTo2((module.weight || 0) * 100),
-      calculationMethod: toUiMethod(module),
-      sourceModule: module,
-    });
-  }
-
-  editableModules.value = normals;
-  extraModules.value = extras;
-
-  if (!ruleMeta.value.ruleName.trim()) {
-    ruleMeta.value.ruleName = defaultRuleName(ctx);
-  }
-}
-
-function applyEmptyRule(ctx: ActiveContext): void {
-  ruleMeta.value = {
-    id: undefined,
-    ruleName: defaultRuleName(ctx),
-    description: "",
-    isActive: true,
-  };
-  editableModules.value = [];
-  extraModules.value = [];
-}
-
-async function loadRuleForContext(): Promise<void> {
-  const warning = buildContextWarning();
-  contextWarning.value = warning;
-
-  if (warning || !activeContext.value) {
-    editableModules.value = [];
-    extraModules.value = [];
-    ruleMeta.value = {
-      id: undefined,
-      ruleName: "",
-      description: "",
-      isActive: true,
-    };
-    resetBaseline();
+async function loadFilesOnly(): Promise<void> {
+  if (!contextStore.sessionId) {
+    ruleFiles.value = [];
+    selectedRule.value = null;
+    fillEditor(null);
     return;
   }
-
-  const ctx = activeContext.value;
-  loading.value = true;
+  loadingFiles.value = true;
   try {
-    const rules = await listRules({
-      yearId: ctx.yearId,
-      periodCode: ctx.periodCode,
-      objectType: ctx.objectType,
-      objectCategory: ctx.objectCategory,
-    });
-
-    if (rules.length === 0) {
-      applyEmptyRule(ctx);
-      resetBaseline();
+    const items = await listRuleFiles(contextStore.sessionId, includeHidden.value);
+    ruleFiles.value = items;
+    if (!selectedRule.value) {
+      if (items.length > 0) {
+        pickRule(items[0]);
+      }
       return;
     }
+    const hit = items.find((item) => item.id === selectedRule.value?.id);
+    if (hit) {
+      pickRule(hit);
+      return;
+    }
+    selectedRule.value = null;
+    fillEditor(null);
+  } finally {
+    loadingFiles.value = false;
+  }
+}
 
-    const targetRule = rules[0];
-    const detail = await getRule(targetRule.id);
-    applyRuleDetail(detail, ctx);
-    resetBaseline();
+async function loadBindingsOnly(): Promise<void> {
+  if (!contextStore.sessionId) {
+    bindings.value = [];
+    return;
+  }
+  bindings.value = await listRuleBindings(contextStore.sessionId);
+}
+
+async function loadData(): Promise<void> {
+  loading.value = true;
+  try {
+    await contextStore.ensureInitialized();
+    contextWarning.value = validateContext();
+    await Promise.all([loadFilesOnly(), loadBindingsOnly()]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "总分规则加载失败";
+    const message = error instanceof Error ? error.message : "加载规则管理数据失败";
     ElMessage.error(message);
   } finally {
     loading.value = false;
   }
 }
 
-function addModule(): void {
-  if (!canEdit.value) {
-    ElMessage.warning("当前账号没有总分规则编辑权限");
+async function bindRule(rule: RuleFileItem): Promise<void> {
+  if (!canBind.value || !contextStore.sessionId) {
+    ElMessage.warning("请先补全顶部上下文");
     return;
   }
-
-  const maxEditable = extraModules.value.length > 0 ? 9 : 10;
-  if (editableModules.value.length >= maxEditable) {
-    ElMessage.warning(`最多只能配置 ${maxEditable} 个可折算模块`);
-    return;
-  }
-
-  editableModules.value.push({
-    moduleName: `新模块${editableModules.value.length + 1}`,
-    weightPercent: 0,
-    calculationMethod: "manual",
-  });
-}
-
-async function removeModule(index: number): Promise<void> {
-  if (!canEdit.value) {
-    ElMessage.warning("当前账号没有总分规则编辑权限");
-    return;
-  }
-
   try {
-    await ElMessageBox.confirm("确认删除该模块吗？", "删除确认", {
-      type: "warning",
+    const binding = await selectRuleBinding({
+      assessmentId: contextStore.sessionId,
+      periodCode: contextStore.periodCode,
+      objectGroupCode: contextStore.objectGroupCode,
+      sourceRuleId: rule.id,
     });
-  } catch (_error) {
+    ElMessage.success("规则已绑定并自动创建组织拷贝");
+    await Promise.all([loadFilesOnly(), loadBindingsOnly()]);
+    const hit = ruleFiles.value.find((item) => item.id === binding.ruleFile.id);
+    if (hit) {
+      pickRule(hit);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "绑定规则失败";
+    ElMessage.error(message);
+  }
+}
+
+async function createGlobalRule(): Promise<void> {
+  if (!contextStore.sessionId) {
+    ElMessage.warning("请先选择考核场次");
+    return;
+  }
+  try {
+    const created = await createRuleFile({
+      assessmentId: contextStore.sessionId,
+      ruleName: `基础规则-${Date.now()}`,
+      description: "Root 创建的基础规则",
+      contentJson: JSON.stringify(defaultRuleContent(), null, 2),
+    });
+    ElMessage.success("基础规则已创建");
+    await loadFilesOnly();
+    const hit = ruleFiles.value.find((item) => item.id === created.id);
+    if (hit) {
+      pickRule(hit);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "创建规则失败";
+    ElMessage.error(message);
+  }
+}
+
+function addModule(): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  const extraIndex = ruleContent.scoreModules.findIndex((item) => item.isExtra);
+  const insertIndex = extraIndex >= 0 ? extraIndex : ruleContent.scoreModules.length;
+  ruleContent.scoreModules.splice(insertIndex, 0, newRegularModule("", insertIndex));
+}
+
+function removeModule(module: ScoreModule): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  if (module.isExtra) {
+    ElMessage.warning("额外加减分模块不可删除");
+    return;
+  }
+  const index = ruleContent.scoreModules.findIndex((item) => item.moduleKey === module.moduleKey);
+  if (index >= 0) {
+    ruleContent.scoreModules.splice(index, 1);
+  }
+}
+
+function openModuleDetail(module: ScoreModule): void {
+  moduleEditingKey.value = module.moduleKey;
+  Object.assign(moduleForm, JSON.parse(JSON.stringify(module)) as ScoreModule);
+  moduleDialogVisible.value = true;
+}
+
+function addSubModule(): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  moduleForm.subModules.push(newSubModule("", moduleForm.subModules.length));
+}
+
+function removeSubModule(index: number): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  moduleForm.subModules.splice(index, 1);
+}
+
+function saveModuleDetail(): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  if (!moduleForm.moduleName.trim()) {
+    ElMessage.warning("模块名称不能为空");
+    return;
+  }
+  for (const sub of moduleForm.subModules) {
+    if (!sub.name.trim()) {
+      ElMessage.warning("子模块名称不能为空");
+      return;
+    }
+  }
+  const index = ruleContent.scoreModules.findIndex((item) => item.moduleKey === moduleEditingKey.value);
+  if (index < 0) {
+    moduleDialogVisible.value = false;
+    return;
+  }
+  ruleContent.scoreModules[index] = normalizeModule(moduleForm, index);
+  if (ruleContent.scoreModules[index].isExtra) {
+    ruleContent.scoreModules[index].weight = 0;
+    ruleContent.scoreModules[index].moduleName = "额外加减分模块";
+  }
+  moduleDialogVisible.value = false;
+}
+
+function addGradeRule(): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  ruleContent.gradeRules.push({ grade: "", min: 0, max: 0 });
+}
+
+function removeGradeRule(index: number): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  ruleContent.gradeRules.splice(index, 1);
+}
+
+function validateRuleContent(content: StructuredRuleContent): string {
+  const regularModules = content.scoreModules.filter((item) => !item.isExtra);
+  const extraModules = content.scoreModules.filter((item) => item.isExtra);
+  if (regularModules.length === 0) {
+    return "至少保留一个常规模块";
+  }
+  if (extraModules.length !== 1) {
+    return "必须且只能保留一个额外加减分模块";
+  }
+  for (const module of regularModules) {
+    if (!module.moduleName.trim()) {
+      return "模块名称不能为空";
+    }
+    if (module.weight <= 0) {
+      return `模块「${module.moduleName}」权重必须大于 0`;
+    }
+    for (const sub of module.subModules) {
+      if (!sub.name.trim()) {
+        return `模块「${module.moduleName}」包含空名称子模块`;
+      }
+      if (sub.weight < 0) {
+        return `模块「${module.moduleName}」子模块权重不能小于 0`;
+      }
+    }
+  }
+  if (content.gradeRules.length === 0) {
+    return "请至少配置一个等第划分";
+  }
+  for (const row of content.gradeRules) {
+    if (!row.grade.trim()) {
+      return "等第名称不能为空";
+    }
+    if (row.min > row.max) {
+      return `等第「${row.grade}」最低分不能大于最高分`;
+    }
+  }
+  return "";
+}
+
+async function saveRule(): Promise<void> {
+  if (!selectedRule.value) {
+    return;
+  }
+  if (!canEditRule.value) {
+    ElMessage.warning("当前规则不可编辑");
+    return;
+  }
+  if (!editForm.ruleName.trim()) {
+    ElMessage.warning("规则名不能为空");
     return;
   }
 
-  editableModules.value.splice(index, 1);
-}
-
-function buildModulesPayload(): RuleModule[] {
-  const usedKeys = new Set<string>();
-
-  for (const extra of extraModules.value) {
-    if (extra.moduleKey) {
-      usedKeys.add(extra.moduleKey);
-    }
-  }
-
-  const normalizedEditable = editableModules.value.map((item, index) => {
-    const moduleName = item.moduleName.trim();
-    const weightValue = roundTo4(normalizeWeightPercent(item.weightPercent) / 100);
-
-    const base = item.sourceModule;
-    const moduleCode =
-      item.calculationMethod === "vote"
-        ? "vote"
-        : item.calculationMethod === "formula"
-          ? "custom"
-          : "direct";
-
-    const moduleKey =
-      base?.moduleKey && base.moduleKey.trim()
-        ? base.moduleKey.trim()
-        : fallbackModuleKey(moduleName, index, usedKeys);
-
-    usedKeys.add(moduleKey);
-
-    const module: RuleModule = {
-      moduleCode,
-      moduleKey,
-      moduleName,
-      weight: weightValue,
-      maxScore:
-        base?.maxScore && Number.isFinite(base.maxScore) && base.maxScore > 0
-          ? Number(base.maxScore)
-          : 100,
-      calculationMethod: "",
-      expression: "",
-      contextScope: base?.contextScope,
-      sortOrder: index + 1,
-      isActive: base?.isActive !== false,
-    };
-
-    if (moduleCode === "vote") {
-      module.calculationMethod = "grade_mapping";
-      module.voteGroups = normalizeVoteGroups(base?.voteGroups);
-    }
-
-    if (moduleCode === "custom") {
-      module.calculationMethod = "formula";
-      const expression = base?.expression?.trim();
-      module.expression = expression || "team.score";
-      module.voteGroups = [];
-    }
-
-    if (moduleCode === "direct") {
-      module.calculationMethod = "";
-      module.expression = "";
-      module.voteGroups = [];
-    }
-
-    return module;
-  });
-
-  const normalizedExtras: RuleModule[] = extraModules.value.map((item, index) => ({
-    ...item,
-    moduleCode: "extra" as const,
-    moduleKey: item.moduleKey?.trim() || fallbackModuleKey(item.moduleName || "extra", index, usedKeys),
-    moduleName: item.moduleName?.trim() || "权重外加减分",
-    weight: undefined,
-    maxScore: undefined,
-    calculationMethod: "",
-    expression: "",
-    voteGroups: [],
-    sortOrder: normalizedEditable.length + index + 1,
-    isActive: item.isActive !== false,
-  }));
-
-  if (normalizedExtras.length === 0) {
-    normalizedExtras.push(defaultExtraModule(normalizedEditable.length + 1, usedKeys));
-  }
-
-  return [...normalizedEditable, ...normalizedExtras];
-}
-
-function validateBeforeSave(): string | null {
-  if (!activeContext.value) {
-    return "请先补全顶部上下文后再保存";
-  }
-  if (editableModules.value.length === 0) {
-    return "请至少配置一个总分计算模块";
-  }
-
-  for (let index = 0; index < editableModules.value.length; index++) {
-    const module = editableModules.value[index];
-    if (!module.moduleName.trim()) {
-      return `第 ${index + 1} 个模块名称不能为空`;
-    }
-    if (normalizeWeightPercent(module.weightPercent) <= 0) {
-      return `第 ${index + 1} 个模块权重必须大于 0`;
-    }
-  }
-
-  if (!weightSumValid.value) {
-    return "参与折算模块的权重和必须等于 100%";
-  }
-
-  return null;
-}
-
-async function saveModules(): Promise<boolean> {
-  if (!canEdit.value) {
-    ElMessage.warning("当前账号没有总分规则编辑权限");
-    return false;
-  }
-
-  const validationError = validateBeforeSave();
+  const normalizedContent = normalizeRuleContent(cloneContent(ruleContent));
+  const validationError = validateRuleContent(normalizedContent);
   if (validationError) {
     ElMessage.warning(validationError);
-    return false;
-  }
-
-  const ctx = activeContext.value;
-  if (!ctx) {
-    ElMessage.warning("请先补全顶部上下文后再保存");
-    return false;
+    return;
   }
 
   saving.value = true;
   try {
-    const modules = buildModulesPayload();
-
-    let detail: RuleDetail;
-    if (ruleMeta.value.id) {
-      const payload: UpdateRulePayload = {
-        ruleName: ruleMeta.value.ruleName,
-        description: ruleMeta.value.description,
-        isActive: ruleMeta.value.isActive,
-        syncQuarterly: false,
-        modules,
-      };
-      detail = await updateRule(ruleMeta.value.id, payload);
-    } else {
-      const payload: CreateRulePayload = {
-        yearId: ctx.yearId,
-        periodCode: ctx.periodCode,
-        objectType: ctx.objectType,
-        objectCategory: ctx.objectCategory,
-        ruleName: ruleMeta.value.ruleName || defaultRuleName(ctx),
-        description: ruleMeta.value.description,
-        isActive: true,
-        syncQuarterly: false,
-        modules,
-      };
-      detail = await createRule(payload);
+    const updated = await updateRuleFile(selectedRule.value.id, {
+      assessmentId: selectedRule.value.assessmentId,
+      ruleName: editForm.ruleName.trim(),
+      description: editForm.description.trim(),
+      contentJson: JSON.stringify(normalizedContent, null, 2),
+    });
+    ElMessage.success("规则已保存");
+    await loadFilesOnly();
+    const hit = ruleFiles.value.find((item) => item.id === updated.id);
+    if (hit) {
+      pickRule(hit);
     }
-
-    applyRuleDetail(detail, ctx);
-    resetBaseline();
-    ElMessage.success("总分规则已保存");
-    return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "总分规则保存失败";
+    const message = error instanceof Error ? error.message : "保存规则失败";
     ElMessage.error(message);
-    return false;
   } finally {
     saving.value = false;
   }
 }
 
-watch(
-  () => [contextStore.yearId, contextStore.periodCode, contextStore.objectCategory],
-  () => {
-    void loadRuleForContext();
-  },
-  { immediate: true },
-);
-
-watch(
-  editableModules,
-  () => {
-    if (loading.value || !baselineSignature.value) {
-      unsavedStore.clearDirty(dirtySourceId);
+async function removeRule(rule: RuleFileItem): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`确认删除规则「${rule.ruleName}」吗？`, "删除规则", { type: "warning" });
+    await deleteRuleFile(rule.id);
+    ElMessage.success("规则已删除");
+    await Promise.all([loadFilesOnly(), loadBindingsOnly()]);
+  } catch (error) {
+    if (String(error).includes("cancel")) {
       return;
     }
+    ElMessage.error("删除规则失败");
+  }
+}
 
-    if (currentSignature() === baselineSignature.value) {
-      unsavedStore.clearDirty(dirtySourceId);
-      return;
-    }
+async function hideRule(rule: RuleFileItem): Promise<void> {
+  try {
+    await hideRuleFile(rule.id);
+    await loadFilesOnly();
+    ElMessage.success("已隐藏该规则");
+  } catch (_error) {
+    ElMessage.error("隐藏规则失败");
+  }
+}
 
-    unsavedStore.markDirty(dirtySourceId);
+async function unhideRule(rule: RuleFileItem): Promise<void> {
+  try {
+    await unhideRuleFile(rule.id);
+    await loadFilesOnly();
+    ElMessage.success("已恢复显示该规则");
+  } catch (_error) {
+    ElMessage.error("恢复规则失败");
+  }
+}
+
+watch(
+  () => [contextStore.sessionId, contextStore.periodCode, contextStore.objectGroupCode],
+  () => {
+    contextWarning.value = validateContext();
+    void loadData();
   },
-  { deep: true },
 );
 
-onMounted(() => {
-  unsavedStore.setSourceMeta(dirtySourceId, {
-    label: "总分规则",
-    save: saveModules,
-  });
-});
-
-onBeforeUnmount(() => {
-  unsavedStore.unregisterSource(dirtySourceId);
+onMounted(async () => {
+  await loadData();
 });
 </script>
 
@@ -722,38 +966,85 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.table-actions {
+.inner-card {
+  height: 100%;
+}
+
+.inner-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
 }
 
-.weight-sum {
+.rule-meta-form {
+  margin-bottom: 8px;
+}
+
+.rule-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-block {
+  margin-top: 14px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.formula-text {
+  margin-top: 8px;
   color: #606266;
   font-size: 13px;
-  font-weight: 500;
 }
 
-.weight-sum.invalid {
-  color: #e6a23c;
+.editor-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.json-preview {
+  margin-top: 10px;
+}
+
+.module-dialog-form {
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.inline-form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-label {
+  color: #606266;
+  font-size: 12px;
+}
+
+.submodule-editor {
+  width: 100%;
+}
+
+.submodule-toolbar {
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ml-6 {
+  margin-left: 6px;
 }
 
 .mb-12 {
   margin-bottom: 12px;
-}
-
-@media (max-width: 960px) {
-  .card-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .table-actions {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 }
 </style>

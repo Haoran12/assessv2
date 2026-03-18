@@ -23,8 +23,8 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply business migrations failed: %v", err)
 	}
-	if applied != 1 {
-		t.Fatalf("expected business applied migrations=1, got=%d", applied)
+	if applied != 2 {
+		t.Fatalf("expected business applied migrations=2, got=%d", applied)
 	}
 
 	accountsManager, err := NewManager(accountsDB, migrationsDirFromRepo(t, "accounts"))
@@ -39,7 +39,11 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 		t.Fatalf("expected accounts applied migrations=2, got=%d", applied)
 	}
 
-	assertTableExists(t, businessDB, "assessment_years", true)
+	assertTableExists(t, businessDB, "assessment_sessions", true)
+	assertTableExists(t, businessDB, "assessment_session_periods", true)
+	assertTableExists(t, businessDB, "assessment_object_groups", true)
+	assertTableExists(t, businessDB, "assessment_session_objects", true)
+	assertTableExists(t, businessDB, "rule_files", true)
 	assertTableExists(t, businessDB, "system_settings", true)
 	assertTableExists(t, businessDB, "users", false)
 	assertTableExists(t, businessDB, "roles", false)
@@ -49,8 +53,8 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 
 	assertTableExists(t, accountsDB, "users", true)
 	assertTableExists(t, accountsDB, "roles", true)
-	assertTableExists(t, accountsDB, "assessment_years", false)
-	assertTableExists(t, accountsDB, "assessment_objects", false)
+	assertTableExists(t, accountsDB, "assessment_sessions", false)
+	assertTableExists(t, accountsDB, "assessment_session_objects", false)
 }
 
 func TestBusinessSchemaHasNoUserForeignKeys(t *testing.T) {

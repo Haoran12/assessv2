@@ -17,3 +17,10 @@ func parseOptionalUintQuery(raw string) (*uint, error) {
 	value := uint(parsed)
 	return &value, nil
 }
+
+func boolOrDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
