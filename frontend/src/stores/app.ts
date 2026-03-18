@@ -34,7 +34,7 @@ export const useAppStore = defineStore("app", () => {
 
   const isAuthed = computed(() => token.value.length > 0);
   const username = computed(() => currentUser.value?.username ?? "");
-  const displayName = computed(() => currentUser.value?.realName || currentUser.value?.username || "");
+  const displayName = computed(() => currentUser.value?.username || "");
   const roles = computed(() => currentUser.value?.roles ?? []);
   const permissions = computed(() => currentUser.value?.permissions ?? []);
   const orgScopes = computed<OrgScope[]>(() => currentUser.value?.organizations ?? []);

@@ -15,7 +15,7 @@
         <el-input
           v-model="query.keyword"
           clearable
-          placeholder="按用户名或姓名搜索"
+          placeholder="按用户名搜索"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
@@ -35,7 +35,6 @@
       <el-table v-loading="loadingUsers" :data="rows" border>
         <el-table-column prop="id" label="编号" width="70" />
         <el-table-column prop="username" label="用户名" min-width="120" />
-        <el-table-column prop="realName" label="姓名" min-width="140" />
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
@@ -183,9 +182,6 @@
             :disabled="isEditingRootUser"
             placeholder="3-50位，字母开头，可含 . _ -"
           />
-        </el-form-item>
-        <el-form-item label="姓名" required>
-          <el-input v-model="userForm.realName" maxlength="100" />
         </el-form-item>
         <el-form-item :label="userFormMode === 'create' ? '初始密码' : '新密码'">
           <el-input
@@ -546,7 +542,6 @@ const userFormMode = ref<UserFormMode>("create");
 const editingUserRow = ref<UserListItem | null>(null);
 const userForm = reactive({
   username: "",
-  realName: "",
   password: "",
   status: "active" as UserStatus,
   mustChangePassword: true,
@@ -633,7 +628,6 @@ function mapRoleIDsFromUser(row: UserListItem): number[] {
 
 function resetUserForm(): void {
   userForm.username = "";
-  userForm.realName = "";
   userForm.password = "";
   userForm.status = "active";
   userForm.mustChangePassword = true;
@@ -1129,7 +1123,6 @@ async function openEditUserDialog(row: UserListItem): Promise<void> {
   userFormMode.value = "edit";
   editingUserRow.value = row;
   userForm.username = row.username;
-  userForm.realName = row.realName;
   userForm.password = "";
   userForm.status = row.status;
   userForm.mustChangePassword = row.mustChangePassword;
@@ -1144,13 +1137,8 @@ async function handleSubmitUserForm(): Promise<void> {
   }
 
   const username = userForm.username.trim();
-  const realName = userForm.realName.trim();
   if (!username) {
     ElMessage.warning("请输入用户名");
-    return;
-  }
-  if (!realName) {
-    ElMessage.warning("请输入姓名");
     return;
   }
   if (userForm.roleIds.length === 0) {
@@ -1169,7 +1157,6 @@ async function handleSubmitUserForm(): Promise<void> {
 
   const payload = {
     username,
-    realName,
     password: userForm.password.trim() || undefined,
     status: userForm.status,
     mustChangePassword: Boolean(userForm.mustChangePassword),

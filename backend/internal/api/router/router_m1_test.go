@@ -67,7 +67,7 @@ func TestM1LoginProfileAndMustChangePassword(t *testing.T) {
 
 func TestM1RBACViewerDeniedUsersEndpoint(t *testing.T) {
 	engine, db := setupTestServer(t)
-	createViewerUser(t, db, "viewer1", "Viewer User")
+	createViewerUser(t, db, "viewer1")
 
 	viewerToken, _ := loginAndReadData(t, engine, "viewer1", testDefaultPassword)
 
@@ -137,7 +137,7 @@ func TestM1ChangePasswordAndAudit(t *testing.T) {
 
 func TestM1RootOnlyUserGroupEndpoints(t *testing.T) {
 	engine, db := setupTestServer(t)
-	createViewerUser(t, db, "viewer2", "Viewer Two")
+	createViewerUser(t, db, "viewer2")
 
 	viewerToken, _ := loginAndReadData(t, engine, "viewer2", testDefaultPassword)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
@@ -266,7 +266,7 @@ func TestM1RootOnlyUserGroupEndpoints(t *testing.T) {
 
 func TestM1RootUserCRUD(t *testing.T) {
 	engine, db := setupTestServer(t)
-	createViewerUser(t, db, "viewer3", "Viewer Three")
+	createViewerUser(t, db, "viewer3")
 
 	viewerToken, _ := loginAndReadData(t, engine, "viewer3", testDefaultPassword)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
@@ -278,7 +278,6 @@ func TestM1RootUserCRUD(t *testing.T) {
 
 	viewerCreateBody, _ := json.Marshal(map[string]any{
 		"username": "ops_user",
-		"realName": "Ops User",
 		"status":   "active",
 		"roleIds":  []uint{staffRole.ID},
 	})
@@ -293,7 +292,6 @@ func TestM1RootUserCRUD(t *testing.T) {
 
 	createBody, _ := json.Marshal(map[string]any{
 		"username":           "ops_user",
-		"realName":           "Ops User",
 		"password":           "Temp#12345",
 		"status":             "active",
 		"mustChangePassword": true,
@@ -327,7 +325,6 @@ func TestM1RootUserCRUD(t *testing.T) {
 
 	updateBody, _ := json.Marshal(map[string]any{
 		"username":           "ops_user",
-		"realName":           "Ops Team User",
 		"status":             "inactive",
 		"mustChangePassword": false,
 		"roleIds":            []uint{staffRole.ID},
@@ -431,7 +428,7 @@ func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 	return engine, db
 }
 
-func createViewerUser(t *testing.T, db *gorm.DB, username, realName string) {
+func createViewerUser(t *testing.T, db *gorm.DB, username string) {
 	t.Helper()
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(testDefaultPassword), bcrypt.DefaultCost)
@@ -441,7 +438,6 @@ func createViewerUser(t *testing.T, db *gorm.DB, username, realName string) {
 	user := model.User{
 		Username:     username,
 		PasswordHash: string(hash),
-		RealName:     realName,
 		Status:       "active",
 	}
 	if err := db.Create(&user).Error; err != nil {

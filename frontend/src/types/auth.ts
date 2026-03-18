@@ -18,7 +18,6 @@ export interface OrgScope {
 export interface SessionUser {
   id: number;
   username: string;
-  realName: string;
   role: string;
   roles: string[];
   permissions: string[];

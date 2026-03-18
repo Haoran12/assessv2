@@ -17,6 +17,7 @@ import (
 
 type AuditService struct {
 	db        *gorm.DB
+	userDB    *gorm.DB
 	auditRepo *repository.AuditRepository
 }
 
@@ -65,9 +66,13 @@ type AuditLogDetail struct {
 	CanRollback bool            `json:"canRollback"`
 }
 
-func NewAuditService(db *gorm.DB, auditRepo *repository.AuditRepository) *AuditService {
+func NewAuditService(db *gorm.DB, userDB *gorm.DB, auditRepo *repository.AuditRepository) *AuditService {
+	if userDB == nil {
+		userDB = db
+	}
 	return &AuditService{
 		db:        db,
+		userDB:    userDB,
 		auditRepo: auditRepo,
 	}
 }
@@ -83,8 +88,7 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 	}
 
 	query := s.db.WithContext(ctx).
-		Table("audit_logs AS a").
-		Joins("LEFT JOIN users AS u ON u.id = a.user_id")
+		Table("audit_logs AS a")
 
 	if input.UserID != nil {
 		query = query.Where("a.user_id = ?", *input.UserID)
@@ -103,12 +107,12 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 	}
 	if text := strings.TrimSpace(input.Keyword); text != "" {
 		like := "%" + text + "%"
-		query = query.Where(
-			"(a.action_detail LIKE ? OR COALESCE(u.username, '') LIKE ? OR COALESCE(u.real_name, '') LIKE ?)",
-			like,
-			like,
-			like,
-		)
+		userIDs, err := s.lookupUserIDsByKeyword(ctx, text)
+		if err == nil && len(userIDs) > 0 {
+			query = query.Where("(a.action_detail LIKE ? OR a.user_id IN ?)", like, userIDs)
+		} else {
+			query = query.Where("a.action_detail LIKE ?", like)
+		}
 	}
 
 	var total int64
@@ -119,8 +123,6 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 	type row struct {
 		ID           uint   `gorm:"column:id"`
 		UserID       *uint  `gorm:"column:user_id"`
-		Username     string `gorm:"column:username"`
-		RealName     string `gorm:"column:real_name"`
 		ActionType   string `gorm:"column:action_type"`
 		TargetType   string `gorm:"column:target_type"`
 		TargetID     *uint  `gorm:"column:target_id"`
@@ -132,8 +134,7 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 	rows := make([]row, 0, pageSize)
 	if err := query.
 		Select(
-			"a.id, a.user_id, COALESCE(u.username, '') AS username, COALESCE(u.real_name, '') AS real_name, " +
-				"a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, COALESCE(a.action_detail, '') AS action_detail, " +
+			"a.id, a.user_id, a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, COALESCE(a.action_detail, '') AS action_detail, " +
 				"COALESCE(a.ip_address, '') AS ip_address, COALESCE(a.user_agent, '') AS user_agent, a.created_at",
 		).
 		Order("a.created_at DESC, a.id DESC").
@@ -143,13 +144,38 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
 
+	userIDSet := map[uint]struct{}{}
+	for _, row := range rows {
+		if row.UserID != nil {
+			userIDSet[*row.UserID] = struct{}{}
+		}
+	}
+	userIDs := make([]uint, 0, len(userIDSet))
+	for userID := range userIDSet {
+		userIDs = append(userIDs, userID)
+	}
+
+	profiles, err := s.loadUserProfilesByIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]AuditLogListItem, 0, len(rows))
 	for _, item := range rows {
+		username := ""
+		realName := ""
+		if item.UserID != nil {
+			if profile, ok := profiles[*item.UserID]; ok {
+				username = profile.Username
+				realName = profile.Username
+			}
+		}
+
 		items = append(items, AuditLogListItem{
 			ID:           item.ID,
 			UserID:       item.UserID,
-			Username:     item.Username,
-			RealName:     item.RealName,
+			Username:     username,
+			RealName:     realName,
 			ActionType:   item.ActionType,
 			TargetType:   item.TargetType,
 			TargetID:     item.TargetID,
@@ -172,8 +198,6 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 	type row struct {
 		ID           uint   `gorm:"column:id"`
 		UserID       *uint  `gorm:"column:user_id"`
-		Username     string `gorm:"column:username"`
-		RealName     string `gorm:"column:real_name"`
 		ActionType   string `gorm:"column:action_type"`
 		TargetType   string `gorm:"column:target_type"`
 		TargetID     *uint  `gorm:"column:target_id"`
@@ -186,10 +210,8 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 	var item row
 	if err := s.db.WithContext(ctx).
 		Table("audit_logs AS a").
-		Joins("LEFT JOIN users AS u ON u.id = a.user_id").
 		Select(
-			"a.id, a.user_id, COALESCE(u.username, '') AS username, COALESCE(u.real_name, '') AS real_name, "+
-				"a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, COALESCE(a.action_detail, '') AS action_detail, "+
+			"a.id, a.user_id, a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, COALESCE(a.action_detail, '') AS action_detail, "+
 				"COALESCE(a.ip_address, '') AS ip_address, COALESCE(a.user_agent, '') AS user_agent, a.created_at",
 		).
 		Where("a.id = ?", auditLogID).
@@ -200,6 +222,19 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 		return nil, fmt.Errorf("failed to query audit log detail: %w", err)
 	}
 
+	username := ""
+	realName := ""
+	if item.UserID != nil {
+		profile, err := s.loadUserProfileByID(ctx, *item.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if profile != nil {
+			username = profile.Username
+			realName = profile.Username
+		}
+	}
+
 	detail := decodeActionDetail(item.ActionDetail)
 	diffs := diffActionDetail(detail)
 	canRollback := s.isRollbackSupported(item.TargetType, item.ActionType, detail)
@@ -208,8 +243,8 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 		AuditLogListItem: AuditLogListItem{
 			ID:           item.ID,
 			UserID:       item.UserID,
-			Username:     item.Username,
-			RealName:     item.RealName,
+			Username:     username,
+			RealName:     realName,
 			ActionType:   item.ActionType,
 			TargetType:   item.TargetType,
 			TargetID:     item.TargetID,
@@ -222,6 +257,66 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 		Diffs:       diffs,
 		CanRollback: canRollback,
 	}, nil
+}
+
+type auditUserProfile struct {
+	ID       uint   `gorm:"column:id"`
+	Username string `gorm:"column:username"`
+}
+
+func (s *AuditService) lookupUserIDsByKeyword(ctx context.Context, keyword string) ([]uint, error) {
+	like := "%" + strings.TrimSpace(keyword) + "%"
+	ids := make([]uint, 0)
+	if err := s.userDB.WithContext(ctx).
+		Table("users").
+		Select("id").
+		Where("deleted_at IS NULL").
+		Where("username LIKE ?", like).
+		Scan(&ids).Error; err != nil {
+		// User lookup is best-effort to avoid breaking audit logs when accounts schema is unavailable.
+		return nil, nil
+	}
+	return ids, nil
+}
+
+func (s *AuditService) loadUserProfilesByIDs(ctx context.Context, userIDs []uint) (map[uint]auditUserProfile, error) {
+	if len(userIDs) == 0 {
+		return map[uint]auditUserProfile{}, nil
+	}
+
+	profiles := make([]auditUserProfile, 0, len(userIDs))
+	if err := s.userDB.WithContext(ctx).
+		Table("users").
+		Select("id, username").
+		Where("deleted_at IS NULL").
+		Where("id IN ?", userIDs).
+		Scan(&profiles).Error; err != nil {
+		// User profile lookup is best-effort to avoid breaking audit logs when accounts schema is unavailable.
+		return map[uint]auditUserProfile{}, nil
+	}
+
+	index := make(map[uint]auditUserProfile, len(profiles))
+	for _, item := range profiles {
+		index[item.ID] = item
+	}
+	return index, nil
+}
+
+func (s *AuditService) loadUserProfileByID(ctx context.Context, userID uint) (*auditUserProfile, error) {
+	var profile auditUserProfile
+	if err := s.userDB.WithContext(ctx).
+		Table("users").
+		Select("id, username").
+		Where("deleted_at IS NULL").
+		Where("id = ?", userID).
+		First(&profile).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		// User profile lookup is best-effort to avoid breaking audit logs when accounts schema is unavailable.
+		return nil, nil
+	}
+	return &profile, nil
 }
 
 func (s *AuditService) Rollback(

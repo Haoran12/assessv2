@@ -40,7 +40,6 @@ type ListUsersInput struct {
 type UserListItem struct {
 	ID                 uint                     `json:"id"`
 	Username           string                   `json:"username"`
-	RealName           string                   `json:"realName"`
 	Status             string                   `json:"status"`
 	MustChangePassword bool                     `json:"mustChangePassword"`
 	LastLoginAt        *int64                   `json:"lastLoginAt,omitempty"`
@@ -90,7 +89,6 @@ type UpdateUserGroupsInput struct {
 
 type CreateUserInput struct {
 	Username           string
-	RealName           string
 	Password           string
 	Status             string
 	MustChangePassword *bool
@@ -100,7 +98,6 @@ type CreateUserInput struct {
 
 type UpdateUserInput struct {
 	Username           string
-	RealName           string
 	Password           string
 	Status             string
 	MustChangePassword *bool
@@ -176,11 +173,6 @@ func (s *UserService) CreateUser(
 		return nil, ErrInvalidUsername
 	}
 
-	realName := strings.TrimSpace(input.RealName)
-	if realName == "" || len(realName) > 100 {
-		return nil, ErrInvalidRealName
-	}
-
 	status := normalizeStatus(input.Status, "active")
 	if status != "active" && status != "inactive" && status != "locked" {
 		return nil, ErrInvalidUserStatus
@@ -226,7 +218,6 @@ func (s *UserService) CreateUser(
 		record := model.User{
 			Username:           username,
 			PasswordHash:       string(passwordHash),
-			RealName:           realName,
 			Status:             status,
 			MustChangePassword: mustChangePassword,
 		}
@@ -293,14 +284,6 @@ func (s *UserService) UpdateUser(
 		return nil, ErrCannotRenameRoot
 	}
 
-	realName := strings.TrimSpace(input.RealName)
-	if realName == "" {
-		realName = existing.RealName
-	}
-	if realName == "" || len(realName) > 100 {
-		return nil, ErrInvalidRealName
-	}
-
 	status := normalizeStatus(input.Status, existing.Status)
 	if status != "active" && status != "inactive" && status != "locked" {
 		return nil, ErrInvalidUserStatus
@@ -350,7 +333,6 @@ func (s *UserService) UpdateUser(
 	}
 	updates := map[string]any{
 		"username":             username,
-		"real_name":            realName,
 		"status":               status,
 		"must_change_password": mustChangePassword,
 		"updated_at":           time.Now().Unix(),
@@ -394,7 +376,6 @@ func (s *UserService) UpdateUser(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "users", &targetID, map[string]any{
 		"event":              "update_user",
 		"username":           username,
-		"realName":           realName,
 		"status":             status,
 		"mustChangePassword": mustChangePassword,
 		"roleIDs":            roleIDs,
@@ -767,7 +748,6 @@ func mapUserToListItem(user *model.User) (UserListItem, error) {
 	return UserListItem{
 		ID:                 user.ID,
 		Username:           user.Username,
-		RealName:           user.RealName,
 		Status:             user.Status,
 		MustChangePassword: user.MustChangePassword,
 		LastLoginAt:        user.LastLoginAt,

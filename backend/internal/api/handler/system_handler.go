@@ -55,7 +55,6 @@ type replaceUserObjectLinkItem struct {
 
 type upsertUserRequest struct {
 	Username           string `json:"username"`
-	RealName           string `json:"realName"`
 	Password           string `json:"password"`
 	Status             string `json:"status"`
 	MustChangePassword *bool  `json:"mustChangePassword"`
@@ -133,7 +132,6 @@ func (h *SystemHandler) CreateUser(c *gin.Context) {
 		operatorClaims.UserID,
 		service.CreateUserInput{
 			Username:           strings.TrimSpace(req.Username),
-			RealName:           strings.TrimSpace(req.RealName),
 			Password:           strings.TrimSpace(req.Password),
 			Status:             strings.TrimSpace(req.Status),
 			MustChangePassword: req.MustChangePassword,
@@ -146,7 +144,6 @@ func (h *SystemHandler) CreateUser(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidUsername),
-			errors.Is(err, service.ErrInvalidRealName),
 			errors.Is(err, service.ErrInvalidUserStatus),
 			errors.Is(err, service.ErrInvalidRoleList):
 			response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
@@ -185,7 +182,6 @@ func (h *SystemHandler) UpdateUser(c *gin.Context) {
 		userID,
 		service.UpdateUserInput{
 			Username:           strings.TrimSpace(req.Username),
-			RealName:           strings.TrimSpace(req.RealName),
 			Password:           strings.TrimSpace(req.Password),
 			Status:             strings.TrimSpace(req.Status),
 			MustChangePassword: req.MustChangePassword,
@@ -200,7 +196,6 @@ func (h *SystemHandler) UpdateUser(c *gin.Context) {
 		case repository.IsRecordNotFound(err):
 			response.Error(c, http.StatusNotFound, response.CodeNotFound, "user not found")
 		case errors.Is(err, service.ErrInvalidUsername),
-			errors.Is(err, service.ErrInvalidRealName),
 			errors.Is(err, service.ErrInvalidUserStatus),
 			errors.Is(err, service.ErrInvalidRoleList),
 			errors.Is(err, service.ErrCannotDisableSelf),

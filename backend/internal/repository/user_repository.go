@@ -85,7 +85,7 @@ func (r *UserRepository) List(ctx context.Context, filter UserListFilter) ([]mod
 	}
 	if filter.Keyword != "" {
 		kw := strings.TrimSpace(filter.Keyword)
-		base = base.Where("(username LIKE ? OR real_name LIKE ?)", "%"+kw+"%", "%"+kw+"%")
+		base = base.Where("username LIKE ?", "%"+kw+"%")
 	}
 
 	var total int64

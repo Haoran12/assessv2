@@ -4,7 +4,6 @@ type User struct {
 	ID                 uint    `gorm:"primaryKey;autoIncrement" json:"id"`
 	Username           string  `gorm:"size:50;not null;uniqueIndex" json:"username"`
 	PasswordHash       string  `gorm:"size:255;not null" json:"-"`
-	RealName           string  `gorm:"size:100;not null" json:"realName"`
 	Email              *string `gorm:"size:100" json:"email,omitempty"`
 	Phone              *string `gorm:"size:20" json:"phone,omitempty"`
 	Status             string  `gorm:"size:20;not null;default:active" json:"status"`

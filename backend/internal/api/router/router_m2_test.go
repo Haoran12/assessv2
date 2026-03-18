@@ -342,7 +342,7 @@ func TestM2RootCanDeleteOrganizationDepartmentEmployee(t *testing.T) {
 
 func TestM2DeleteOrganizationDepartmentEmployeeRequiresRoot(t *testing.T) {
 	engine, db := setupTestServer(t)
-	createViewerUser(t, db, "viewer_org_delete", "Viewer OrgDelete")
+	createViewerUser(t, db, "viewer_org_delete")
 	viewerToken, _ := loginAndReadData(t, engine, "viewer_org_delete", testDefaultPassword)
 
 	staffLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")
@@ -541,7 +541,7 @@ func TestM2RootCanDeleteSystemPositionLevel(t *testing.T) {
 
 func TestM2PositionLevelMutationRequiresRoot(t *testing.T) {
 	engine, db := setupTestServer(t)
-	createViewerUser(t, db, "viewer_pl", "Viewer PositionLevel")
+	createViewerUser(t, db, "viewer_pl")
 
 	viewerToken, _ := loginAndReadData(t, engine, "viewer_pl", testDefaultPassword)
 	existingLevelID := mustPositionLevelIDByCode(t, db, "general_management_personnel")

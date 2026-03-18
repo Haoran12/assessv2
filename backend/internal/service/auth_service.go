@@ -36,7 +36,6 @@ type LoginResult struct {
 type AuthenticatedUserDTO struct {
 	ID                 uint                     `json:"id"`
 	Username           string                   `json:"username"`
-	RealName           string                   `json:"realName"`
 	Role               string                   `json:"role"`
 	Roles              []string                 `json:"roles"`
 	Permissions        []string                 `json:"permissions"`
@@ -115,7 +114,6 @@ func (s *AuthService) Login(ctx context.Context, username, password, ipAddress, 
 		User: AuthenticatedUserDTO{
 			ID:                 user.ID,
 			Username:           user.Username,
-			RealName:           user.RealName,
 			Role:               primaryRole,
 			Roles:              roles,
 			Permissions:        permissions,
@@ -175,7 +173,6 @@ func (s *AuthService) GetProfile(ctx context.Context, userID uint) (*Authenticat
 	return &AuthenticatedUserDTO{
 		ID:                 user.ID,
 		Username:           user.Username,
-		RealName:           user.RealName,
 		Role:               primaryRole,
 		Roles:              roles,
 		Permissions:        permissions,

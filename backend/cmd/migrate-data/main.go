@@ -24,7 +24,9 @@ const (
 	backupDirName                 = "migration-backups"
 	backupTimestampLayout         = "20060102-150405"
 	legacyFlatAssessmentDBName    = "assess.db"
+	legacyFlatAccountsDBName      = "accounts.db"
 	yearlyAssessmentDBRelativeFmt = "%s/assess.db"
+	splitAccountsDBRelativePath   = "accounts/accounts.db"
 )
 
 var yearDirPattern = regexp.MustCompile(`^\d{4}$`)
@@ -119,6 +121,14 @@ func discoverAssessmentDatabases(dataRoot string) ([]string, error) {
 	if fileExists(legacyFlat) {
 		items = append(items, legacyFlat)
 	}
+	legacyAccounts := filepath.Join(dataRoot, legacyFlatAccountsDBName)
+	if fileExists(legacyAccounts) {
+		items = append(items, legacyAccounts)
+	}
+	splitAccounts := filepath.Join(dataRoot, splitAccountsDBRelativePath)
+	if fileExists(splitAccounts) {
+		items = append(items, splitAccounts)
+	}
 
 	entries, err := os.ReadDir(dataRoot)
 	if err != nil {
@@ -199,6 +209,14 @@ func migrateOneDB(dbPath, dataRoot, backupRoot string, dryRun bool) (summary, er
 		}
 		if dropped {
 			result.Actions = append(result.Actions, "drop assessment_periods.end_date")
+		}
+
+		dropped, err = dropColumnIfExists(tx, dryRun, "users", "real_name")
+		if err != nil {
+			return err
+		}
+		if dropped {
+			result.Actions = append(result.Actions, "drop users.real_name")
 		}
 
 		removed, err := deleteSettingIfExists(tx, dryRun, defaultPeriodRangeSettingKey)

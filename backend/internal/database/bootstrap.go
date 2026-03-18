@@ -13,7 +13,6 @@ import (
 
 const (
 	defaultRootUsername = "root"
-	defaultRootRealName = "System Root"
 )
 
 func SeedBaselineData(db *gorm.DB, defaultPassword string) error {
@@ -325,7 +324,6 @@ func seedDefaultRootUser(db *gorm.DB, defaultPassword string) error {
 			user = model.User{
 				Username:           defaultRootUsername,
 				PasswordHash:       string(passwordHash),
-				RealName:           defaultRootRealName,
 				Status:             "active",
 				MustChangePassword: true,
 			}

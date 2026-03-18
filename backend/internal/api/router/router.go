@@ -41,7 +41,7 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 	voteService := service.NewVoteService(businessDB, accountDB, businessAuditRepo, calcService)
 	settingsService := service.NewSystemSettingService(businessDB, businessAuditRepo)
 	backupService := service.NewBackupService(businessDB, businessAuditRepo, cfg.Database.Path)
-	auditService := service.NewAuditService(businessDB, businessAuditRepo)
+	auditService := service.NewAuditService(businessDB, accountDB, businessAuditRepo)
 	objectLinkService := service.NewAssessmentObjectUserLinkService(businessDB, businessAuditRepo)
 	backupService.StartAutoBackup(context.Background())
 

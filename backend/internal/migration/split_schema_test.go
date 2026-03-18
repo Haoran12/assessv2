@@ -35,8 +35,8 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply accounts migrations failed: %v", err)
 	}
-	if applied != 1 {
-		t.Fatalf("expected accounts applied migrations=1, got=%d", applied)
+	if applied != 2 {
+		t.Fatalf("expected accounts applied migrations=2, got=%d", applied)
 	}
 
 	assertTableExists(t, businessDB, "assessment_years", true)

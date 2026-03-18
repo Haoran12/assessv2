@@ -11,7 +11,6 @@ var (
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrInvalidUserStatus  = errors.New("invalid user status")
 	ErrInvalidUsername    = errors.New("invalid username")
-	ErrInvalidRealName    = errors.New("invalid real name")
 	ErrUsernameExists     = errors.New("username already exists")
 	ErrCannotDisableSelf  = errors.New("cannot disable current user")
 	ErrCannotDeleteSelf   = errors.New("cannot delete current user")

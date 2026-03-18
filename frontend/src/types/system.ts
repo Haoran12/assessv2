@@ -5,7 +5,6 @@ export type UserStatus = "active" | "inactive" | "locked";
 export interface UserListItem {
   id: number;
   username: string;
-  realName: string;
   status: UserStatus;
   mustChangePassword: boolean;
   lastLoginAt?: number;
