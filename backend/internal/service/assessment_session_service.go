@@ -720,11 +720,16 @@ func defaultSessionPeriods(sessionID uint, operatorID *uint) []model.AssessmentS
 	}
 	result := make([]model.AssessmentSessionPeriod, 0, len(base))
 	for _, item := range base {
+		ruleBindingKey := item.PeriodCode
+		switch item.PeriodCode {
+		case "Q2", "Q3", "Q4":
+			ruleBindingKey = "Q1"
+		}
 		result = append(result, model.AssessmentSessionPeriod{
 			AssessmentID:   sessionID,
 			PeriodCode:     item.PeriodCode,
 			PeriodName:     item.PeriodName,
-			RuleBindingKey: item.PeriodCode,
+			RuleBindingKey: ruleBindingKey,
 			SortOrder:      item.SortOrder,
 			CreatedBy:      operatorID,
 			UpdatedBy:      operatorID,

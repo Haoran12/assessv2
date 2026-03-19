@@ -69,8 +69,6 @@ func (a *schemaAudit) run() error {
 		"assessment_object_groups",
 		"assessment_session_objects",
 		"rule_files",
-		"rule_file_hides",
-		"assessment_rule_bindings",
 		"system_settings",
 		"audit_logs",
 	}
@@ -81,6 +79,8 @@ func (a *schemaAudit) run() error {
 	}
 
 	businessLegacyTables := []string{
+		"rule_file_hides",
+		"assessment_rule_bindings",
 		"assessment_years",
 		"assessment_periods",
 		"assessment_objects",

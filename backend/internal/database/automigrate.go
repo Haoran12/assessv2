@@ -28,8 +28,6 @@ func AutoMigrateAndSeed(db *gorm.DB, defaultPassword string) error {
 		&model.AssessmentObjectGroup{},
 		&model.AssessmentSessionObject{},
 		&model.RuleFile{},
-		&model.RuleFileHide{},
-		&model.AssessmentRuleBindingV2{},
 	); err != nil {
 		return fmt.Errorf("failed to run automigrate: %w", err)
 	}
