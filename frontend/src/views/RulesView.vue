@@ -1,11 +1,20 @@
 <template>
-  <div class="rules-view">
+  <div ref="rulesViewRef" class="rules-view">
     <el-card>
       <template #header>
         <div class="card-header">
-          <div class="subtitle">{{ contextText }}</div>
+          <div class="card-title">规则管理</div>
           <div class="header-actions">
             <el-button :loading="loading" @click="loadData">刷新</el-button>
+            <el-button
+              class="save-button"
+              type="primary"
+              :disabled="!canEditRule || saving || !activeScopedRule"
+              :loading="saving"
+              @click="saveRule"
+            >
+              保存规则
+            </el-button>
           </div>
         </div>
       </template>
@@ -21,174 +30,182 @@
       <el-skeleton v-if="loadingFiles" :rows="8" animated />
       <el-empty v-else-if="!currentRule" description="当前场次暂无规则文件" />
       <template v-else>
-        <div class="section-block">
-          <div class="section-head">
-            <strong>分数模块</strong>
-            <div class="inline-actions">
-              <span class="muted">当前范围：{{ currentScopeLabel }}</span>
-              <el-button size="small" :disabled="!canEditRule || !activeScopedRule" @click="addScoreModule">新增模块</el-button>
+        <el-tabs v-model="activeEditTab" class="editor-tabs">
+          <el-tab-pane label="分数模块" name="modules">
+            <div class="section-block">
+              <el-empty
+                v-if="!activeScopedRule"
+                description="请先在顶部选择考核周期和考核对象分组"
+              />
+              <template v-else>
+                <el-table :data="activeScopedRule.scoreModules" class="rules-table">
+                  <el-table-column label="拖动排序" width="96" align="center">
+                    <template #default="{ $index }">
+                      <div
+                        class="drag-handle"
+                        :class="{ 'is-disabled': !canEditRule, 'is-dragging': draggingModuleIndex === $index }"
+                        :draggable="canEditRule"
+                        @dragstart="onModuleDragStart($index, $event)"
+                        @dragover="onModuleDragOver($event)"
+                        @drop.prevent="onModuleDrop($index)"
+                        @dragend="onModuleDragEnd"
+                      >
+                        <el-icon><Rank /></el-icon>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="模块名" min-width="200">
+                    <template #default="{ row }">
+                      <el-input v-model="row.moduleName" :disabled="!canEditRule" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="权重" width="140">
+                    <template #default="{ row }">
+                      <el-input-number v-model="row.weight" :disabled="!canEditRule" :min="0" :step="1" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="计分方式" width="170">
+                    <template #default="{ row }">
+                      <el-select
+                        v-model="row.calculationMethod"
+                        :disabled="!canEditRule"
+                        style="width: 150px"
+                        @change="handleMethodChange(row)"
+                      >
+                        <el-option label="直接录入" value="direct_input" />
+                        <el-option label="投票模式" value="vote" />
+                        <el-option label="自定义脚本" value="custom_script" />
+                      </el-select>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="190" fixed="right">
+                    <template #default="{ row }">
+                      <div class="table-row-actions">
+                        <el-button size="small" type="primary" plain @click="openModuleDetail(row)">详情</el-button>
+                        <el-button size="small" type="danger" plain :disabled="!canEditRule" @click="removeScoreModule(row)">删除</el-button>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div
+                  v-if="canEditRule"
+                  class="module-drop-tail"
+                  @dragover="onModuleDragOver($event)"
+                  @drop.prevent="onModuleDropToEnd"
+                >
+                  拖到这里可移到末尾
+                </div>
+                <div v-if="canEditRule" class="table-footer-actions">
+                  <el-button type="primary" @click="addScoreModule">新增模块</el-button>
+                  <el-button type="warning" plain :disabled="!activeScopedRule" @click="openCopyDialog">
+                    从其他范围复制规则
+                  </el-button>
+                </div>
+                <div class="formula-text">
+                  总分 = Σ(模块分数 * 模块权重 / 总权重) + 额外加减分；当前总权重：{{ totalWeight.toFixed(2) }}
+                </div>
+              </template>
             </div>
-          </div>
-          <el-empty
-            v-if="!activeScopedRule"
-            description="请先在顶部选择考核周期和考核对象分组"
-          />
-          <template v-else>
-            <el-table :data="activeScopedRule.scoreModules" border>
-              <el-table-column label="拖动排序" width="96" align="center">
-                <template #default="{ $index }">
-                  <div
-                    class="drag-handle"
-                    :class="{ 'is-disabled': !canEditRule, 'is-dragging': draggingModuleIndex === $index }"
-                    :draggable="canEditRule"
-                    @dragstart="onModuleDragStart($index, $event)"
-                    @dragover="onModuleDragOver($event)"
-                    @drop.prevent="onModuleDrop($index)"
-                    @dragend="onModuleDragEnd"
-                  >
-                    <el-icon><Rank /></el-icon>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="模块名" min-width="200">
-                <template #default="{ row }">
-                  <el-input v-model="row.moduleName" :disabled="!canEditRule" />
-                </template>
-              </el-table-column>
-              <el-table-column label="权重" width="140">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.weight" :disabled="!canEditRule" :min="0" :step="1" />
-                </template>
-              </el-table-column>
-              <el-table-column label="计分方式" width="170">
-                <template #default="{ row }">
-                  <el-select
-                    v-model="row.calculationMethod"
-                    :disabled="!canEditRule"
-                    style="width: 150px"
-                    @change="handleMethodChange(row)"
-                  >
-                    <el-option label="直接录入" value="direct_input" />
-                    <el-option label="投票模式" value="vote" />
-                    <el-option label="自定义脚本" value="custom_script" />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="140">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="openModuleDetail(row)">详情</el-button>
-                  <el-button link type="danger" :disabled="!canEditRule" @click="removeScoreModule(row)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-            <div
-              v-if="canEditRule"
-              class="module-drop-tail"
-              @dragover="onModuleDragOver($event)"
-              @drop.prevent="onModuleDropToEnd"
-            >
-              拖到这里可移到末尾
-            </div>
-            <div class="formula-text">
-              总分 = Σ(模块分数 * 模块权重 / 总权重) + 额外加减分；当前总权重：{{ totalWeight.toFixed(2) }}
-            </div>
-          </template>
-        </div>
+          </el-tab-pane>
 
-        <template v-if="activeScopedRule">
-          <div class="section-block">
-            <div class="section-head">
-              <strong>等第规则（按行顺序从高到低匹配）</strong>
-              <el-button size="small" :disabled="!canEditRule" @click="addGrade">新增等第</el-button>
-            </div>
-            <el-table :data="activeScopedRule.grades" border>
-              <el-table-column label="等第标题" width="130">
-                <template #default="{ row }">
-                  <el-input v-model="row.title" :disabled="!canEditRule" />
-                </template>
-              </el-table-column>
-              <el-table-column label="上限" width="250">
-                <template #default="{ row }">
-                  <div class="grade-node-cell">
-                    <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
-                    <el-select
-                      v-model="row.scoreNode.upperOperator"
-                      :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
-                      style="width: 72px"
-                    >
-                      <el-option label="<" value="<" />
-                      <el-option label="≤" value="<=" />
-                    </el-select>
-                    <el-input-number
-                      v-model="row.scoreNode.upperScore"
-                      :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
-                      :step="0.1"
-                    />
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="下限" width="250">
-                <template #default="{ row }">
-                  <div class="grade-node-cell">
-                    <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
-                    <el-select
-                      v-model="row.scoreNode.lowerOperator"
-                      :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
-                      style="width: 72px"
-                    >
-                      <el-option label=">" value=">" />
-                      <el-option label="≥" value=">=" />
-                    </el-select>
-                    <el-input-number
-                      v-model="row.scoreNode.lowerScore"
-                      :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
-                      :step="0.1"
-                    />
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="区间/条件" width="130">
-                <template #default="{ row }">
-                  <el-select v-model="row.conditionLogic" :disabled="!canEditRule" style="width: 108px">
-                    <el-option label="AND" value="and" />
-                    <el-option label="OR" value="or" />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column label="人数上限比例(%)" width="150">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-model="row.maxRatioPercent"
-                    :disabled="!canEditRule"
-                    :min="0"
-                    :max="100"
-                    :step="0.1"
-                    placeholder="不限制"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="140">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="openGradeDetail(row)">详情</el-button>
-                  <el-button link type="danger" :disabled="!canEditRule" @click="removeGrade(row)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </template>
-
-        <el-alert
-          type="info"
-          :closable="false"
-          class="section-block"
-          title="等第分配规则：先按顺序做首轮匹配，再按人数上限迭代回退到更低等第，直到各等第上限满足。"
-        />
-
-        <div class="editor-actions">
-          <el-button type="primary" :disabled="!canEditRule || saving || !activeScopedRule" :loading="saving" @click="saveRule">
-            保存规则
-          </el-button>
-        </div>
+          <el-tab-pane label="等第划分" name="grades">
+            <el-empty
+              v-if="!activeScopedRule"
+              description="请先在顶部选择考核周期和考核对象分组"
+            />
+            <template v-else>
+              <div class="section-block">
+                <div class="section-head">
+                  <strong>等第规则（按行顺序从高到低匹配）</strong>
+                </div>
+                <el-table :data="activeScopedRule.grades" class="rules-table">
+                  <el-table-column label="等第标题" width="130">
+                    <template #default="{ row }">
+                      <el-input v-model="row.title" :disabled="!canEditRule" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="上限" width="250">
+                    <template #default="{ row }">
+                      <div class="grade-node-cell">
+                        <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
+                        <el-select
+                          v-model="row.scoreNode.upperOperator"
+                          :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
+                          style="width: 72px"
+                        >
+                          <el-option label="<" value="<" />
+                          <el-option label="≤" value="<=" />
+                        </el-select>
+                        <el-input-number
+                          v-model="row.scoreNode.upperScore"
+                          :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
+                          :step="0.1"
+                        />
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="下限" width="250">
+                    <template #default="{ row }">
+                      <div class="grade-node-cell">
+                        <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
+                        <el-select
+                          v-model="row.scoreNode.lowerOperator"
+                          :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
+                          style="width: 72px"
+                        >
+                          <el-option label=">" value=">" />
+                          <el-option label="≥" value=">=" />
+                        </el-select>
+                        <el-input-number
+                          v-model="row.scoreNode.lowerScore"
+                          :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
+                          :step="0.1"
+                        />
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="区间/条件" width="130">
+                    <template #default="{ row }">
+                      <el-select v-model="row.conditionLogic" :disabled="!canEditRule" style="width: 108px">
+                        <el-option label="AND" value="and" />
+                        <el-option label="OR" value="or" />
+                      </el-select>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="人数上限比例(%)" width="150">
+                    <template #default="{ row }">
+                      <el-input-number
+                        v-model="row.maxRatioPercent"
+                        :disabled="!canEditRule"
+                        :min="0"
+                        :max="100"
+                        :step="0.1"
+                        placeholder="不限制"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="190" fixed="right">
+                    <template #default="{ row }">
+                      <div class="table-row-actions">
+                        <el-button size="small" type="primary" plain @click="openGradeDetail(row)">详情</el-button>
+                        <el-button size="small" type="danger" plain :disabled="!canEditRule" @click="removeGrade(row)">删除</el-button>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="canEditRule" class="table-footer-actions">
+                  <el-button type="primary" @click="addGrade">新增等第</el-button>
+                </div>
+              </div>
+              <el-alert
+                type="info"
+                :closable="false"
+                class="section-block"
+                title="等第分配规则：先按顺序做首轮匹配，再按人数上限迭代回退到更低等第，直到各等第上限满足。"
+              />
+            </template>
+          </el-tab-pane>
+        </el-tabs>
 
         <el-collapse class="json-preview">
           <el-collapse-item title="JSON预览（只读）" name="preview">
@@ -197,6 +214,78 @@
         </el-collapse>
       </template>
     </el-card>
+
+    <el-dialog
+      v-model="copyDialogVisible"
+      title="从其他考核范围复制规则"
+      width="640px"
+      destroy-on-close
+    >
+      <el-form label-width="108px" class="copy-form">
+        <el-form-item label="来源场次">
+          <el-select
+            v-model="copySourceSessionId"
+            filterable
+            placeholder="请选择来源场次"
+            style="width: 100%"
+            @change="onCopySourceSessionChange"
+          >
+            <el-option
+              v-for="item in sourceSessionOptions"
+              :key="item.id"
+              :label="item.displayName || item.assessmentName"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="来源周期">
+          <el-select
+            v-model="copySourcePeriodCode"
+            :disabled="copySourceDetailLoading || !copySourceSessionId"
+            placeholder="请选择来源周期"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in copySourcePeriods"
+              :key="item.id"
+              :label="item.periodName"
+              :value="item.periodCode"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="来源对象分组">
+          <el-select
+            v-model="copySourceObjectGroupCode"
+            :disabled="copySourceDetailLoading || !copySourceSessionId"
+            placeholder="请选择来源对象分组"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in sourceObjectGroupOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <el-alert
+        type="warning"
+        :closable="false"
+        title="复制会覆盖当前周期与对象分组下的分数模块和等第规则，请先确认来源范围。"
+      />
+      <template #footer>
+        <el-button @click="closeCopyDialog">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="copyingFromSource"
+          :disabled="!canEditRule || !activeScopedRule"
+          @click="applyCopyFromSource"
+        >
+          覆盖复制
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="moduleDetailVisible"
@@ -275,12 +364,18 @@
 import { Rank } from "@element-plus/icons-vue";
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { getAssessmentSession } from "@/api/assessment";
 import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
 import {
   listRuleFiles,
   updateRuleFile,
 } from "@/api/rules";
+import type {
+  AssessmentObjectGroupItem,
+  AssessmentSessionItem,
+  AssessmentSessionPeriodItem,
+} from "@/types/assessment";
 import type { RuleFileItem } from "@/types/rules";
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
@@ -332,6 +427,7 @@ interface StructuredRuleContent {
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
 const dirtySourceId = "rules:editor";
+const rulesViewRef = ref<HTMLElement | null>(null);
 
 const loading = ref(false);
 const loadingFiles = ref(false);
@@ -340,6 +436,7 @@ const draggingModuleIndex = ref<number | null>(null);
 
 const currentRule = ref<RuleFileItem | null>(null);
 const activeScopedRuleId = ref("");
+const activeEditTab = ref<"modules" | "grades">("modules");
 
 const moduleDetailVisible = ref(false);
 const moduleDetailTargetId = ref("");
@@ -352,6 +449,14 @@ const gradeDetailTargetId = ref("");
 const gradeDetailDraft = reactive({
   extraConditionScript: "",
 });
+const copyDialogVisible = ref(false);
+const copyingFromSource = ref(false);
+const copySourceDetailLoading = ref(false);
+const copySourceSessionId = ref<number | undefined>(undefined);
+const copySourcePeriodCode = ref("");
+const copySourceObjectGroupCode = ref("");
+const copySourcePeriods = ref<AssessmentSessionPeriodItem[]>([]);
+const copySourceObjectGroups = ref<AssessmentObjectGroupItem[]>([]);
 const ruleEditorBaseline = ref("");
 
 const ruleContent = reactive<StructuredRuleContent>(defaultRuleContent(true));
@@ -369,18 +474,21 @@ const totalWeight = computed(() =>
 
 const structuredJsonPreview = computed(() => JSON.stringify(normalizeRuleContent(cloneDeep(ruleContent)), null, 2));
 
-const contextText = computed(() => {
-  const sessionText = contextStore.currentSession?.displayName || "未选择场次";
-  const periodText = contextStore.currentPeriod?.periodName || "未选择周期";
-  const groupText = contextStore.currentObjectGroup?.groupName || "未选择对象分组";
-  return `当前影响范围：${sessionText} / ${periodText} / ${groupText}`;
-});
+const sourceSessionOptions = computed<AssessmentSessionItem[]>(() => contextStore.sessions);
 
-const currentScopeLabel = computed(() => {
-  const periodText = contextStore.currentPeriod?.periodName || "未选择周期";
-  const groupText = contextStore.currentObjectGroup?.groupName || "未选择对象分组";
-  return `${periodText} / ${groupText}`;
-});
+const sourceObjectGroupOptions = computed(() =>
+  [...copySourceObjectGroups.value]
+    .sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      return a.id - b.id;
+    })
+    .map((item) => ({
+      value: item.groupCode,
+      label: `${item.objectType === "team" ? "团体" : "个人"} - ${item.groupName}`,
+    })),
+);
 
 const moduleDetailTarget = computed(() =>
   activeScopedRule.value?.scoreModules.find((item) => item.id === moduleDetailTargetId.value) || null,
@@ -431,6 +539,47 @@ function isDialogCancel(error: unknown): boolean {
     error === "close" ||
     (error instanceof Error && (error.message === "cancel" || error.message === "close"))
   );
+}
+
+function hasBlockingDialogOpen(): boolean {
+  return copyDialogVisible.value || moduleDetailVisible.value || gradeDetailVisible.value;
+}
+
+function isRulesViewShortcutScope(event: KeyboardEvent): boolean {
+  const root = rulesViewRef.value;
+  const target = event.target;
+  if (!root || !(target instanceof Node)) {
+    return false;
+  }
+  return root.contains(target);
+}
+
+function handleGlobalEditorKeydown(event: KeyboardEvent): void {
+  const ctrlOrMeta = event.ctrlKey || event.metaKey;
+  if (!ctrlOrMeta || event.altKey) {
+    return;
+  }
+  if (!isRulesViewShortcutScope(event)) {
+    return;
+  }
+  if (hasBlockingDialogOpen()) {
+    return;
+  }
+
+  const key = String(event.key || "").toLowerCase();
+  if (key === "s") {
+    event.preventDefault();
+    void saveRule();
+    return;
+  }
+  if (key === "n") {
+    event.preventDefault();
+    if (activeEditTab.value === "modules") {
+      addScoreModule();
+      return;
+    }
+    addGrade();
+  }
 }
 
 function uuid(prefix: string): string {
@@ -938,6 +1087,145 @@ function applyGradeDetail(): void {
   closeGradeDetail();
 }
 
+function closeCopyDialog(): void {
+  copyDialogVisible.value = false;
+}
+
+async function onCopySourceSessionChange(sessionID?: number): Promise<void> {
+  copySourceSessionId.value = sessionID;
+  copySourcePeriods.value = [];
+  copySourceObjectGroups.value = [];
+  copySourcePeriodCode.value = "";
+  copySourceObjectGroupCode.value = "";
+
+  if (!sessionID) {
+    return;
+  }
+
+  copySourceDetailLoading.value = true;
+  try {
+    const detail = await getAssessmentSession(sessionID);
+    copySourcePeriods.value = detail.periods || [];
+    copySourceObjectGroups.value = detail.objectGroups || [];
+
+    const preferredPeriod = contextStore.periodCode && copySourcePeriods.value.some((item) => item.periodCode === contextStore.periodCode)
+      ? contextStore.periodCode
+      : copySourcePeriods.value[0]?.periodCode || "";
+    const preferredGroup =
+      contextStore.objectGroupCode && copySourceObjectGroups.value.some((item) => item.groupCode === contextStore.objectGroupCode)
+        ? contextStore.objectGroupCode
+        : copySourceObjectGroups.value[0]?.groupCode || "";
+    copySourcePeriodCode.value = preferredPeriod || "";
+    copySourceObjectGroupCode.value = preferredGroup || "";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "加载来源场次配置失败";
+    ElMessage.error(message);
+  } finally {
+    copySourceDetailLoading.value = false;
+  }
+}
+
+async function openCopyDialog(): Promise<void> {
+  if (!canEditRule.value || !activeScopedRule.value) {
+    return;
+  }
+  try {
+    await contextStore.ensureInitialized();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "加载场次列表失败";
+    ElMessage.error(message);
+    return;
+  }
+  if (sourceSessionOptions.value.length === 0) {
+    ElMessage.warning("暂无可选来源场次");
+    return;
+  }
+
+  const current = copySourceSessionId.value;
+  const currentValid = current && sourceSessionOptions.value.some((item) => item.id === current);
+  const defaultSessionID = currentValid
+    ? current
+    : sourceSessionOptions.value.find((item) => item.id !== contextStore.sessionId)?.id || sourceSessionOptions.value[0].id;
+
+  copyDialogVisible.value = true;
+  await onCopySourceSessionChange(defaultSessionID);
+}
+
+async function applyCopyFromSource(): Promise<void> {
+  if (!canEditRule.value || !activeScopedRule.value) {
+    return;
+  }
+  if (!copySourceSessionId.value || !copySourcePeriodCode.value || !copySourceObjectGroupCode.value) {
+    ElMessage.warning("请先选择完整的来源场次、周期与对象分组");
+    return;
+  }
+
+  copyingFromSource.value = true;
+  try {
+    const sourceItems = await listRuleFiles(copySourceSessionId.value, false);
+    if (sourceItems.length === 0) {
+      ElMessage.warning("来源场次暂无规则文件");
+      return;
+    }
+    const sourceContent = parseRuleContent(sourceItems[0].contentJson || "", false);
+    const sourceScopedRule = sourceContent.scopedRules.find(
+      (item) =>
+        item.applicablePeriods.includes(copySourcePeriodCode.value) &&
+        item.applicableObjectGroups.includes(copySourceObjectGroupCode.value),
+    );
+    if (!sourceScopedRule) {
+      ElMessage.warning("来源范围未配置规则，无法复制");
+      return;
+    }
+
+    const sourceSessionName =
+      sourceSessionOptions.value.find((item) => item.id === copySourceSessionId.value)?.displayName ||
+      sourceSessionOptions.value.find((item) => item.id === copySourceSessionId.value)?.assessmentName ||
+      `场次#${copySourceSessionId.value}`;
+    await ElMessageBox.confirm(
+      `确认从「${sourceSessionName} / ${copySourcePeriodCode.value} / ${copySourceObjectGroupCode.value}」复制并覆盖当前范围规则吗？`,
+      "复制确认",
+      {
+        type: "warning",
+        confirmButtonText: "覆盖复制",
+        cancelButtonText: "取消",
+      },
+    );
+
+    activeScopedRule.value.scoreModules = sourceScopedRule.scoreModules.map((item, index) =>
+      normalizeScoreModule(
+        {
+          ...cloneDeep(item),
+          id: uuid("module"),
+          moduleKey: String(item.moduleKey || `module_${index + 1}`).trim() || `module_${index + 1}`,
+        },
+        index,
+      ),
+    );
+    activeScopedRule.value.grades = sourceScopedRule.grades.map((item, index) =>
+      normalizeGrade(
+        {
+          ...cloneDeep(item),
+          id: uuid("grade"),
+        },
+        index,
+      ),
+    );
+    closeModuleDetail();
+    closeGradeDetail();
+    closeCopyDialog();
+    ElMessage.success("复制成功，请保存规则");
+  } catch (error) {
+    if (isDialogCancel(error)) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "复制规则失败";
+    ElMessage.error(message);
+  } finally {
+    copyingFromSource.value = false;
+  }
+}
+
 function addScoreModule(): void {
   if (!canEditRule.value || !activeScopedRule.value) {
     return;
@@ -1163,6 +1451,7 @@ watch(
   () => contextStore.sessionId,
   () => {
     contextWarning.value = validateContextForLoad();
+    closeCopyDialog();
     void loadData();
   },
 );
@@ -1172,6 +1461,7 @@ watch(
   () => {
     contextWarning.value = validateContextForLoad();
     syncActiveScopedRuleWithContext();
+    closeCopyDialog();
     closeModuleDetail();
     closeGradeDetail();
   },
@@ -1180,6 +1470,7 @@ watch(
 watch(
   () => activeScopedRuleId.value,
   () => {
+    closeCopyDialog();
     closeModuleDetail();
     closeGradeDetail();
   },
@@ -1201,6 +1492,7 @@ watch(
 );
 
 onMounted(async () => {
+  window.addEventListener("keydown", handleGlobalEditorKeydown);
   unsavedStore.setSourceMeta(dirtySourceId, {
     label: "规则管理",
     save: saveRule,
@@ -1209,6 +1501,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleGlobalEditorKeydown);
   unsavedStore.unregisterSource(dirtySourceId);
 });
 </script>
@@ -1226,14 +1519,28 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.subtitle {
-  color: #606266;
-  font-size: 13px;
+.card-title {
+  color: #303133;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .header-actions {
   display: flex;
   gap: 8px;
+}
+
+.save-button {
+  min-width: 110px;
+  font-weight: 600;
+}
+
+.editor-tabs {
+  margin-top: 4px;
+}
+
+.editor-tabs :deep(.el-tabs__header) {
+  margin-bottom: 8px;
 }
 
 .section-block {
@@ -1245,12 +1552,6 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
-  gap: 8px;
-}
-
-.inline-actions {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
@@ -1266,20 +1567,10 @@ onBeforeUnmount(() => {
   color: #606266;
 }
 
-.muted {
-  color: #909399;
-}
-
 .grade-node-cell {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.editor-actions {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
 }
 
 .json-preview {
@@ -1327,5 +1618,31 @@ onBeforeUnmount(() => {
   color: #909399;
   text-align: center;
   padding: 8px;
+}
+
+.rules-table {
+  width: 100%;
+}
+
+.rules-table :deep(.el-table__row:hover > td.el-table__cell) {
+  background: #f5f9ff;
+}
+
+.table-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.table-footer-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.copy-form {
+  margin-bottom: 10px;
 }
 </style>
