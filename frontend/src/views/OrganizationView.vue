@@ -146,54 +146,6 @@
             </el-table>
           </el-tab-pane>
 
-          <el-tab-pane label="分类管理" name="positionLevels">
-            <div class="toolbar-grid">
-              <el-input
-                v-model="positionLevelQuery.keyword"
-                clearable
-                placeholder="按分类名称/编码搜索"
-              />
-              <el-select v-model="positionLevelQuery.status" clearable placeholder="状态">
-                <el-option label="启用" value="active" />
-                <el-option label="停用" value="inactive" />
-              </el-select>
-              <el-button :loading="loadingPositionLevels" @click="loadPositionLevels">查询</el-button>
-              <el-button
-                type="primary"
-                :disabled="!canManagePositionLevels"
-                @click="openPositionLevelDialog()"
-              >
-                新增分类
-              </el-button>
-            </div>
-
-            <el-table
-              v-loading="loadingPositionLevels"
-              :data="filteredPositionLevels"
-              border
-              :row-class-name="rowClassByStatus"
-            >
-              <el-table-column type="index" label="序号" width="70" />
-              <el-table-column prop="levelName" label="分类名称" min-width="160" />
-              <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
-              <el-table-column label="操作" width="180" fixed="right">
-                <template #default="{ row }">
-                  <el-button link type="primary" :disabled="!canManagePositionLevels" @click="openPositionLevelDialog(row)">
-                    编辑
-                  </el-button>
-                  <el-button
-                    link
-                    type="danger"
-                    :disabled="!canManagePositionLevels"
-                    @click="handleDeletePositionLevel(row)"
-                  >
-                    删除
-                  </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-tab-pane>
-
           <el-tab-pane label="人员管理" name="employees">
             <div class="toolbar-grid toolbar-grid-employee">
               <div class="employee-filter-select-wrap">
@@ -279,11 +231,6 @@
               <el-table-column label="所属部门" min-width="150">
                 <template #default="{ row }">
                   {{ row.departmentId ? departmentName(row.departmentId) : "-" }}
-                </template>
-              </el-table-column>
-              <el-table-column label="分类" min-width="130">
-                <template #default="{ row }">
-                  {{ positionLevelName(row.positionLevelId) }}
                 </template>
               </el-table-column>
               <el-table-column prop="positionTitle" label="岗位" min-width="130" />
@@ -384,51 +331,6 @@
       <template #footer>
         <el-button @click="departmentDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingDepartment" @click="submitDepartment">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="positionLevelDialogVisible"
-      width="560px"
-      :title="positionLevelForm.id ? '编辑分类' : '新增分类'"
-    >
-      <el-form label-width="110px">
-        <el-form-item label="分类编码" required>
-          <el-input
-            v-model="positionLevelForm.levelCode"
-            maxlength="50"
-            :disabled="positionLevelForm.isSystem"
-            placeholder="示例：department_main"
-          />
-        </el-form-item>
-        <el-form-item label="分类名称" required>
-          <el-input v-model="positionLevelForm.levelName" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="用于考核对象">
-          <el-switch v-model="positionLevelForm.isForAssessment" />
-        </el-form-item>
-        <el-form-item label="排序">
-          <el-input-number v-model="positionLevelForm.sortOrder" :min="0" controls-position="right" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="positionLevelForm.status" style="width: 100%">
-            <el-option label="启用" value="active" />
-            <el-option label="停用" value="inactive" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input
-            v-model="positionLevelForm.description"
-            type="textarea"
-            :rows="3"
-            maxlength="200"
-            show-word-limit
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="positionLevelDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingPositionLevel" @click="submitPositionLevel">保存</el-button>
       </template>
     </el-dialog>
 
@@ -612,14 +514,12 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useAppStore } from "@/stores/app";
 import { useUnsavedStore } from "@/stores/unsaved";
 import {
-  createPositionLevel,
   createDepartment,
   createEmployee,
   createOrganization,
   deleteDepartment,
   deleteEmployee,
   deleteOrganization,
-  deletePositionLevel,
   getOrgTree,
   listDepartments,
   listEmployeeHistory,
@@ -627,7 +527,6 @@ import {
   listOrganizations,
   listPositionLevels,
   transferEmployee,
-  updatePositionLevel,
   updateDepartment,
   updateEmployee,
   updateOrganization,
@@ -641,7 +540,6 @@ import type {
   OrganizationItem,
   PositionLevelItem,
   TransferType,
-  UpsertPositionLevelPayload,
 } from "@/types/org";
 
 interface TreeNodeUI extends OrgTreeNode {
@@ -654,15 +552,13 @@ const appStore = useAppStore();
 const unsavedStore = useUnsavedStore();
 const canEdit = computed(() => appStore.hasPermission("org:update"));
 const isRoot = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
-const canManagePositionLevels = computed(() => isRoot.value);
 
 const organizationDirtySourceId = "org:organization-dialog";
 const departmentDirtySourceId = "org:department-dialog";
-const positionLevelDirtySourceId = "org:position-level-dialog";
 const employeeDirtySourceId = "org:employee-dialog";
 const transferDirtySourceId = "org:transfer-dialog";
 
-type OrgManagementTab = "organizations" | "departments" | "positionLevels" | "employees";
+type OrgManagementTab = "organizations" | "departments" | "employees";
 
 const activeTab = ref<OrgManagementTab>("organizations");
 
@@ -695,25 +591,7 @@ const employeeQuery = reactive({
   status: "" as OrgStatus | "",
 });
 
-const loadingPositionLevels = ref(false);
 const positionLevels = ref<PositionLevelItem[]>([]);
-const positionLevelQuery = reactive({
-  keyword: "",
-  status: "" as OrgStatus | "",
-});
-
-const positionLevelDialogVisible = ref(false);
-const savingPositionLevel = ref(false);
-const positionLevelForm = reactive({
-  id: null as number | null,
-  levelCode: "",
-  levelName: "",
-  description: "",
-  isForAssessment: true,
-  sortOrder: 0,
-  status: "active" as OrgStatus,
-  isSystem: false,
-});
 
 const organizationDialogVisible = ref(false);
 const savingOrganization = ref(false);
@@ -770,7 +648,6 @@ const transferBaseline = ref("");
 const historyDialogVisible = ref(false);
 const historyTargetName = ref("");
 const historyRows = ref<EmployeeHistoryItem[]>([]);
-const positionLevelBaseline = ref("");
 
 const selectedTreeNode = ref<TreeNodeUI | null>(null);
 const treeProps = {
@@ -839,32 +716,6 @@ watch(
       return;
     }
     unsavedStore.markDirty(departmentDirtySourceId);
-  },
-  { deep: true },
-);
-
-watch(positionLevelDialogVisible, (visible) => {
-  if (visible) {
-    resetPositionLevelBaseline();
-    return;
-  }
-  positionLevelBaseline.value = "";
-  unsavedStore.clearDirty(positionLevelDirtySourceId);
-});
-
-watch(
-  positionLevelForm,
-  () => {
-    if (!positionLevelDialogVisible.value) {
-      unsavedStore.clearDirty(positionLevelDirtySourceId);
-      return;
-    }
-    const current = positionLevelFormSignature();
-    if (!positionLevelBaseline.value || current === positionLevelBaseline.value) {
-      unsavedStore.clearDirty(positionLevelDirtySourceId);
-      return;
-    }
-    unsavedStore.markDirty(positionLevelDirtySourceId);
   },
   { deep: true },
 );
@@ -988,19 +839,6 @@ function departmentFormSignature(): string {
   });
 }
 
-function positionLevelFormSignature(): string {
-  return JSON.stringify({
-    id: positionLevelForm.id,
-    levelCode: positionLevelForm.levelCode,
-    levelName: positionLevelForm.levelName,
-    description: positionLevelForm.description,
-    isForAssessment: positionLevelForm.isForAssessment,
-    sortOrder: positionLevelForm.sortOrder,
-    status: positionLevelForm.status,
-    isSystem: positionLevelForm.isSystem,
-  });
-}
-
 function employeeFormSignature(): string {
   return JSON.stringify({
     id: employeeForm.id,
@@ -1037,11 +875,6 @@ function resetDepartmentBaseline(): void {
   unsavedStore.clearDirty(departmentDirtySourceId);
 }
 
-function resetPositionLevelBaseline(): void {
-  positionLevelBaseline.value = positionLevelFormSignature();
-  unsavedStore.clearDirty(positionLevelDirtySourceId);
-}
-
 function resetEmployeeBaseline(): void {
   employeeBaseline.value = employeeFormSignature();
   unsavedStore.clearDirty(employeeDirtySourceId);
@@ -1072,21 +905,6 @@ function positionLevelName(levelId?: number): string {
   }
   return positionLevels.value.find((item) => item.id === levelId)?.levelName ?? `#${levelId}`;
 }
-
-const filteredPositionLevels = computed(() => {
-  const keyword = positionLevelQuery.keyword.trim().toLowerCase();
-  const status = positionLevelQuery.status;
-  return positionLevels.value.filter((item) => {
-    if (status && item.status !== status) {
-      return false;
-    }
-    if (!keyword) {
-      return true;
-    }
-    const target = `${item.levelName} ${item.levelCode}`.toLowerCase();
-    return target.includes(keyword);
-  });
-});
 
 const activePositionLevels = computed(() => positionLevels.value.filter((item) => item.status === "active"));
 
@@ -1243,13 +1061,10 @@ async function loadEmployees(): Promise<void> {
 }
 
 async function loadPositionLevels(): Promise<void> {
-  loadingPositionLevels.value = true;
   try {
     positionLevels.value = await listPositionLevels();
   } catch (_error) {
     ElMessage.error("分类列表加载失败");
-  } finally {
-    loadingPositionLevels.value = false;
   }
 }
 
@@ -1419,98 +1234,6 @@ async function handleDeleteDepartment(item: DepartmentItem): Promise<void> {
       return;
     }
     const message = error instanceof Error ? error.message : "部门删除失败";
-    ElMessage.error(message);
-  }
-}
-
-function openPositionLevelDialog(item?: PositionLevelItem): void {
-  if (!canManagePositionLevels.value) {
-    return;
-  }
-  if (item) {
-    Object.assign(positionLevelForm, {
-      id: item.id,
-      levelCode: item.levelCode,
-      levelName: item.levelName,
-      description: item.description || "",
-      isForAssessment: item.isForAssessment,
-      sortOrder: item.sortOrder,
-      status: item.status,
-      isSystem: item.isSystem,
-    });
-  } else {
-    Object.assign(positionLevelForm, {
-      id: null,
-      levelCode: "",
-      levelName: "",
-      description: "",
-      isForAssessment: true,
-      sortOrder: 0,
-      status: "active",
-      isSystem: false,
-    });
-  }
-  positionLevelDialogVisible.value = true;
-}
-
-async function submitPositionLevel(): Promise<void> {
-  if (!canManagePositionLevels.value) {
-    return;
-  }
-  if (!positionLevelForm.levelCode.trim() || !positionLevelForm.levelName.trim()) {
-    ElMessage.warning("请填写分类编码和名称");
-    return;
-  }
-
-  const payload: UpsertPositionLevelPayload = {
-    levelCode: positionLevelForm.levelCode.trim(),
-    levelName: positionLevelForm.levelName.trim(),
-    description: positionLevelForm.description.trim() || undefined,
-    isForAssessment: positionLevelForm.isForAssessment,
-    sortOrder: positionLevelForm.sortOrder,
-    status: positionLevelForm.status,
-  };
-
-  savingPositionLevel.value = true;
-  try {
-    if (positionLevelForm.id) {
-      await updatePositionLevel(positionLevelForm.id, payload);
-    } else {
-      await createPositionLevel(payload);
-    }
-    ElMessage.success("分类已保存");
-    positionLevelDialogVisible.value = false;
-    await loadPositionLevels();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "分类保存失败";
-    ElMessage.error(message);
-  } finally {
-    savingPositionLevel.value = false;
-  }
-}
-
-async function handleDeletePositionLevel(item: PositionLevelItem): Promise<void> {
-  if (!canManagePositionLevels.value) {
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(`确认删除分类「${item.levelName} (${item.levelCode})」吗？`, "删除确认", {
-      type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-    });
-    await deletePositionLevel(item.id);
-    ElMessage.success("分类已删除");
-    await loadPositionLevels();
-  } catch (error) {
-    if (
-      error === "cancel" ||
-      error === "close" ||
-      (error instanceof Error && (error.message === "cancel" || error.message === "close"))
-    ) {
-      return;
-    }
-    const message = error instanceof Error ? error.message : "分类删除失败";
     ElMessage.error(message);
   }
 }
@@ -1702,10 +1425,6 @@ onMounted(async () => {
     label: "部门编辑",
     save: submitDepartment,
   });
-  unsavedStore.setSourceMeta(positionLevelDirtySourceId, {
-    label: "分类编辑",
-    save: submitPositionLevel,
-  });
   unsavedStore.setSourceMeta(employeeDirtySourceId, {
     label: "人员编辑",
     save: submitEmployee,
@@ -1729,7 +1448,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unsavedStore.unregisterSource(organizationDirtySourceId);
   unsavedStore.unregisterSource(departmentDirtySourceId);
-  unsavedStore.unregisterSource(positionLevelDirtySourceId);
   unsavedStore.unregisterSource(employeeDirtySourceId);
   unsavedStore.unregisterSource(transferDirtySourceId);
 });
@@ -1848,4 +1566,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
