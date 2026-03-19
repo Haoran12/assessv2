@@ -11,7 +11,7 @@
       </el-menu>
     </el-aside>
     <el-container class="app-content-shell">
-      <el-header class="app-header">
+      <el-header :class="['app-header', { 'app-header-root': isRootUser }]">
         <div class="header-left">
           <div v-if="appStore.isAuthed" class="global-context">
             <el-select
@@ -116,6 +116,7 @@ const appStore = useAppStore();
 const contextStore = useContextStore();
 
 const activePath = computed(() => route.path);
+const isRootUser = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
 const visibleMenus = computed(() =>
   navItems.filter((item) => {
     if (item.rootOnly && appStore.primaryRole !== "root" && !appStore.roles.includes("root")) {
@@ -225,6 +226,11 @@ function roleLabel(roleCode: string): string {
   align-items: center;
   gap: 12px;
   background: #fff;
+}
+
+.app-header.app-header-root {
+  background: #fff1f0;
+  border-bottom-color: #f5c2c7;
 }
 
 .header-left {

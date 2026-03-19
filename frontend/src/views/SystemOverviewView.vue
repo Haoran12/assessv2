@@ -2,46 +2,6 @@
   <div class="overview-view">
     <el-card>
       <template #header>
-        <strong>系统概览</strong>
-      </template>
-
-      <div class="summary-grid">
-        <div class="summary-item">
-          <span class="summary-label">用户</span>
-          <span class="summary-value">{{ appStore.username || "-" }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">角色</span>
-          <span class="summary-value">{{ appStore.primaryRole || "-" }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">场次</span>
-          <span class="summary-value">{{ contextStore.currentSession?.displayName || "未选择" }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">组织</span>
-          <span class="summary-value">{{ contextStore.currentSession?.organizationName || "未选择" }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">周期</span>
-          <span class="summary-value">{{ contextStore.currentPeriod?.periodName || "未选择" }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">对象分组</span>
-          <span class="summary-value">{{ contextStore.currentObjectGroup?.groupName || "未选择" }}</span>
-        </div>
-      </div>
-
-      <el-alert
-        class="mt-12"
-        title="当前版本已按“考核场次独立”架构运行，规则绑定与对象分组均基于所选场次生效。"
-        type="info"
-        :closable="false"
-      />
-    </el-card>
-
-    <el-card>
-      <template #header>
         <div class="card-header">
           <strong>当前考核数据</strong>
           <el-button size="small" :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
@@ -55,9 +15,6 @@
         :closable="false"
       />
       <template v-else>
-        <div class="table-caption">
-          {{ contextLabel }}
-        </div>
         <el-table :data="assessmentRows" border stripe v-loading="loadingTable">
           <el-table-column prop="rank" label="排名" width="88" />
           <el-table-column prop="objectName" label="考核对象名称" min-width="220" />
@@ -89,7 +46,6 @@ import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { listAssessmentSessionObjects } from "@/api/assessment";
 import { listRuleFiles } from "@/api/rules";
-import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import type { AssessmentSessionObjectItem } from "@/types/assessment";
 import type { RuleFileItem } from "@/types/rules";
@@ -107,7 +63,6 @@ interface TableRow {
   moduleScores: Record<string, number | null>;
 }
 
-const appStore = useAppStore();
 const contextStore = useContextStore();
 const moduleColumns = ref<TableModuleColumn[]>([]);
 const assessmentRows = ref<TableRow[]>([]);
@@ -117,13 +72,6 @@ let fetchSequence = 0;
 const isContextReady = computed(() =>
   Boolean(contextStore.sessionId && contextStore.periodCode && contextStore.objectGroupCode),
 );
-
-const contextLabel = computed(() => {
-  const sessionName = contextStore.currentSession?.displayName || "未选择场次";
-  const periodName = contextStore.currentPeriod?.periodName || "未选择周期";
-  const groupName = contextStore.currentObjectGroup?.groupName || "未选择分组";
-  return `场次：${sessionName} ｜ 周期：${periodName} ｜ 对象分组：${groupName}`;
-});
 
 function toNumberOrNull(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -308,55 +256,5 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.summary-item {
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  padding: 10px 12px;
-  display: grid;
-  gap: 6px;
-}
-
-.summary-label {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1;
-}
-
-.summary-value {
-  font-size: 14px;
-  color: #303133;
-  font-weight: 600;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.table-caption {
-  margin-bottom: 10px;
-  color: #606266;
-  font-size: 13px;
-}
-
-.mt-12 {
-  margin-top: 12px;
-}
-
-@media (max-width: 1200px) {
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .summary-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>
