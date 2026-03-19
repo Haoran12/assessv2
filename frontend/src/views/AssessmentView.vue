@@ -53,7 +53,7 @@
             <el-table-column type="index" label="#" width="60" />
             <el-table-column label="编码" width="160">
               <template #default="{ row }">
-                <el-input v-model="row.periodCode" />
+                <el-input v-model="row.periodCode" @blur="onPeriodCodeBlur(row)" />
               </template>
             </el-table-column>
             <el-table-column label="名称" min-width="180">
@@ -61,12 +61,32 @@
                 <el-input v-model="row.periodName" />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="100">
+            <el-table-column label="规则绑定" min-width="220">
+              <template #default="{ row }">
+                <el-select
+                  v-model="row.ruleBindingKey"
+                  style="width: 100%"
+                  filterable
+                  placeholder="默认绑定自己"
+                  @change="onRuleBindingKeyChange(row)"
+                >
+                  <el-option
+                    v-for="code in periodCodeOptions"
+                    :key="`binding_${code}`"
+                    :label="periodCodeLabelMap[code] || code"
+                    :value="code"
+                  />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="180">
               <template #default="{ $index }">
+                <el-button link :disabled="!canEdit || $index === 0" @click="bindPeriodToPrevious($index)">绑定上一周期</el-button>
                 <el-button link type="danger" :disabled="!canEdit" @click="removePeriod($index)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <div class="period-hint">同一绑定键下的周期会共用同一套规则配置，未设置时默认绑定自身。</div>
           <div class="section-foot">
             <el-button type="primary" :disabled="!canEdit || savingPeriods" :loading="savingPeriods" @click="savePeriods">
               保存周期
@@ -291,7 +311,7 @@ const loadingSessions = ref(false);
 const loadingDetail = ref(false);
 const loadingObjects = ref(false);
 
-const periodDrafts = ref<Array<{ periodCode: string; periodName: string }>>([]);
+const periodDrafts = ref<Array<{ periodCode: string; periodName: string; ruleBindingKey: string }>>([]);
 const groupDrafts = ref<Array<{ objectType: "team" | "individual"; groupCode: string; groupName: string }>>([]);
 const objects = ref<AssessmentSessionObjectItem[]>([]);
 const objectDrafts = ref<AssessmentSessionObjectItem[]>([]);
@@ -371,12 +391,81 @@ const filteredCandidates = computed(() => {
   });
 });
 
+const periodCodeOptions = computed(() => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of periodDrafts.value) {
+    const code = item.periodCode.trim().toUpperCase();
+    if (!code || seen.has(code)) {
+      continue;
+    }
+    seen.add(code);
+    result.push(code);
+  }
+  return result;
+});
+
+const periodCodeLabelMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  for (const item of periodDrafts.value) {
+    const code = item.periodCode.trim().toUpperCase();
+    if (!code) {
+      continue;
+    }
+    const name = item.periodName.trim();
+    map[code] = name ? `${code} - ${name}` : code;
+  }
+  return map;
+});
+
 function addPeriod(): void {
-  periodDrafts.value.push({ periodCode: "", periodName: "" });
+  periodDrafts.value.push({ periodCode: "", periodName: "", ruleBindingKey: "" });
 }
 
 function removePeriod(index: number): void {
   periodDrafts.value.splice(index, 1);
+  ensurePeriodBindingKeys();
+}
+
+function onPeriodCodeBlur(row: { periodCode: string; ruleBindingKey: string }): void {
+  row.periodCode = row.periodCode.trim().toUpperCase();
+  if (!row.ruleBindingKey.trim()) {
+    row.ruleBindingKey = row.periodCode;
+  }
+  ensurePeriodBindingKeys();
+}
+
+function onRuleBindingKeyChange(row: { ruleBindingKey: string }): void {
+  row.ruleBindingKey = row.ruleBindingKey.trim().toUpperCase();
+  ensurePeriodBindingKeys();
+}
+
+function bindPeriodToPrevious(index: number): void {
+  if (index <= 0 || index >= periodDrafts.value.length) {
+    return;
+  }
+  const previousCode = periodDrafts.value[index - 1].periodCode.trim().toUpperCase();
+  if (!previousCode) {
+    ElMessage.warning("请先设置上一行周期编码");
+    return;
+  }
+  periodDrafts.value[index].ruleBindingKey = previousCode;
+  ensurePeriodBindingKeys();
+}
+
+function ensurePeriodBindingKeys(): void {
+  const available = new Set(periodCodeOptions.value);
+  for (const item of periodDrafts.value) {
+    const code = item.periodCode.trim().toUpperCase();
+    let bindingKey = item.ruleBindingKey.trim().toUpperCase();
+    if (!bindingKey) {
+      bindingKey = code;
+    }
+    if (bindingKey && !available.has(bindingKey)) {
+      bindingKey = code;
+    }
+    item.ruleBindingKey = bindingKey;
+  }
 }
 
 function addGroup(): void {
@@ -440,7 +529,12 @@ async function selectSession(sessionId: number): Promise<void> {
   try {
     const detail = await getAssessmentSession(sessionId);
     selectedDetail.value = detail;
-    periodDrafts.value = detail.periods.map((item) => ({ periodCode: item.periodCode, periodName: item.periodName }));
+    periodDrafts.value = detail.periods.map((item) => ({
+      periodCode: item.periodCode,
+      periodName: item.periodName,
+      ruleBindingKey: item.ruleBindingKey || item.periodCode,
+    }));
+    ensurePeriodBindingKeys();
     groupDrafts.value = detail.objectGroups.map((item) => ({
       objectType: item.objectType,
       groupCode: item.groupCode,
@@ -506,11 +600,22 @@ async function savePeriods(): Promise<void> {
   const items = periodDrafts.value.map((item, index) => ({
     periodCode: item.periodCode.trim().toUpperCase(),
     periodName: item.periodName.trim(),
+    ruleBindingKey: item.ruleBindingKey.trim().toUpperCase(),
     sortOrder: index + 1,
   }));
   if (items.some((item) => !item.periodCode || !item.periodName)) {
     ElMessage.warning("周期编码和名称不能为空");
     return;
+  }
+  const codeSet = new Set(items.map((item) => item.periodCode));
+  for (const item of items) {
+    if (!item.ruleBindingKey) {
+      item.ruleBindingKey = item.periodCode;
+    }
+    if (!codeSet.has(item.ruleBindingKey)) {
+      ElMessage.warning(`规则绑定周期「${item.ruleBindingKey}」不存在，请检查周期配置`);
+      return;
+    }
   }
   savingPeriods.value = true;
   try {
@@ -730,6 +835,12 @@ onMounted(async () => {
 
 .section-foot {
   margin-top: 10px;
+}
+
+.period-hint {
+  margin-top: 8px;
+  color: #909399;
+  font-size: 13px;
 }
 
 .mb-12 {

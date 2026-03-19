@@ -33,6 +33,7 @@ export interface AssessmentSessionPeriodItem {
   assessmentId: number;
   periodCode: AssessmentPeriodCode;
   periodName: string;
+  ruleBindingKey: string;
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
@@ -100,6 +101,7 @@ export interface UpdateAssessmentPeriodsPayload {
   items: Array<{
     periodCode: string;
     periodName: string;
+    ruleBindingKey?: string;
     sortOrder?: number;
   }>;
 }

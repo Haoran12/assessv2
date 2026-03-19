@@ -1,14 +1,11 @@
-ï»¿<template>
+<template>
   <div class="rules-view">
     <el-card>
       <template #header>
         <div class="card-header">
-          <div>
-            <strong>è§„åˆ™ç®¡ç†</strong>
-            <div class="subtitle">{{ contextText }}</div>
-          </div>
+          <div class="subtitle">{{ contextText }}</div>
           <div class="header-actions">
-            <el-button :loading="loading" @click="loadData">åˆ·æ–°</el-button>
+            <el-button :loading="loading" @click="loadData">Ë¢ĞÂ</el-button>
           </div>
         </div>
       </template>
@@ -21,322 +18,251 @@
         class="mb-12"
       />
 
-      <el-row :gutter="12">
-        <el-col :md="10" :sm="24" :xs="24">
-          <el-card shadow="never" class="inner-card">
-            <template #header>
-              <div class="inner-header">
-                <strong>å½“å‰åœºæ¬¡è§„åˆ™</strong>
-              </div>
-            </template>
+      <el-alert
+        v-if="bindingNotice"
+        :title="bindingNotice"
+        type="info"
+        :closable="false"
+        class="mb-12"
+      />
 
-            <el-table v-loading="loadingFiles" :data="ruleFiles" border height="680" @row-click="pickRule">
-              <el-table-column label="åç§°" min-width="180">
-                <template #default="{ row }">
-                  <div class="rule-name-cell">
-                    <span>{{ row.ruleName }}</span>
+      <el-skeleton v-if="loadingFiles" :rows="8" animated />
+      <el-empty v-else-if="!currentRule" description="µ±Ç°³¡´ÎÔİÎŞ¹æÔòÎÄ¼ş" />
+      <template v-else>
+        <div class="section-block">
+          <div class="section-head">
+            <strong>·ÖÊıÄ£¿é</strong>
+            <div class="inline-actions">
+              <span class="muted">µ±Ç°·¶Î§£º{{ currentScopeLabel }}</span>
+              <el-button size="small" :disabled="!canEditRule || !activeScopedRule" @click="addScoreModule">ĞÂÔöÄ£¿é</el-button>
+            </div>
+          </div>
+          <el-empty
+            v-if="!activeScopedRule"
+            description="ÇëÏÈÔÚ¶¥²¿Ñ¡Ôñ¿¼ºËÖÜÆÚºÍ¿¼ºË¶ÔÏó·Ö×é"
+          />
+          <template v-else>
+            <el-table :data="activeScopedRule.scoreModules" border>
+              <el-table-column label="ÍÏ¶¯ÅÅĞò" width="96" align="center">
+                <template #default="{ $index }">
+                  <div
+                    class="drag-handle"
+                    :class="{ 'is-disabled': !canEditRule, 'is-dragging': draggingModuleIndex === $index }"
+                    :draggable="canEditRule"
+                    @dragstart="onModuleDragStart($index, $event)"
+                    @dragover="onModuleDragOver($event)"
+                    @drop.prevent="onModuleDrop($index)"
+                    @dragend="onModuleDragEnd"
+                  >
+                    <el-icon><Rank /></el-icon>
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="updatedAt" label="æ›´æ–°æ—¶é—´" width="160" />
+              <el-table-column label="Ä£¿éÃû" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.moduleName" :disabled="!canEditRule" />
+                </template>
+              </el-table-column>
+              <el-table-column label="È¨ÖØ" width="140">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.weight" :disabled="!canEditRule" :min="0" :step="1" />
+                </template>
+              </el-table-column>
+              <el-table-column label="¼Æ·Ö·½Ê½" width="170">
+                <template #default="{ row }">
+                  <el-select
+                    v-model="row.calculationMethod"
+                    :disabled="!canEditRule"
+                    style="width: 150px"
+                    @change="handleMethodChange(row)"
+                  >
+                    <el-option label="Ö±½ÓÂ¼Èë" value="direct_input" />
+                    <el-option label="Í¶Æ±Ä£Ê½" value="vote" />
+                    <el-option label="×Ô¶¨Òå½Å±¾" value="custom_script" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="²Ù×÷" width="140">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="openModuleDetail(row)">ÏêÇé</el-button>
+                  <el-button link type="danger" :disabled="!canEditRule" @click="removeScoreModule(row)">É¾³ı</el-button>
+                </template>
+              </el-table-column>
             </el-table>
-          </el-card>
-        </el-col>
+            <div
+              v-if="canEditRule"
+              class="module-drop-tail"
+              @dragover="onModuleDragOver($event)"
+              @drop.prevent="onModuleDropToEnd"
+            >
+              ÍÏµ½ÕâÀï¿ÉÒÆµ½Ä©Î²
+            </div>
+            <div class="formula-text">
+              ×Ü·Ö = ¦²(Ä£¿é·ÖÊı * Ä£¿éÈ¨ÖØ / ×ÜÈ¨ÖØ) + ¶îÍâ¼Ó¼õ·Ö£»µ±Ç°×ÜÈ¨ÖØ£º{{ totalWeight.toFixed(2) }}
+            </div>
+          </template>
+        </div>
 
-        <el-col :md="14" :sm="24" :xs="24">
-          <el-card shadow="never" class="inner-card">
-            <template #header>
-              <div class="inner-header">
-                <strong>åœºæ¬¡è§„åˆ™ç¼–è¾‘</strong>
-              </div>
-            </template>
-
-            <el-empty v-if="!selectedRule" description="è¯·é€‰æ‹©ä¸€ä¸ªè§„åˆ™æ–‡ä»¶" />
-            <template v-else>
-              <el-form label-width="90px" class="rule-meta-form">
-                <el-form-item label="è§„åˆ™å">
-                  <el-input v-model="editForm.ruleName" :disabled="!canEditRule" />
-                </el-form-item>
-                <el-form-item label="è¯´æ˜">
+        <template v-if="activeScopedRule">
+          <div class="section-block">
+            <div class="section-head">
+              <strong>µÈµÚ¹æÔò£¨°´ĞĞË³Ğò´Ó¸ßµ½µÍÆ¥Åä£©</strong>
+              <el-button size="small" :disabled="!canEditRule" @click="addGrade">ĞÂÔöµÈµÚ</el-button>
+            </div>
+            <el-table :data="activeScopedRule.grades" border>
+              <el-table-column label="µÈµÚ±êÌâ" width="130">
+                <template #default="{ row }">
+                  <el-input v-model="row.title" :disabled="!canEditRule" />
+                </template>
+              </el-table-column>
+              <el-table-column label="ÉÏÏŞ" width="250">
+                <template #default="{ row }">
+                  <div class="grade-node-cell">
+                    <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
+                    <el-select
+                      v-model="row.scoreNode.upperOperator"
+                      :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
+                      style="width: 72px"
+                    >
+                      <el-option label="<" value="<" />
+                      <el-option label="¡Ü" value="<=" />
+                    </el-select>
+                    <el-input-number
+                      v-model="row.scoreNode.upperScore"
+                      :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
+                      :step="0.1"
+                    />
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="ÏÂÏŞ" width="250">
+                <template #default="{ row }">
+                  <div class="grade-node-cell">
+                    <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
+                    <el-select
+                      v-model="row.scoreNode.lowerOperator"
+                      :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
+                      style="width: 72px"
+                    >
+                      <el-option label=">" value=">" />
+                      <el-option label="¡İ" value=">=" />
+                    </el-select>
+                    <el-input-number
+                      v-model="row.scoreNode.lowerScore"
+                      :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
+                      :step="0.1"
+                    />
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="¶îÍâÌõ¼ş½Å±¾" min-width="200">
+                <template #default="{ row }">
                   <el-input
-                    v-model="editForm.description"
+                    v-model="row.extraConditionScript"
                     type="textarea"
                     :rows="2"
                     :disabled="!canEditRule"
+                    placeholder="¿ÉÎª¿Õ£¬¸´ÓÃ×Ô¶¨Òå½Å±¾"
                   />
-                </el-form-item>
-              </el-form>
+                </template>
+              </el-table-column>
+              <el-table-column label="Çø¼ä/Ìõ¼ş" width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.conditionLogic" :disabled="!canEditRule" style="width: 108px">
+                    <el-option label="AND" value="and" />
+                    <el-option label="OR" value="or" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="ÈËÊıÉÏÏŞ±ÈÀı(%)" width="150">
+                <template #default="{ row }">
+                  <el-input-number
+                    v-model="row.maxRatioPercent"
+                    :disabled="!canEditRule"
+                    :min="0"
+                    :max="100"
+                    :step="0.1"
+                    placeholder="²»ÏŞÖÆ"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="²Ù×÷" width="90">
+                <template #default="{ row }">
+                  <el-button link type="danger" :disabled="!canEditRule" @click="removeGrade(row)">É¾³ı</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </template>
 
-              <div class="section-block">
-                <div class="section-head">
-                  <strong>å…·ä½“è§„åˆ™ï¼ˆæŒ‰å‘¨æœŸ/å¯¹è±¡åˆ†ç»„ï¼‰</strong>
-                  <div class="inline-actions">
-                    <el-button size="small" :disabled="!canEditRule" @click="addScopedRule">æ–°å¢å…·ä½“è§„åˆ™</el-button>
-                  </div>
-                </div>
-                <el-table
-                  :data="ruleContent.scopedRules"
-                  border
-                  max-height="260"
-                  row-key="id"
-                  :row-class-name="scopedRuleRowClass"
-                  @row-click="selectScopedRule"
-                >
-                  <el-table-column label="#" width="66">
-                    <template #default="{ $index }">{{ $index + 1 }}</template>
-                  </el-table-column>
-                  <el-table-column label="é€‚ç”¨å‘¨æœŸ" min-width="180">
-                    <template #default="{ row }">
-                      <div class="tag-wrap">
-                        <el-tag v-for="code in row.applicablePeriods" :key="`${row.id}_p_${code}`" size="small">
-                          {{ periodName(code) }}
-                        </el-tag>
-                        <span v-if="row.applicablePeriods.length === 0" class="muted">æœªè®¾ç½®</span>
-                      </div>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="é€‚ç”¨å¯¹è±¡åˆ†ç»„" min-width="200">
-                    <template #default="{ row }">
-                      <div class="tag-wrap">
-                        <el-tag v-for="code in row.applicableObjectGroups" :key="`${row.id}_g_${code}`" size="small" type="success">
-                          {{ groupName(code) }}
-                        </el-tag>
-                        <span v-if="row.applicableObjectGroups.length === 0" class="muted">æœªè®¾ç½®</span>
-                      </div>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="æ¨¡å—" width="72">
-                    <template #default="{ row }">{{ row.scoreModules.length }}</template>
-                  </el-table-column>
-                  <el-table-column label="ç­‰ç¬¬" width="72">
-                    <template #default="{ row }">{{ row.grades.length }}</template>
-                  </el-table-column>
-                  <el-table-column label="æ“ä½œ" width="150" fixed="right">
-                    <template #default="{ row }">
-                      <el-button link type="primary" :disabled="!canEditRule" @click.stop="duplicateScopedRule(row)">å¤åˆ¶</el-button>
-                      <el-button link type="danger" :disabled="!canEditRule" @click.stop="removeScopedRule(row)">åˆ é™¤</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </div>
+        <el-alert
+          type="info"
+          :closable="false"
+          class="section-block"
+          title="µÈµÚ·ÖÅä¹æÔò£ºÏÈ°´Ë³Ğò×öÊ×ÂÖÆ¥Åä£¬ÔÙ°´ÈËÊıÉÏÏŞµü´ú»ØÍËµ½¸üµÍµÈµÚ£¬Ö±µ½¸÷µÈµÚÉÏÏŞÂú×ã¡£"
+        />
 
-              <template v-if="activeScopedRule">
-                <div class="section-block">
-                  <div class="section-head">
-                    <strong>é€‚ç”¨èŒƒå›´</strong>
-                  </div>
-                  <el-row :gutter="12">
-                    <el-col :span="12">
-                      <div class="field-label">é€‚ç”¨è€ƒæ ¸å‘¨æœŸ</div>
-                      <el-select
-                        v-model="activeScopedRule.applicablePeriods"
-                        multiple
-                        filterable
-                        collapse-tags
-                        collapse-tags-tooltip
-                        style="width: 100%"
-                        placeholder="è¯·é€‰æ‹©å‘¨æœŸ"
-                        :disabled="!canEditRule"
-                      >
-                        <el-option
-                          v-for="item in contextStore.periods"
-                          :key="item.id"
-                          :label="item.periodName"
-                          :value="item.periodCode"
-                        />
-                      </el-select>
-                    </el-col>
-                    <el-col :span="12">
-                      <div class="field-label">é€‚ç”¨è€ƒæ ¸å¯¹è±¡åˆ†ç»„</div>
-                      <el-select
-                        v-model="activeScopedRule.applicableObjectGroups"
-                        multiple
-                        filterable
-                        collapse-tags
-                        collapse-tags-tooltip
-                        style="width: 100%"
-                        placeholder="è¯·é€‰æ‹©å¯¹è±¡åˆ†ç»„"
-                        :disabled="!canEditRule"
-                      >
-                        <el-option
-                          v-for="item in contextStore.objectGroups"
-                          :key="item.id"
-                          :label="groupOptionLabel(item.groupCode)"
-                          :value="item.groupCode"
-                        />
-                      </el-select>
-                    </el-col>
-                  </el-row>
-                </div>
+        <div class="editor-actions">
+          <el-button type="primary" :disabled="!canEditRule || saving || !activeScopedRule" :loading="saving" @click="saveRule">
+            ±£´æ¹æÔò
+          </el-button>
+        </div>
 
-                <div class="section-block">
-                  <div class="section-head">
-                    <strong>åˆ†æ•°æ¨¡å—</strong>
-                    <el-button size="small" :disabled="!canEditRule" @click="addScoreModule">æ–°å¢æ¨¡å—</el-button>
-                  </div>
-                  <el-table :data="activeScopedRule.scoreModules" border>
-                    <el-table-column label="æ¨¡å—åç§°" min-width="180">
-                      <template #default="{ row }">
-                        <el-input v-model="row.moduleName" :disabled="!canEditRule" />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="æ¨¡å—æƒé‡" width="120">
-                      <template #default="{ row }">
-                        <el-input-number v-model="row.weight" :disabled="!canEditRule" :min="0" :step="1" />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="æ¨¡å—è®¡ç®—æ–¹å¼" width="160">
-                      <template #default="{ row }">
-                        <el-select v-model="row.calculationMethod" :disabled="!canEditRule" style="width: 140px">
-                          <el-option label="ç›´æ¥å½•å…¥" value="direct_input" />
-                          <el-option label="æŠ•ç¥¨æ¨¡å¼" value="vote" />
-                          <el-option label="è‡ªå®šä¹‰è„šæœ¬" value="custom_script" />
-                        </el-select>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="è‡ªå®šä¹‰è„šæœ¬" min-width="220">
-                      <template #default="{ row }">
-                        <el-input
-                          v-if="row.calculationMethod === 'custom_script'"
-                          v-model="row.customScript"
-                          type="textarea"
-                          :rows="2"
-                          :disabled="!canEditRule"
-                          placeholder="å¯å¤ç”¨è„šæœ¬"
-                        />
-                        <span v-else class="muted">-</span>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="æ“ä½œ" width="90">
-                      <template #default="{ row }">
-                        <el-button link type="danger" :disabled="!canEditRule" @click="removeScoreModule(row)">åˆ é™¤</el-button>
-                      </template>
-                    </el-table-column>
-                  </el-table>
-                  <div class="formula-text">
-                    æ€»åˆ† = Î£(æ¨¡å—åˆ†æ•° * æ¨¡å—æƒé‡ / æ€»æƒé‡) + é¢å¤–åŠ å‡åˆ†ï¼›å½“å‰æ€»æƒé‡ï¼š{{ totalWeight.toFixed(2) }}
-                  </div>
-                </div>
-
-                <div class="section-block">
-                  <div class="section-head">
-                    <strong>ç­‰ç¬¬è§„åˆ™ï¼ˆæŒ‰è¡Œé¡ºåºä»é«˜åˆ°ä½åŒ¹é…ï¼‰</strong>
-                    <el-button size="small" :disabled="!canEditRule" @click="addGrade">æ–°å¢ç­‰ç¬¬</el-button>
-                  </div>
-                  <el-table :data="activeScopedRule.grades" border>
-                    <el-table-column label="ç­‰ç¬¬æ ‡é¢˜" width="130">
-                      <template #default="{ row }">
-                        <el-input v-model="row.title" :disabled="!canEditRule" />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="ä¸Šé™" width="250">
-                      <template #default="{ row }">
-                        <div class="grade-node-cell">
-                          <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
-                          <el-select
-                            v-model="row.scoreNode.upperOperator"
-                            :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
-                            style="width: 72px"
-                          >
-                            <el-option label="<" value="<" />
-                            <el-option label="â‰¤" value="<=" />
-                          </el-select>
-                          <el-input-number
-                            v-model="row.scoreNode.upperScore"
-                            :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
-                            :step="0.1"
-                          />
-                        </div>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="ä¸‹é™" width="250">
-                      <template #default="{ row }">
-                        <div class="grade-node-cell">
-                          <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
-                          <el-select
-                            v-model="row.scoreNode.lowerOperator"
-                            :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
-                            style="width: 72px"
-                          >
-                            <el-option label=">" value=">" />
-                            <el-option label="â‰¥" value=">=" />
-                          </el-select>
-                          <el-input-number
-                            v-model="row.scoreNode.lowerScore"
-                            :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
-                            :step="0.1"
-                          />
-                        </div>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="é¢å¤–æ¡ä»¶è„šæœ¬" min-width="200">
-                      <template #default="{ row }">
-                        <el-input
-                          v-model="row.extraConditionScript"
-                          type="textarea"
-                          :rows="2"
-                          :disabled="!canEditRule"
-                          placeholder="å¯ä¸ºç©ºï¼Œå¤ç”¨è‡ªå®šä¹‰è„šæœ¬"
-                        />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="åŒºé—´/æ¡ä»¶" width="130">
-                      <template #default="{ row }">
-                        <el-select v-model="row.conditionLogic" :disabled="!canEditRule" style="width: 108px">
-                          <el-option label="AND" value="and" />
-                          <el-option label="OR" value="or" />
-                        </el-select>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="äººæ•°ä¸Šé™æ¯”ä¾‹(%)" width="150">
-                      <template #default="{ row }">
-                        <el-input-number
-                          v-model="row.maxRatioPercent"
-                          :disabled="!canEditRule"
-                          :min="0"
-                          :max="100"
-                          :step="0.1"
-                          placeholder="ä¸é™åˆ¶"
-                        />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="æ“ä½œ" width="90">
-                      <template #default="{ row }">
-                        <el-button link type="danger" :disabled="!canEditRule" @click="removeGrade(row)">åˆ é™¤</el-button>
-                      </template>
-                    </el-table-column>
-                  </el-table>
-                </div>
-              </template>
-
-              <el-alert
-                type="info"
-                :closable="false"
-                class="section-block"
-                title="ç­‰ç¬¬åˆ†é…è§„åˆ™ï¼šå…ˆæŒ‰é¡ºåºåšé¦–è½®åŒ¹é…ï¼Œå†æŒ‰äººæ•°ä¸Šé™è¿­ä»£å›é€€åˆ°æ›´ä½ç­‰ç¬¬ï¼Œç›´åˆ°å„ç­‰ç¬¬ä¸Šé™æ»¡è¶³ã€‚"
-              />
-
-              <div class="editor-actions">
-                <el-button type="primary" :disabled="!canEditRule || saving" :loading="saving" @click="saveRule">
-                  ä¿å­˜è§„åˆ™
-                </el-button>
-              </div>
-
-              <el-collapse class="json-preview">
-                <el-collapse-item title="JSONé¢„è§ˆï¼ˆåªè¯»ï¼‰" name="preview">
-                  <el-input :model-value="structuredJsonPreview" type="textarea" :rows="12" readonly />
-                </el-collapse-item>
-              </el-collapse>
-            </template>
-          </el-card>
-        </el-col>
-      </el-row>
+        <el-collapse class="json-preview">
+          <el-collapse-item title="JSONÔ¤ÀÀ£¨Ö»¶Á£©" name="preview">
+            <el-input :model-value="structuredJsonPreview" type="textarea" :rows="12" readonly />
+          </el-collapse-item>
+        </el-collapse>
+      </template>
     </el-card>
 
+    <el-dialog
+      v-model="moduleDetailVisible"
+      :title="moduleDetailTitle"
+      width="760px"
+      destroy-on-close
+    >
+      <template v-if="moduleDetailTarget">
+        <template v-if="moduleDetailTarget.calculationMethod === 'custom_script'">
+          <div class="field-label">½Å±¾ÄÚÈİ</div>
+          <el-input
+            v-model="moduleDetailDraft.customScript"
+            type="textarea"
+            :rows="12"
+            :disabled="!canEditRule"
+            placeholder="ÇëÊäÈë¸ÃÄ£¿éµÄ½Å±¾ÄÚÈİ"
+          />
+        </template>
+
+        <template v-else-if="moduleDetailTarget.calculationMethod === 'vote'">
+          <div class="field-label">Í¶Æ±ÏêÇé£¨ÎÄ±¾»ò JSON£©</div>
+          <el-input
+            v-model="moduleDetailDraft.voteConfigJson"
+            type="textarea"
+            :rows="12"
+            :disabled="!canEditRule"
+            placeholder="¿ÉÌîĞ´Í¶Æ±Î¬¶È¡¢È¨ÖØ¡¢ËµÃ÷µÈÅäÖÃ"
+          />
+        </template>
+
+        <el-empty v-else description="Ö±½ÓÂ¼Èë·½Ê½ÔİÎŞ¶îÍâÏêÇéÅäÖÃ" />
+      </template>
+      <template #footer>
+        <el-button @click="closeModuleDetail">¹Ø±Õ</el-button>
+        <el-button
+          type="primary"
+          :disabled="!canEditRule"
+          @click="applyModuleDetail"
+        >
+          È·¶¨
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { Rank } from "@element-plus/icons-vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useContextStore } from "@/stores/context";
@@ -358,6 +284,7 @@ interface ScoreModule {
   weight: number;
   calculationMethod: ScoreMethod;
   customScript: string;
+  voteConfigJson: string;
 }
 
 interface GradeScoreNode {
@@ -396,20 +323,22 @@ const contextStore = useContextStore();
 const loading = ref(false);
 const loadingFiles = ref(false);
 const saving = ref(false);
+const draggingModuleIndex = ref<number | null>(null);
 
-const ruleFiles = ref<RuleFileItem[]>([]);
-const selectedRule = ref<RuleFileItem | null>(null);
+const currentRule = ref<RuleFileItem | null>(null);
 const activeScopedRuleId = ref("");
 
-const editForm = reactive({
-  ruleName: "",
-  description: "",
+const moduleDetailVisible = ref(false);
+const moduleDetailTargetId = ref("");
+const moduleDetailDraft = reactive({
+  customScript: "",
+  voteConfigJson: "",
 });
 
 const ruleContent = reactive<StructuredRuleContent>(defaultRuleContent(true));
 
 const contextWarning = ref("");
-const canEditRule = computed(() => !!selectedRule.value?.canEdit);
+const canEditRule = computed(() => !!currentRule.value?.canEdit);
 
 const activeScopedRule = computed(() =>
   ruleContent.scopedRules.find((item) => item.id === activeScopedRuleId.value) || null,
@@ -422,12 +351,50 @@ const totalWeight = computed(() =>
 const structuredJsonPreview = computed(() => JSON.stringify(normalizeRuleContent(cloneDeep(ruleContent)), null, 2));
 
 const contextText = computed(() => {
-  const sessionText = contextStore.currentSession?.displayName || "æœªé€‰æ‹©åœºæ¬¡";
-  const periodText = contextStore.currentPeriod?.periodName || "æœªé€‰æ‹©å‘¨æœŸ";
-  const groupText = contextStore.currentObjectGroup?.groupName || "æœªé€‰æ‹©å¯¹è±¡åˆ†ç»„";
-  return `å½“å‰ä¸Šä¸‹æ–‡ï¼š${sessionText} / ${periodText} / ${groupText}`;
+  const sessionText = contextStore.currentSession?.displayName || "Î´Ñ¡Ôñ³¡´Î";
+  const periodText = contextStore.currentPeriod?.periodName || "Î´Ñ¡ÔñÖÜÆÚ";
+  const groupText = contextStore.currentObjectGroup?.groupName || "Î´Ñ¡Ôñ¶ÔÏó·Ö×é";
+  return `µ±Ç°Ó°Ïì·¶Î§£º${sessionText} / ${periodText} / ${groupText}`;
 });
 
+function resolveRulePeriodCode(periodCode?: string): string {
+  const normalized = String(periodCode || "").trim().toUpperCase();
+  if (!normalized) {
+    return "";
+  }
+  const period = contextStore.periods.find((item) => item.periodCode === normalized);
+  const binding = String(period?.ruleBindingKey || "").trim().toUpperCase();
+  return binding || normalized;
+}
+
+const currentRulePeriodCode = computed(() => resolveRulePeriodCode(contextStore.periodCode));
+
+const bindingNotice = computed(() => {
+  const source = String(contextStore.periodCode || "").trim().toUpperCase();
+  const target = currentRulePeriodCode.value;
+  if (!source || !target || source === target) {
+    return "";
+  }
+  return `Rule binding: ${source} -> ${target}. Rules are shared only; score data remains independent.`;
+});
+
+const currentScopeLabel = computed(() => {
+  const source = String(contextStore.periodCode || "").trim().toUpperCase();
+  const target = currentRulePeriodCode.value;
+  const periodText = contextStore.currentPeriod?.periodName || "Period not selected";
+  const bindingText = source && target && source !== target ? `${periodText} -> rules by ${target}` : periodText;
+  const groupText = contextStore.currentObjectGroup?.groupName || "Group not selected";
+  return `${bindingText} / ${groupText}`;
+});
+
+const moduleDetailTarget = computed(() =>
+  activeScopedRule.value?.scoreModules.find((item) => item.id === moduleDetailTargetId.value) || null,
+);
+
+const moduleDetailTitle = computed(() => {
+  const moduleName = moduleDetailTarget.value?.moduleName?.trim() || "Ä£¿é";
+  return `${moduleName}ÏêÇé`;
+});
 
 function uuid(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -500,7 +467,33 @@ function normalizedCodeList(value: unknown, uppercase = false): string[] {
   return result;
 }
 
-function newScoreModule(seed = "æ¨¡å—", weight = 100): ScoreModule {
+function unknownToText(value: unknown): string {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_error) {
+    return String(value);
+  }
+}
+
+function parseJsonOrText(value: string): unknown {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return text;
+  }
+}
+
+function newScoreModule(seed = "Ä£¿é", weight = 100): ScoreModule {
   const id = uuid("module");
   return {
     id,
@@ -509,6 +502,7 @@ function newScoreModule(seed = "æ¨¡å—", weight = 100): ScoreModule {
     weight,
     calculationMethod: "direct_input",
     customScript: "",
+    voteConfigJson: "",
   };
 }
 
@@ -533,9 +527,9 @@ function newGrade(seed = "A"): GradeRule {
 function defaultScopedRule(withContext: boolean): ScopedRule {
   return {
     id: uuid("scoped"),
-    applicablePeriods: withContext && contextStore.periodCode ? [contextStore.periodCode] : [],
+    applicablePeriods: withContext && currentRulePeriodCode.value ? [currentRulePeriodCode.value] : [],
     applicableObjectGroups: withContext && contextStore.objectGroupCode ? [contextStore.objectGroupCode] : [],
-    scoreModules: [newScoreModule("åŸºç¡€ç»©æ•ˆ", 100)],
+    scoreModules: [newScoreModule("»ù´¡¼¨Ğ§", 100)],
     grades: [
       newGrade("A"),
       {
@@ -576,10 +570,11 @@ function normalizeScoreModule(raw: any, index: number): ScoreModule {
   return {
     id,
     moduleKey: String(raw?.moduleKey || id).trim() || id,
-    moduleName: String(raw?.moduleName || raw?.name || `æ¨¡å—${index + 1}`).trim(),
+    moduleName: String(raw?.moduleName || raw?.name || `Ä£¿é${index + 1}`).trim(),
     weight: Math.max(0, asNumber(raw?.weight, 0)),
     calculationMethod: normalizeMethod(raw?.calculationMethod || raw?.method),
     customScript: String(raw?.customScript || raw?.detail?.customScript?.script || "").trim(),
+    voteConfigJson: unknownToText(raw?.voteConfig ?? raw?.detail?.voteConfig ?? raw?.detail?.vote ?? raw?.detail?.voteDetail),
   };
 }
 
@@ -598,7 +593,7 @@ function normalizeGrade(raw: any, index: number): GradeRule {
 
   return {
     id: String(raw?.id || `grade_${index + 1}`) || uuid("grade"),
-    title: String(raw?.title || raw?.grade || `ç­‰ç¬¬${index + 1}`).trim(),
+    title: String(raw?.title || raw?.grade || `µÈµÚ${index + 1}`).trim(),
     scoreNode: {
       hasUpperLimit: Boolean(scoreNode?.hasUpperLimit ?? hasUpperFromLegacy),
       upperScore: toNullableNumber(scoreNode?.upperScore ?? raw?.max),
@@ -636,7 +631,7 @@ function normalizeScopedRule(raw: any, index: number): ScopedRule {
     id: String(raw?.id || `scoped_${index + 1}`) || uuid("scoped"),
     applicablePeriods: normalizedCodeList(raw?.applicablePeriods ?? raw?.periodCodes, true),
     applicableObjectGroups: normalizedCodeList(raw?.applicableObjectGroups ?? raw?.objectGroupCodes, false),
-    scoreModules: modules.length > 0 ? modules : [newScoreModule(`æ¨¡å—${index + 1}`, 100)],
+    scoreModules: modules.length > 0 ? modules : [newScoreModule(`Ä£¿é${index + 1}`, 100)],
     grades: grades.length > 0 ? grades : [newGrade("A")],
   };
 }
@@ -683,55 +678,75 @@ function parseRuleContent(raw: string, withContext: boolean): StructuredRuleCont
 
 function fillEditor(rule: RuleFileItem | null): void {
   if (!rule) {
-    editForm.ruleName = "";
-    editForm.description = "";
     Object.assign(ruleContent, defaultRuleContent(true));
-    activeScopedRuleId.value = ruleContent.scopedRules[0]?.id || "";
+    activeScopedRuleId.value = "";
     return;
   }
-  editForm.ruleName = rule.ruleName;
-  editForm.description = rule.description || "";
   const parsed = parseRuleContent(rule.contentJson || "", true);
   Object.assign(ruleContent, parsed);
-  activeScopedRuleId.value = ruleContent.scopedRules[0]?.id || "";
+  syncActiveScopedRuleWithContext();
 }
 
-function pickRule(row: RuleFileItem): void {
-  selectedRule.value = row;
-  fillEditor(row);
+function setCurrentRule(rule: RuleFileItem | null): void {
+  currentRule.value = rule;
+  fillEditor(rule);
 }
 
 function validateContextForLoad(): string {
   if (!contextStore.sessionId) {
-    return "è¯·å…ˆé€‰æ‹©è€ƒæ ¸åœºæ¬¡";
+    return "ÇëÏÈÔÚ¶¥²¿Ñ¡Ôñ¿¼ºË³¡´Î";
+  }
+  if (!contextStore.periodCode || !contextStore.objectGroupCode) {
+    return "ÇëÏÈÔÚ¶¥²¿Ñ¡Ôñ¿¼ºËÖÜÆÚºÍ¿¼ºË¶ÔÏó·Ö×é";
   }
   return "";
 }
 
+function syncActiveScopedRuleWithContext(): void {
+  if (!currentRule.value) {
+    activeScopedRuleId.value = "";
+    return;
+  }
+  const periodCode = currentRulePeriodCode.value;
+  const groupCode = contextStore.objectGroupCode;
+  if (!periodCode || !groupCode) {
+    activeScopedRuleId.value = "";
+    return;
+  }
+
+  const target = ruleContent.scopedRules.find(
+    (item) =>
+      item.applicablePeriods.includes(periodCode) &&
+      item.applicableObjectGroups.includes(groupCode),
+  );
+  if (target) {
+    activeScopedRuleId.value = target.id;
+    return;
+  }
+
+  const row = defaultScopedRule(false);
+  row.applicablePeriods = [periodCode];
+  row.applicableObjectGroups = [groupCode];
+  ruleContent.scopedRules.push(row);
+  activeScopedRuleId.value = row.id;
+}
+
 async function loadFilesOnly(): Promise<void> {
   if (!contextStore.sessionId) {
-    ruleFiles.value = [];
-    selectedRule.value = null;
-    fillEditor(null);
+    setCurrentRule(null);
     return;
   }
   loadingFiles.value = true;
   try {
     const items = await listRuleFiles(contextStore.sessionId, false);
-    ruleFiles.value = items;
-    if (!selectedRule.value) {
-      if (items.length > 0) {
-        pickRule(items[0]);
-      }
+    if (items.length === 0) {
+      setCurrentRule(null);
       return;
     }
-    const hit = items.find((item) => item.id === selectedRule.value?.id);
-    if (hit) {
-      pickRule(hit);
-      return;
-    }
-    selectedRule.value = null;
-    fillEditor(null);
+
+    const existingID = currentRule.value?.id;
+    const next = existingID ? items.find((item) => item.id === existingID) || items[0] : items[0];
+    setCurrentRule(next);
   } finally {
     loadingFiles.value = false;
   }
@@ -743,85 +758,129 @@ async function loadData(): Promise<void> {
     await contextStore.ensureInitialized();
     contextWarning.value = validateContextForLoad();
     await loadFilesOnly();
+    syncActiveScopedRuleWithContext();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "åŠ è½½è§„åˆ™ç®¡ç†æ•°æ®å¤±è´¥";
+    const message = error instanceof Error ? error.message : "¼ÓÔØ¹æÔò¹ÜÀíÊı¾İÊ§°Ü";
     ElMessage.error(message);
   } finally {
     loading.value = false;
   }
 }
 
-function groupOptionLabel(groupCode: string): string {
-  const target = contextStore.objectGroups.find((item) => item.groupCode === groupCode);
+function handleMethodChange(module: ScoreModule): void {
+  module.calculationMethod = normalizeMethod(module.calculationMethod);
+  if (module.calculationMethod !== "custom_script") {
+    module.customScript = "";
+  }
+  if (module.calculationMethod !== "vote") {
+    module.voteConfigJson = "";
+  }
+}
+
+function onModuleDragStart(index: number, event: DragEvent): void {
+  if (!canEditRule.value || !activeScopedRule.value) {
+    event.preventDefault();
+    return;
+  }
+  draggingModuleIndex.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(index));
+  }
+}
+
+function onModuleDragOver(event: DragEvent): void {
+  if (!canEditRule.value || draggingModuleIndex.value === null) {
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+}
+
+function onModuleDrop(targetIndex: number): void {
+  if (!canEditRule.value || !activeScopedRule.value) {
+    draggingModuleIndex.value = null;
+    return;
+  }
+  const fromIndex = draggingModuleIndex.value;
+  if (fromIndex === null || fromIndex === targetIndex) {
+    draggingModuleIndex.value = null;
+    return;
+  }
+  const modules = activeScopedRule.value.scoreModules;
+  if (fromIndex < 0 || fromIndex >= modules.length || targetIndex < 0 || targetIndex >= modules.length) {
+    draggingModuleIndex.value = null;
+    return;
+  }
+  const [moved] = modules.splice(fromIndex, 1);
+  const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  modules.splice(insertIndex, 0, moved);
+  draggingModuleIndex.value = null;
+}
+
+function onModuleDropToEnd(): void {
+  if (!canEditRule.value || !activeScopedRule.value) {
+    draggingModuleIndex.value = null;
+    return;
+  }
+  const fromIndex = draggingModuleIndex.value;
+  if (fromIndex === null) {
+    return;
+  }
+  const modules = activeScopedRule.value.scoreModules;
+  if (fromIndex < 0 || fromIndex >= modules.length) {
+    draggingModuleIndex.value = null;
+    return;
+  }
+  const [moved] = modules.splice(fromIndex, 1);
+  modules.push(moved);
+  draggingModuleIndex.value = null;
+}
+
+function onModuleDragEnd(): void {
+  draggingModuleIndex.value = null;
+}
+
+function openModuleDetail(module: ScoreModule): void {
+  moduleDetailTargetId.value = module.id;
+  moduleDetailDraft.customScript = module.customScript || "";
+  moduleDetailDraft.voteConfigJson = module.voteConfigJson || "";
+  moduleDetailVisible.value = true;
+}
+
+function closeModuleDetail(): void {
+  moduleDetailVisible.value = false;
+  moduleDetailTargetId.value = "";
+  moduleDetailDraft.customScript = "";
+  moduleDetailDraft.voteConfigJson = "";
+}
+
+function applyModuleDetail(): void {
+  const target = moduleDetailTarget.value;
   if (!target) {
-    return groupCode;
-  }
-  return `${target.objectType === "team" ? "å›¢é˜Ÿ" : "ä¸ªäºº"} - ${target.groupName}`;
-}
-
-function periodName(periodCode: string): string {
-  return contextStore.periods.find((item) => item.periodCode === periodCode)?.periodName || periodCode;
-}
-
-function groupName(groupCode: string): string {
-  return contextStore.objectGroups.find((item) => item.groupCode === groupCode)?.groupName || groupCode;
-}
-
-function scopedRuleRowClass(args: any): string {
-  return args?.row?.id === activeScopedRuleId.value ? "active-scoped-row" : "";
-}
-
-function selectScopedRule(row: ScopedRule): void {
-  activeScopedRuleId.value = row.id;
-}
-
-function addScopedRule(): void {
-  if (!canEditRule.value) {
+    closeModuleDetail();
     return;
   }
-  const row = defaultScopedRule(true);
-  ruleContent.scopedRules.push(row);
-  activeScopedRuleId.value = row.id;
-}
-
-function duplicateScopedRule(row: ScopedRule): void {
-  if (!canEditRule.value) {
-    return;
+  if (target.calculationMethod === "custom_script") {
+    target.customScript = String(moduleDetailDraft.customScript || "");
+    target.voteConfigJson = "";
+  } else if (target.calculationMethod === "vote") {
+    target.voteConfigJson = String(moduleDetailDraft.voteConfigJson || "");
+    target.customScript = "";
+  } else {
+    target.customScript = "";
+    target.voteConfigJson = "";
   }
-  const copied = cloneDeep(row);
-  copied.id = uuid("scoped");
-  copied.scoreModules = copied.scoreModules.map((module) => ({
-    ...module,
-    id: uuid("module"),
-    moduleKey: uuid("module_key"),
-  }));
-  copied.grades = copied.grades.map((grade) => ({
-    ...grade,
-    id: uuid("grade"),
-  }));
-  ruleContent.scopedRules.push(copied);
-  activeScopedRuleId.value = copied.id;
-}
-
-function removeScopedRule(row: ScopedRule): void {
-  if (!canEditRule.value) {
-    return;
-  }
-  const index = ruleContent.scopedRules.findIndex((item) => item.id === row.id);
-  if (index < 0) {
-    return;
-  }
-  ruleContent.scopedRules.splice(index, 1);
-  if (activeScopedRuleId.value === row.id) {
-    activeScopedRuleId.value = ruleContent.scopedRules[0]?.id || "";
-  }
+  closeModuleDetail();
 }
 
 function addScoreModule(): void {
   if (!canEditRule.value || !activeScopedRule.value) {
     return;
   }
-  activeScopedRule.value.scoreModules.push(newScoreModule(`æ¨¡å—${activeScopedRule.value.scoreModules.length + 1}`, 0));
+  activeScopedRule.value.scoreModules.push(newScoreModule(`Ä£¿é${activeScopedRule.value.scoreModules.length + 1}`, 0));
 }
 
 function removeScoreModule(module: ScoreModule): void {
@@ -835,7 +894,7 @@ function addGrade(): void {
   if (!canEditRule.value || !activeScopedRule.value) {
     return;
   }
-  activeScopedRule.value.grades.push(newGrade(`ç­‰ç¬¬${activeScopedRule.value.grades.length + 1}`));
+  activeScopedRule.value.grades.push(newGrade(`µÈµÚ${activeScopedRule.value.grades.length + 1}`));
 }
 
 function removeGrade(grade: GradeRule): void {
@@ -846,14 +905,24 @@ function removeGrade(grade: GradeRule): void {
 }
 
 function normalizeRuleForSave(row: ScopedRule): ScopedRule {
-  const normalizedModules = row.scoreModules.map((module, index) => ({
-    id: module.id || uuid("module"),
-    moduleKey: String(module.moduleKey || module.id || `module_${index + 1}`).trim() || `module_${index + 1}`,
-    moduleName: String(module.moduleName || "").trim(),
-    weight: Math.max(0, asNumber(module.weight, 0)),
-    calculationMethod: normalizeMethod(module.calculationMethod),
-    customScript: String(module.customScript || "").trim(),
-  }));
+  const normalizedModules = row.scoreModules.map((module, index) => {
+    const normalized: any = {
+      id: module.id || uuid("module"),
+      moduleKey: String(module.moduleKey || module.id || `module_${index + 1}`).trim() || `module_${index + 1}`,
+      moduleName: String(module.moduleName || "").trim(),
+      weight: Math.max(0, asNumber(module.weight, 0)),
+      calculationMethod: normalizeMethod(module.calculationMethod),
+      customScript: String(module.customScript || "").trim(),
+    };
+
+    if (normalized.calculationMethod === "vote" && String(module.voteConfigJson || "").trim()) {
+      normalized.detail = {
+        voteConfig: parseJsonOrText(String(module.voteConfigJson || "")),
+      };
+    }
+
+    return normalized;
+  });
 
   const normalizedGrades = row.grades.map((grade) => ({
     id: grade.id || uuid("grade"),
@@ -881,72 +950,68 @@ function normalizeRuleForSave(row: ScopedRule): ScopedRule {
 }
 
 function validateRuleContent(content: StructuredRuleContent): string {
-  if (content.scopedRules.length === 0) {
-    return "è¯·è‡³å°‘é…ç½®ä¸€æ¡å…·ä½“è§„åˆ™";
+  const effectiveScopedRules = content.scopedRules.filter(
+    (item) => item.applicablePeriods.length > 0 && item.applicableObjectGroups.length > 0,
+  );
+  if (effectiveScopedRules.length === 0) {
+    return "µ±Ç°ÉÏÏÂÎÄÉĞÎ´Éú³É¿É±£´æµÄ¾ßÌå¹æÔò";
   }
 
-  for (let index = 0; index < content.scopedRules.length; index += 1) {
-    const scoped = content.scopedRules[index];
-    const title = `ç¬¬${index + 1}æ¡å…·ä½“è§„åˆ™`;
-
-    if (scoped.applicablePeriods.length === 0) {
-      return `${title}æœªè®¾ç½®é€‚ç”¨å‘¨æœŸ`;
-    }
-    if (scoped.applicableObjectGroups.length === 0) {
-      return `${title}æœªè®¾ç½®é€‚ç”¨å¯¹è±¡åˆ†ç»„`;
-    }
+  for (let index = 0; index < effectiveScopedRules.length; index += 1) {
+    const scoped = effectiveScopedRules[index];
+    const title = `µÚ${index + 1}Ìõ¾ßÌå¹æÔò`;
 
     if (scoped.scoreModules.length === 0) {
-      return `${title}è‡³å°‘éœ€è¦ä¸€ä¸ªåˆ†æ•°æ¨¡å—`;
+      return `${title}ÖÁÉÙĞèÒªÒ»¸ö·ÖÊıÄ£¿é`;
     }
     const total = scoped.scoreModules.reduce((sum, item) => sum + item.weight, 0);
     if (total <= 0) {
-      return `${title}çš„æ¨¡å—æ€»æƒé‡å¿…é¡»å¤§äº 0`;
+      return `${title}µÄÄ£¿é×ÜÈ¨ÖØ±ØĞë´óÓÚ 0`;
     }
 
     for (const module of scoped.scoreModules) {
       if (!module.moduleName.trim()) {
-        return `${title}å­˜åœ¨ç©ºæ¨¡å—åç§°`;
+        return `${title}´æÔÚ¿ÕÄ£¿éÃû³Æ`;
       }
       if (module.weight <= 0) {
-        return `${title}ä¸­æ¨¡å—ã€Œ${module.moduleName}ã€æƒé‡å¿…é¡»å¤§äº 0`;
+        return `${title}ÖĞÄ£¿é¡¸${module.moduleName}¡¹È¨ÖØ±ØĞë´óÓÚ 0`;
       }
       if (module.calculationMethod === "custom_script" && !module.customScript.trim()) {
-        return `${title}ä¸­æ¨¡å—ã€Œ${module.moduleName}ã€ä½¿ç”¨è„šæœ¬æ–¹å¼æ—¶è„šæœ¬ä¸èƒ½ä¸ºç©º`;
+        return `${title}ÖĞÄ£¿é¡¸${module.moduleName}¡¹Ê¹ÓÃ½Å±¾·½Ê½Ê±½Å±¾²»ÄÜÎª¿Õ`;
       }
     }
 
     if (scoped.grades.length === 0) {
-      return `${title}è‡³å°‘éœ€è¦ä¸€ä¸ªç­‰ç¬¬`;
+      return `${title}ÖÁÉÙĞèÒªÒ»¸öµÈµÚ`;
     }
 
     for (const grade of scoped.grades) {
       if (!grade.title.trim()) {
-        return `${title}å­˜åœ¨ç©ºç­‰ç¬¬æ ‡é¢˜`;
+        return `${title}´æÔÚ¿ÕµÈµÚ±êÌâ`;
       }
       const node = grade.scoreNode;
       if (!node.hasLowerLimit && !node.hasUpperLimit && !grade.extraConditionScript.trim()) {
-        return `${title}ä¸­ç­‰ç¬¬ã€Œ${grade.title}ã€å¿…é¡»é…ç½®åˆ†æ•°èŠ‚ç‚¹æˆ–é¢å¤–æ¡ä»¶`;
+        return `${title}ÖĞµÈµÚ¡¸${grade.title}¡¹±ØĞëÅäÖÃ·ÖÊı½Úµã»ò¶îÍâÌõ¼ş`;
       }
       if (node.hasLowerLimit && node.lowerScore === null) {
-        return `${title}ä¸­ç­‰ç¬¬ã€Œ${grade.title}ã€ä¸‹é™åˆ†å€¼ä¸èƒ½ä¸ºç©º`;
+        return `${title}ÖĞµÈµÚ¡¸${grade.title}¡¹ÏÂÏŞ·ÖÖµ²»ÄÜÎª¿Õ`;
       }
       if (node.hasUpperLimit && node.upperScore === null) {
-        return `${title}ä¸­ç­‰ç¬¬ã€Œ${grade.title}ã€ä¸Šé™åˆ†å€¼ä¸èƒ½ä¸ºç©º`;
+        return `${title}ÖĞµÈµÚ¡¸${grade.title}¡¹ÉÏÏŞ·ÖÖµ²»ÄÜÎª¿Õ`;
       }
       if (node.hasLowerLimit && node.hasUpperLimit && node.lowerScore !== null && node.upperScore !== null) {
         if (node.lowerScore > node.upperScore) {
-          return `${title}ä¸­ç­‰ç¬¬ã€Œ${grade.title}ã€ä¸‹é™åˆ†å€¼ä¸èƒ½å¤§äºä¸Šé™åˆ†å€¼`;
+          return `${title}ÖĞµÈµÚ¡¸${grade.title}¡¹ÏÂÏŞ·ÖÖµ²»ÄÜ´óÓÚÉÏÏŞ·ÖÖµ`;
         }
         if (
           node.lowerScore === node.upperScore &&
           (node.lowerOperator === ">" || node.upperOperator === "<")
         ) {
-          return `${title}ä¸­ç­‰ç¬¬ã€Œ${grade.title}ã€ä¸Šä¸‹é™åˆ†å€¼ç›¸ç­‰æ—¶ç¬¦å·ç»„åˆæ— å¯è¡ŒåŒºé—´`;
+          return `${title}ÖĞµÈµÚ¡¸${grade.title}¡¹ÉÏÏÂÏŞ·ÖÖµÏàµÈÊ±·ûºÅ×éºÏÎŞ¿ÉĞĞÇø¼ä`;
         }
       }
       if (grade.maxRatioPercent !== null && (grade.maxRatioPercent <= 0 || grade.maxRatioPercent > 100)) {
-        return `${title}ä¸­ç­‰ç¬¬ã€Œ${grade.title}ã€äººæ•°ä¸Šé™æ¯”ä¾‹å¿…é¡»åœ¨ (0, 100] ä¹‹é—´`;
+        return `${title}ÖĞµÈµÚ¡¸${grade.title}¡¹ÈËÊıÉÏÏŞ±ÈÀı±ØĞëÔÚ (0, 100] Ö®¼ä`;
       }
     }
   }
@@ -955,21 +1020,25 @@ function validateRuleContent(content: StructuredRuleContent): string {
 }
 
 async function saveRule(): Promise<void> {
-  if (!selectedRule.value) {
+  if (!currentRule.value) {
     return;
   }
   if (!canEditRule.value) {
-    ElMessage.warning("å½“å‰è§„åˆ™ä¸å¯ç¼–è¾‘");
+    ElMessage.warning("µ±Ç°¹æÔò²»¿É±à¼­");
     return;
   }
-  if (!editForm.ruleName.trim()) {
-    ElMessage.warning("è§„åˆ™åä¸èƒ½ä¸ºç©º");
+  if (!activeScopedRule.value) {
+    ElMessage.warning("ÇëÏÈÔÚ¶¥²¿Ñ¡Ôñ¿¼ºËÖÜÆÚºÍ¿¼ºË¶ÔÏó·Ö×é");
     return;
   }
 
+  const normalizedScopedRules = ruleContent.scopedRules
+    .map((item) => normalizeRuleForSave(item))
+    .filter((item) => item.applicablePeriods.length > 0 && item.applicableObjectGroups.length > 0);
+
   const normalizedContent: StructuredRuleContent = {
     version: 3,
-    scopedRules: ruleContent.scopedRules.map((item) => normalizeRuleForSave(item)),
+    scopedRules: normalizedScopedRules,
   };
 
   const validationError = validateRuleContent(normalizedContent);
@@ -980,20 +1049,19 @@ async function saveRule(): Promise<void> {
 
   saving.value = true;
   try {
-    const updated = await updateRuleFile(selectedRule.value.id, {
-      assessmentId: selectedRule.value.assessmentId,
-      ruleName: editForm.ruleName.trim(),
-      description: editForm.description.trim(),
+    const updated = await updateRuleFile(currentRule.value.id, {
+      assessmentId: currentRule.value.assessmentId,
+      ruleName: currentRule.value.ruleName,
+      description: currentRule.value.description || "",
       contentJson: JSON.stringify(normalizedContent, null, 2),
     });
-    ElMessage.success("è§„åˆ™å·²ä¿å­˜");
+    ElMessage.success("¹æÔòÒÑ±£´æ");
     await loadFilesOnly();
-    const hit = ruleFiles.value.find((item) => item.id === updated.id);
-    if (hit) {
-      pickRule(hit);
+    if (currentRule.value?.id !== updated.id) {
+      setCurrentRule(updated);
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ä¿å­˜è§„åˆ™å¤±è´¥";
+    const message = error instanceof Error ? error.message : "±£´æ¹æÔòÊ§°Ü";
     ElMessage.error(message);
   } finally {
     saving.value = false;
@@ -1001,10 +1069,26 @@ async function saveRule(): Promise<void> {
 }
 
 watch(
-  () => [contextStore.sessionId, contextStore.periodCode, contextStore.objectGroupCode],
+  () => contextStore.sessionId,
   () => {
     contextWarning.value = validateContextForLoad();
     void loadData();
+  },
+);
+
+watch(
+  () => [contextStore.periodCode, contextStore.objectGroupCode],
+  () => {
+    contextWarning.value = validateContextForLoad();
+    syncActiveScopedRuleWithContext();
+    closeModuleDetail();
+  },
+);
+
+watch(
+  () => activeScopedRuleId.value,
+  () => {
+    closeModuleDetail();
   },
 );
 
@@ -1027,7 +1111,6 @@ onMounted(async () => {
 }
 
 .subtitle {
-  margin-top: 4px;
   color: #606266;
   font-size: 13px;
 }
@@ -1035,27 +1118,6 @@ onMounted(async () => {
 .header-actions {
   display: flex;
   gap: 8px;
-}
-
-.inner-card {
-  height: 100%;
-}
-
-.inner-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.rule-meta-form {
-  margin-bottom: 8px;
-}
-
-.rule-name-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .section-block {
@@ -1067,10 +1129,12 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+  gap: 8px;
 }
 
 .inline-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -1084,12 +1148,6 @@ onMounted(async () => {
   margin-bottom: 6px;
   font-size: 13px;
   color: #606266;
-}
-
-.tag-wrap {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
 }
 
 .muted {
@@ -1116,7 +1174,42 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 
-:deep(.active-scoped-row > td) {
-  background-color: #f0f9eb !important;
+.drag-handle {
+  width: 28px;
+  height: 28px;
+  border: 1px dashed #c0c4cc;
+  border-radius: 4px;
+  margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+  color: #606266;
+  transition: all 0.2s;
+}
+
+.drag-handle:hover {
+  border-color: #409eff;
+  color: #409eff;
+}
+
+.drag-handle.is-dragging {
+  background: #ecf5ff;
+  border-color: #409eff;
+}
+
+.drag-handle.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.module-drop-tail {
+  margin-top: 8px;
+  border: 1px dashed #dcdfe6;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #909399;
+  text-align: center;
+  padding: 8px;
 }
 </style>

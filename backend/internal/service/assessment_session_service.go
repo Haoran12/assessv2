@@ -27,9 +27,10 @@ type AssessmentSessionSummary struct {
 }
 
 type SessionPeriodItem struct {
-	PeriodCode string `json:"periodCode"`
-	PeriodName string `json:"periodName"`
-	SortOrder  int    `json:"sortOrder"`
+	PeriodCode     string `json:"periodCode"`
+	PeriodName     string `json:"periodName"`
+	RuleBindingKey string `json:"ruleBindingKey"`
+	SortOrder      int    `json:"sortOrder"`
 }
 
 type SessionObjectGroupItem struct {
@@ -292,6 +293,7 @@ func (s *AssessmentSessionService) ReplacePeriods(
 	normalized := make([]model.AssessmentSessionPeriod, 0, len(items))
 	seen := map[string]struct{}{}
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
+	bindingMap := map[string]string{}
 	for idx, item := range items {
 		code := strings.ToUpper(strings.TrimSpace(item.PeriodCode))
 		name := strings.TrimSpace(item.PeriodName)
@@ -302,14 +304,25 @@ func (s *AssessmentSessionService) ReplacePeriods(
 			return nil, ErrInvalidPeriodTemplate
 		}
 		seen[code] = struct{}{}
+		ruleBindingKey := strings.ToUpper(strings.TrimSpace(item.RuleBindingKey))
+		if ruleBindingKey == "" {
+			ruleBindingKey = code
+		}
+		bindingMap[code] = ruleBindingKey
 		normalized = append(normalized, model.AssessmentSessionPeriod{
-			AssessmentID: sessionID,
-			PeriodCode:   code,
-			PeriodName:   name,
-			SortOrder:    idx + 1,
-			CreatedBy:    operatorRef,
-			UpdatedBy:    operatorRef,
+			AssessmentID:   sessionID,
+			PeriodCode:     code,
+			PeriodName:     name,
+			RuleBindingKey: ruleBindingKey,
+			SortOrder:      idx + 1,
+			CreatedBy:      operatorRef,
+			UpdatedBy:      operatorRef,
 		})
+	}
+	for _, bindingKey := range bindingMap {
+		if _, exists := seen[bindingKey]; !exists {
+			return nil, ErrInvalidPeriodTemplate
+		}
 	}
 
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -708,12 +721,13 @@ func defaultSessionPeriods(sessionID uint, operatorID *uint) []model.AssessmentS
 	result := make([]model.AssessmentSessionPeriod, 0, len(base))
 	for _, item := range base {
 		result = append(result, model.AssessmentSessionPeriod{
-			AssessmentID: sessionID,
-			PeriodCode:   item.PeriodCode,
-			PeriodName:   item.PeriodName,
-			SortOrder:    item.SortOrder,
-			CreatedBy:    operatorID,
-			UpdatedBy:    operatorID,
+			AssessmentID:   sessionID,
+			PeriodCode:     item.PeriodCode,
+			PeriodName:     item.PeriodName,
+			RuleBindingKey: item.PeriodCode,
+			SortOrder:      item.SortOrder,
+			CreatedBy:      operatorID,
+			UpdatedBy:      operatorID,
 		})
 	}
 	return result
