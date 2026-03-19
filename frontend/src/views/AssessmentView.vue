@@ -9,7 +9,7 @@
                 <strong>考核场次</strong>
                 <div class="header-actions">
                   <el-button :loading="loadingSessions" @click="loadSessions">刷新</el-button>
-                  <el-button type="success" class="add-action-btn" :disabled="!canEdit" @click="openCreateDialog">
+                  <el-button type="primary" :disabled="!canEdit" @click="openCreateDialog">
                     创建考核场次
                   </el-button>
                 </div>
@@ -42,19 +42,12 @@
             <el-empty v-if="!selectedDetail" description="请选择一个考核场次进行管理" />
 
             <template v-else>
-              <el-descriptions :column="3" border class="mb-12">
-                <el-descriptions-item label="场次">{{ selectedDetail.session.displayName }}</el-descriptions-item>
-                <el-descriptions-item label="目录名">{{ selectedDetail.session.assessmentName }}</el-descriptions-item>
-                <el-descriptions-item label="数据目录">{{ selectedDetail.session.dataDir }}</el-descriptions-item>
-              </el-descriptions>
-
               <div class="section">
                 <div class="section-head">
                   <strong>周期配置</strong>
                   <el-button
                     size="small"
-                    type="success"
-                    class="add-action-btn"
+                    type="primary"
                     :disabled="!canEdit"
                     @click="addPeriod"
                   >
@@ -62,7 +55,13 @@
                   </el-button>
                 </div>
                 <el-table :data="periodDrafts" border>
-                  <el-table-column type="index" label="#" width="60" />
+                  <el-table-column label="#" width="60">
+                    <template #default="{ row, $index }">
+                      <span class="period-index-tag" :class="{ 'is-shared': isSharedRulePeriod(row) }">
+                        {{ $index + 1 }}
+                      </span>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="编码" width="160">
                     <template #default="{ row }">
                       <el-input v-model="row.periodCode" @blur="onPeriodCodeBlur(row)" />
@@ -79,43 +78,49 @@
                     </template>
                   </el-table-column>
                 </el-table>
-                <div class="binding-section">
-                  <div class="section-head">
-                    <strong>共用规则分组</strong>
-                    <el-button
-                      size="small"
-                      type="success"
-                      class="add-action-btn"
-                      :disabled="!canEdit"
-                      @click="addRuleBindingGroup"
-                    >
-                      新增分组
-                    </el-button>
-                  </div>
-                  <el-empty
-                    v-if="ruleBindingGroups.length === 0"
-                    description="未配置分组时，每个周期使用独立规则"
-                  />
-                  <div
-                    v-for="(group, groupIndex) in ruleBindingGroups"
-                    v-else
-                    :key="group.id"
-                    class="binding-group-row"
-                  >
-                    <div class="binding-group-head">
-                      <span>分组 {{ groupIndex + 1 }}</span>
-                      <el-button link type="danger" :disabled="!canEdit" @click="removeRuleBindingGroup(group.id)">
-                        删除分组
+                <div class="shared-rules-toggle">
+                  <el-button size="small" type="primary" plain @click="sharedRulesExpanded = !sharedRulesExpanded">
+                    共用规则
+                  </el-button>
+                </div>
+                <el-collapse-transition>
+                  <div v-show="sharedRulesExpanded" class="binding-section">
+                    <div class="section-head">
+                      <strong>共用规则分组</strong>
+                      <el-button
+                        size="small"
+                        type="primary"
+                        :disabled="!canEdit"
+                        @click="addRuleBindingGroup"
+                      >
+                        新增分组
                       </el-button>
                     </div>
-                    <el-checkbox-group v-model="group.periodCodes" @change="onRuleBindingGroupChange">
-                      <el-checkbox v-for="code in periodCodeOptions" :key="`${group.id}_${code}`" :label="code">
-                        {{ periodCodeLabelMap[code] || code }}
-                      </el-checkbox>
-                    </el-checkbox-group>
+                    <el-empty
+                      v-if="ruleBindingGroups.length === 0"
+                      description="未配置分组时，每个周期使用独立规则"
+                    />
+                    <div
+                      v-for="(group, groupIndex) in ruleBindingGroups"
+                      v-else
+                      :key="group.id"
+                      class="binding-group-row"
+                    >
+                      <div class="binding-group-head">
+                        <span>分组 {{ groupIndex + 1 }}</span>
+                        <el-button link type="danger" :disabled="!canEdit" @click="removeRuleBindingGroup(group.id)">
+                          删除分组
+                        </el-button>
+                      </div>
+                      <el-checkbox-group v-model="group.periodCodes" @change="onRuleBindingGroupChange">
+                        <el-checkbox v-for="code in periodCodeOptions" :key="`${group.id}_${code}`" :label="code">
+                          {{ periodCodeLabelMap[code] || code }}
+                        </el-checkbox>
+                      </el-checkbox-group>
+                    </div>
+                    <div class="period-hint">同组周期将共用规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
                   </div>
-                </div>
-                <div class="period-hint">同组周期将共用规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
+                </el-collapse-transition>
                 <div class="section-foot">
                   <el-button
                     type="primary"
@@ -151,8 +156,7 @@
                 <strong>考核对象分组</strong>
                 <el-button
                   size="small"
-                  type="success"
-                  class="add-action-btn"
+                  type="primary"
                   :disabled="!canEdit"
                   @click="addGroup"
                 >
@@ -203,8 +207,7 @@
                 <div class="header-actions">
                   <el-button
                     size="small"
-                    type="success"
-                    class="add-action-btn"
+                    type="primary"
                     :disabled="!canEdit"
                     @click="openObjectDialog"
                   >
@@ -429,6 +432,7 @@ const objectDialog = reactive({
 const periodBaseline = ref("");
 const groupBaseline = ref("");
 const objectBaseline = ref("");
+const sharedRulesExpanded = ref(false);
 
 const groupNameByCode = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
@@ -503,6 +507,35 @@ const periodCodeLabelMap = computed<Record<string, string>>(() => {
   }
   return map;
 });
+
+function normalizePeriodCode(code: string): string {
+  return String(code || "").trim().toUpperCase();
+}
+
+const sharedRulePeriodCodeSet = computed(() => {
+  const set = new Set<string>();
+  for (const group of ruleBindingGroups.value) {
+    if (group.periodCodes.length <= 1) {
+      continue;
+    }
+    for (const codeRaw of group.periodCodes) {
+      const code = normalizePeriodCode(codeRaw);
+      if (!code) {
+        continue;
+      }
+      set.add(code);
+    }
+  }
+  return set;
+});
+
+function isSharedRulePeriod(item: { periodCode: string }): boolean {
+  const code = normalizePeriodCode(item.periodCode);
+  if (!code) {
+    return false;
+  }
+  return sharedRulePeriodCodeSet.value.has(code);
+}
 
 function periodDraftSignature(): string {
   const periods = periodDrafts.value.map((item) => ({
@@ -1330,10 +1363,6 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.add-action-btn {
-  font-weight: 600;
-}
-
 .section {
   margin-top: 16px;
 }
@@ -1350,6 +1379,10 @@ onBeforeUnmount(() => {
 }
 
 .binding-section {
+  margin-top: 12px;
+}
+
+.shared-rules-toggle {
   margin-top: 12px;
 }
 
@@ -1375,8 +1408,18 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.mb-12 {
-  margin-bottom: 12px;
+.period-index-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  border-radius: 4px;
+}
+
+.period-index-tag.is-shared {
+  background: #ecf5ff;
+  color: #409eff;
 }
 
 @media (max-width: 960px) {
