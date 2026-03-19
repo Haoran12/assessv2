@@ -9,14 +9,6 @@
           </div>
           <div class="header-actions">
             <el-button :loading="loading" @click="loadData">刷新</el-button>
-            <el-button
-              v-if="isRoot"
-              type="primary"
-              :disabled="!contextStore.sessionId"
-              @click="createGlobalRule"
-            >
-              新建基础规则
-            </el-button>
           </div>
         </div>
       </template>
@@ -34,49 +26,19 @@
           <el-card shadow="never" class="inner-card">
             <template #header>
               <div class="inner-header">
-                <strong>规则文件库</strong>
-                <el-switch
-                  v-model="includeHidden"
-                  active-text="显示隐藏"
-                  inactive-text="隐藏过滤"
-                  @change="loadFilesOnly"
-                />
+                <strong>当前场次规则</strong>
               </div>
             </template>
 
             <el-table v-loading="loadingFiles" :data="ruleFiles" border height="680" @row-click="pickRule">
-              <el-table-column prop="id" label="ID" width="80" />
               <el-table-column label="名称" min-width="180">
                 <template #default="{ row }">
                   <div class="rule-name-cell">
                     <span>{{ row.ruleName }}</span>
-                    <el-tag size="small" :type="row.isCopy ? 'success' : 'info'">
-                      {{ row.isCopy ? "拷贝" : "基础" }}
-                    </el-tag>
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="190" fixed="right">
-                <template #default="{ row }">
-                  <el-button link type="primary" :disabled="!canBind" @click.stop="bindRule(row)">绑定</el-button>
-                  <el-button
-                    v-if="!row.isCopy && !row.hiddenByCurrentOrg && !isRoot"
-                    link
-                    @click.stop="hideRule(row)"
-                  >
-                    隐藏
-                  </el-button>
-                  <el-button
-                    v-if="!row.isCopy && row.hiddenByCurrentOrg && !isRoot"
-                    link
-                    type="warning"
-                    @click.stop="unhideRule(row)"
-                  >
-                    恢复
-                  </el-button>
-                  <el-button v-if="row.canDelete" link type="danger" @click.stop="removeRule(row)">删除</el-button>
-                </template>
-              </el-table-column>
+              <el-table-column prop="updatedAt" label="更新时间" width="160" />
             </el-table>
           </el-card>
         </el-col>
@@ -85,8 +47,7 @@
           <el-card shadow="never" class="inner-card">
             <template #header>
               <div class="inner-header">
-                <strong>规则文件编辑</strong>
-                <el-tag v-if="activeBindingRuleName" type="warning">当前绑定：{{ activeBindingRuleName }}</el-tag>
+                <strong>场次规则编辑</strong>
               </div>
             </template>
 
@@ -111,7 +72,6 @@
                   <strong>具体规则（按周期/对象分组）</strong>
                   <div class="inline-actions">
                     <el-button size="small" :disabled="!canEditRule" @click="addScopedRule">新增具体规则</el-button>
-                    <el-button size="small" :disabled="!canEditRule" @click="openCopyDialog">复制规则</el-button>
                   </div>
                 </div>
                 <el-table
@@ -373,57 +333,18 @@
       </el-row>
     </el-card>
 
-    <el-dialog v-model="copyDialogVisible" title="复制具体规则" width="720px">
-      <el-form label-width="120px">
-        <el-form-item label="来源规则文件">
-          <el-select v-model="copyForm.sourceFileId" style="width: 100%" :disabled="!canEditRule" filterable>
-            <el-option v-for="item in ruleFiles" :key="item.id" :label="item.ruleName" :value="item.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="来源具体规则">
-          <el-select v-model="copyForm.sourceScopedRuleId" style="width: 100%" :disabled="!canEditRule">
-            <el-option
-              v-for="item in sourceScopedRules"
-              :key="item.id"
-              :label="scopedRuleLabel(item)"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="复制方式">
-          <el-radio-group v-model="copyForm.mode" :disabled="!canEditRule">
-            <el-radio value="append">新增一条具体规则</el-radio>
-            <el-radio value="replace">覆盖当前具体规则</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="保留当前范围">
-          <el-switch v-model="copyForm.keepCurrentScope" :disabled="!canEditRule" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="copyDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!canEditRule" @click="confirmCopyScopedRule">确认复制</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
-import { useAppStore } from "@/stores/app";
+import { ElMessage } from "element-plus";
 import { useContextStore } from "@/stores/context";
 import {
-  createRuleFile,
-  deleteRuleFile,
-  hideRuleFile,
-  listRuleBindings,
   listRuleFiles,
-  selectRuleBinding,
-  unhideRuleFile,
   updateRuleFile,
 } from "@/api/rules";
-import type { RuleBindingItem, RuleFileItem } from "@/types/rules";
+import type { RuleFileItem } from "@/types/rules";
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
 type ConditionLogic = "and" | "or";
@@ -470,23 +391,13 @@ interface StructuredRuleContent {
   scopedRules: ScopedRule[];
 }
 
-interface CopyFormState {
-  sourceFileId: number;
-  sourceScopedRuleId: string;
-  mode: "append" | "replace";
-  keepCurrentScope: boolean;
-}
-
-const appStore = useAppStore();
 const contextStore = useContextStore();
 
 const loading = ref(false);
 const loadingFiles = ref(false);
 const saving = ref(false);
 
-const includeHidden = ref(false);
 const ruleFiles = ref<RuleFileItem[]>([]);
-const bindings = ref<RuleBindingItem[]>([]);
 const selectedRule = ref<RuleFileItem | null>(null);
 const activeScopedRuleId = ref("");
 
@@ -498,23 +409,6 @@ const editForm = reactive({
 const ruleContent = reactive<StructuredRuleContent>(defaultRuleContent(true));
 
 const contextWarning = ref("");
-
-const copyDialogVisible = ref(false);
-const copyForm = reactive<CopyFormState>({
-  sourceFileId: 0,
-  sourceScopedRuleId: "",
-  mode: "append",
-  keepCurrentScope: false,
-});
-
-const isRoot = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
-const canBind = computed(
-  () =>
-    appStore.hasPermission("rule:update") &&
-    !!contextStore.sessionId &&
-    !!contextStore.periodCode &&
-    !!contextStore.objectGroupCode,
-);
 const canEditRule = computed(() => !!selectedRule.value?.canEdit);
 
 const activeScopedRule = computed(() =>
@@ -534,21 +428,6 @@ const contextText = computed(() => {
   return `当前上下文：${sessionText} / ${periodText} / ${groupText}`;
 });
 
-const activeBinding = computed(() =>
-  bindings.value.find(
-    (item) => item.periodCode === contextStore.periodCode && item.objectGroupCode === contextStore.objectGroupCode,
-  ),
-);
-
-const activeBindingRuleName = computed(() => activeBinding.value?.ruleFile?.ruleName || "");
-
-const sourceScopedRules = computed(() => {
-  const source = ruleFiles.value.find((item) => item.id === copyForm.sourceFileId);
-  if (!source) {
-    return [];
-  }
-  return parseRuleContent(source.contentJson || "", false).scopedRules;
-});
 
 function uuid(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -829,19 +708,6 @@ function validateContextForLoad(): string {
   return "";
 }
 
-function validateContextForBind(): string {
-  if (!contextStore.sessionId) {
-    return "请先选择考核场次";
-  }
-  if (!contextStore.periodCode) {
-    return "请先选择周期后再绑定规则";
-  }
-  if (!contextStore.objectGroupCode) {
-    return "请先选择考核对象分组后再绑定规则";
-  }
-  return "";
-}
-
 async function loadFilesOnly(): Promise<void> {
   if (!contextStore.sessionId) {
     ruleFiles.value = [];
@@ -851,7 +717,7 @@ async function loadFilesOnly(): Promise<void> {
   }
   loadingFiles.value = true;
   try {
-    const items = await listRuleFiles(contextStore.sessionId, includeHidden.value);
+    const items = await listRuleFiles(contextStore.sessionId, false);
     ruleFiles.value = items;
     if (!selectedRule.value) {
       if (items.length > 0) {
@@ -871,74 +737,17 @@ async function loadFilesOnly(): Promise<void> {
   }
 }
 
-async function loadBindingsOnly(): Promise<void> {
-  if (!contextStore.sessionId) {
-    bindings.value = [];
-    return;
-  }
-  bindings.value = await listRuleBindings(contextStore.sessionId);
-}
-
 async function loadData(): Promise<void> {
   loading.value = true;
   try {
     await contextStore.ensureInitialized();
     contextWarning.value = validateContextForLoad();
-    await Promise.all([loadFilesOnly(), loadBindingsOnly()]);
+    await loadFilesOnly();
   } catch (error) {
     const message = error instanceof Error ? error.message : "加载规则管理数据失败";
     ElMessage.error(message);
   } finally {
     loading.value = false;
-  }
-}
-
-async function bindRule(rule: RuleFileItem): Promise<void> {
-  const contextMessage = validateContextForBind();
-  if (contextMessage || !contextStore.sessionId) {
-    ElMessage.warning(contextMessage || "请先补全顶部上下文");
-    return;
-  }
-  try {
-    const binding = await selectRuleBinding({
-      assessmentId: contextStore.sessionId,
-      periodCode: contextStore.periodCode,
-      objectGroupCode: contextStore.objectGroupCode,
-      sourceRuleId: rule.id,
-    });
-    ElMessage.success("规则已绑定并自动创建组织拷贝");
-    await Promise.all([loadFilesOnly(), loadBindingsOnly()]);
-    const hit = ruleFiles.value.find((item) => item.id === binding.ruleFile.id);
-    if (hit) {
-      pickRule(hit);
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "绑定规则失败";
-    ElMessage.error(message);
-  }
-}
-
-async function createGlobalRule(): Promise<void> {
-  if (!contextStore.sessionId) {
-    ElMessage.warning("请先选择考核场次");
-    return;
-  }
-  try {
-    const created = await createRuleFile({
-      assessmentId: contextStore.sessionId,
-      ruleName: `基础规则-${Date.now()}`,
-      description: "Root 创建的基础规则",
-      contentJson: JSON.stringify(defaultRuleContent(true), null, 2),
-    });
-    ElMessage.success("基础规则已创建");
-    await loadFilesOnly();
-    const hit = ruleFiles.value.find((item) => item.id === created.id);
-    if (hit) {
-      pickRule(hit);
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "创建规则失败";
-    ElMessage.error(message);
   }
 }
 
@@ -956,16 +765,6 @@ function periodName(periodCode: string): string {
 
 function groupName(groupCode: string): string {
   return contextStore.objectGroups.find((item) => item.groupCode === groupCode)?.groupName || groupCode;
-}
-
-function scopedRuleLabel(rule: ScopedRule): string {
-  const periodText =
-    rule.applicablePeriods.length > 0 ? rule.applicablePeriods.map((item) => periodName(item)).join("/") : "未设置周期";
-  const groupText =
-    rule.applicableObjectGroups.length > 0
-      ? rule.applicableObjectGroups.map((item) => groupName(item)).join("/")
-      : "未设置分组";
-  return `${periodText} | ${groupText}`;
 }
 
 function scopedRuleRowClass(args: any): string {
@@ -1046,71 +845,6 @@ function removeGrade(grade: GradeRule): void {
   activeScopedRule.value.grades = activeScopedRule.value.grades.filter((item) => item.id !== grade.id);
 }
 
-function openCopyDialog(): void {
-  if (!canEditRule.value) {
-    return;
-  }
-  copyForm.sourceFileId = selectedRule.value?.id || 0;
-  copyForm.sourceScopedRuleId = "";
-  copyForm.mode = "append";
-  copyForm.keepCurrentScope = false;
-  const first = sourceScopedRules.value[0];
-  if (first) {
-    copyForm.sourceScopedRuleId = first.id;
-  }
-  copyDialogVisible.value = true;
-}
-
-function confirmCopyScopedRule(): void {
-  if (!canEditRule.value) {
-    return;
-  }
-  const source = sourceScopedRules.value.find((item) => item.id === copyForm.sourceScopedRuleId);
-  if (!source) {
-    ElMessage.warning("请选择来源具体规则");
-    return;
-  }
-
-  const copied = cloneDeep(source);
-  copied.id = uuid("scoped");
-  copied.scoreModules = copied.scoreModules.map((module) => ({
-    ...module,
-    id: uuid("module"),
-    moduleKey: uuid("module_key"),
-  }));
-  copied.grades = copied.grades.map((grade) => ({
-    ...grade,
-    id: uuid("grade"),
-  }));
-
-  if (copyForm.keepCurrentScope && activeScopedRule.value) {
-    copied.applicablePeriods = [...activeScopedRule.value.applicablePeriods];
-    copied.applicableObjectGroups = [...activeScopedRule.value.applicableObjectGroups];
-  }
-
-  if (copyForm.mode === "replace") {
-    if (!activeScopedRule.value) {
-      ElMessage.warning("当前没有可覆盖的具体规则");
-      return;
-    }
-    const index = ruleContent.scopedRules.findIndex((item) => item.id === activeScopedRule.value?.id);
-    if (index < 0) {
-      ElMessage.warning("当前具体规则不存在");
-      return;
-    }
-    if (copyForm.keepCurrentScope) {
-      copied.applicablePeriods = [...activeScopedRule.value.applicablePeriods];
-      copied.applicableObjectGroups = [...activeScopedRule.value.applicableObjectGroups];
-    }
-    ruleContent.scopedRules.splice(index, 1, copied);
-  } else {
-    ruleContent.scopedRules.push(copied);
-  }
-
-  activeScopedRuleId.value = copied.id;
-  copyDialogVisible.value = false;
-  ElMessage.success("具体规则复制完成");
-}
 function normalizeRuleForSave(row: ScopedRule): ScopedRule {
   const normalizedModules = row.scoreModules.map((module, index) => ({
     id: module.id || uuid("module"),
@@ -1266,52 +1000,11 @@ async function saveRule(): Promise<void> {
   }
 }
 
-async function removeRule(rule: RuleFileItem): Promise<void> {
-  try {
-    await ElMessageBox.confirm(`确认删除规则「${rule.ruleName}」吗？`, "删除规则", { type: "warning" });
-    await deleteRuleFile(rule.id);
-    ElMessage.success("规则已删除");
-    await Promise.all([loadFilesOnly(), loadBindingsOnly()]);
-  } catch (error) {
-    if (String(error).includes("cancel")) {
-      return;
-    }
-    ElMessage.error("删除规则失败");
-  }
-}
-
-async function hideRule(rule: RuleFileItem): Promise<void> {
-  try {
-    await hideRuleFile(rule.id);
-    await loadFilesOnly();
-    ElMessage.success("已隐藏该规则");
-  } catch (_error) {
-    ElMessage.error("隐藏规则失败");
-  }
-}
-
-async function unhideRule(rule: RuleFileItem): Promise<void> {
-  try {
-    await unhideRuleFile(rule.id);
-    await loadFilesOnly();
-    ElMessage.success("已恢复显示该规则");
-  } catch (_error) {
-    ElMessage.error("恢复规则失败");
-  }
-}
-
 watch(
   () => [contextStore.sessionId, contextStore.periodCode, contextStore.objectGroupCode],
   () => {
     contextWarning.value = validateContextForLoad();
     void loadData();
-  },
-);
-
-watch(
-  () => copyForm.sourceFileId,
-  () => {
-    copyForm.sourceScopedRuleId = sourceScopedRules.value[0]?.id || "";
   },
 );
 

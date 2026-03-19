@@ -37,25 +37,90 @@ type RuleFileInput struct {
 	ContentJSON  string
 }
 
-type SelectRuleBindingInput struct {
-	AssessmentID    uint
-	PeriodCode      string
-	ObjectGroupCode string
-	SourceRuleID    uint
-}
-
-type AssessmentRuleBindingDetail struct {
-	model.AssessmentRuleBindingV2
-	RuleFile RuleFileSummary `json:"ruleFile"`
-}
-
-type RuleBindingListFilter struct {
-	AssessmentID uint
-	PeriodCode   string
-}
-
 func NewRuleManagementService(db *gorm.DB, auditRepo *repository.AuditRepository) *RuleManagementService {
 	return &RuleManagementService{db: db, auditRepo: auditRepo}
+}
+
+func sessionRuleDefaultName(session *AssessmentSessionSummary) string {
+	name := strings.TrimSpace(session.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(session.AssessmentName)
+	}
+	if name == "" {
+		return "场次规则"
+	}
+	return name + "-规则"
+}
+
+func (s *RuleManagementService) ensureSessionRuleFile(
+	ctx context.Context,
+	session *AssessmentSessionSummary,
+	operatorRef *uint,
+) (*model.RuleFile, error) {
+	items := make([]model.RuleFile, 0, 8)
+	if err := s.db.WithContext(ctx).
+		Where("assessment_id = ?", session.ID).
+		Order("updated_at DESC, id DESC").
+		Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to query rule files: %w", err)
+	}
+
+	if len(items) == 0 {
+		ruleName := sessionRuleDefaultName(session)
+		contentJSON := buildDefaultRuleTemplateJSON()
+		fileName := buildRuleFileName(ruleName)
+		filePath, err := ensureRuleFilePath(session.AssessmentName, fileName)
+		if err != nil {
+			return nil, err
+		}
+		if writeErr := os.WriteFile(filePath, []byte(contentJSON), 0o644); writeErr != nil {
+			return nil, fmt.Errorf("failed to write rule file content: %w", writeErr)
+		}
+		record := model.RuleFile{
+			AssessmentID: session.ID,
+			RuleName:     ruleName,
+			Description:  "场次专属规则文件",
+			ContentJSON:  contentJSON,
+			FilePath:     filePath,
+			IsCopy:       false,
+			CreatedBy:    operatorRef,
+			UpdatedBy:    operatorRef,
+		}
+		if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+			return nil, fmt.Errorf("failed to create session rule file: %w", err)
+		}
+		return &record, nil
+	}
+
+	var picked *model.RuleFile
+	for i := range items {
+		if !items[i].IsCopy {
+			picked = &items[i]
+			break
+		}
+	}
+	if picked == nil {
+		picked = &items[0]
+	}
+
+	if picked.IsCopy || picked.SourceRuleID != nil || picked.OwnerOrgID != nil {
+		updates := map[string]any{
+			"is_copy":        false,
+			"source_rule_id": nil,
+			"owner_org_id":   nil,
+		}
+		if operatorRef != nil {
+			updates["updated_by"] = operatorRef
+			updates["updated_at"] = time.Now().Unix()
+		}
+		if err := s.db.WithContext(ctx).Model(&model.RuleFile{}).Where("id = ?", picked.ID).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("failed to normalize session rule file: %w", err)
+		}
+		if err := s.db.WithContext(ctx).Where("id = ?", picked.ID).First(picked).Error; err != nil {
+			return nil, fmt.Errorf("failed to reload session rule file: %w", err)
+		}
+	}
+	return picked, nil
 }
 
 func (s *RuleManagementService) ListRuleFiles(ctx context.Context, claims *auth.Claims, filter RuleFileListFilter) ([]RuleFileSummary, error) {
@@ -70,62 +135,18 @@ func (s *RuleManagementService) ListRuleFiles(ctx context.Context, claims *auth.
 		return nil, err
 	}
 
-	query := s.db.WithContext(ctx).Model(&model.RuleFile{}).Where("assessment_id = ?", filter.AssessmentID)
-	items := make([]model.RuleFile, 0, 32)
-	if err := query.Order("is_copy ASC, id DESC").Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list rule files: %w", err)
+	record, err := s.ensureSessionRuleFile(ctx, session, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	adminOrgID := uint(0)
-	if !isRootClaims(claims) {
-		adminOrgID, err = resolveAdminOrganizationID(claims)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	hiddenSet := map[uint]struct{}{}
-	if adminOrgID > 0 {
-		var hiddenIDs []uint
-		if err := s.db.WithContext(ctx).
-			Table("rule_file_hides").
-			Where("organization_id = ?", adminOrgID).
-			Pluck("rule_file_id", &hiddenIDs).Error; err != nil {
-			return nil, fmt.Errorf("failed to load hidden rule files: %w", err)
-		}
-		for _, id := range hiddenIDs {
-			hiddenSet[id] = struct{}{}
-		}
-	}
-
-	result := make([]RuleFileSummary, 0, len(items))
-	for _, item := range items {
-		_, hidden := hiddenSet[item.ID]
-		if hidden && !filter.IncludeHidden {
-			continue
-		}
-		canEdit := false
-		canDelete := false
-		if item.IsCopy {
-			if isRootClaims(claims) {
-				canEdit = true
-				canDelete = true
-			} else if item.OwnerOrgID != nil && *item.OwnerOrgID == adminOrgID {
-				canEdit = true
-				canDelete = true
-			}
-		} else {
-			canDelete = isRootClaims(claims)
-		}
-
-		result = append(result, RuleFileSummary{
-			RuleFile:            item,
-			HiddenByCurrentOrg:  hidden,
-			CanEdit:             canEdit,
-			CanDelete:           canDelete,
-		})
-	}
-	return result, nil
+	return []RuleFileSummary{
+		{
+			RuleFile:           *record,
+			HiddenByCurrentOrg: false,
+			CanEdit:            true,
+			CanDelete:          false,
+		},
+	}, nil
 }
 
 func (s *RuleManagementService) CreateRuleFile(
@@ -136,9 +157,6 @@ func (s *RuleManagementService) CreateRuleFile(
 	ipAddress string,
 	userAgent string,
 ) (*RuleFileSummary, error) {
-	if !isRootClaims(claims) {
-		return nil, ErrForbidden
-	}
 	if input.AssessmentID == 0 {
 		return nil, ErrInvalidParam
 	}
@@ -146,9 +164,12 @@ func (s *RuleManagementService) CreateRuleFile(
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
+		return nil, err
+	}
 	ruleName := strings.TrimSpace(input.RuleName)
 	if ruleName == "" {
-		return nil, ErrInvalidRuleName
+		ruleName = sessionRuleDefaultName(session)
 	}
 	contentJSON := strings.TrimSpace(input.ContentJSON)
 	if contentJSON == "" {
@@ -156,48 +177,40 @@ func (s *RuleManagementService) CreateRuleFile(
 	}
 
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
-	record := model.RuleFile{}
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operatorID)
-		fileName := buildRuleFileName(ruleName)
-		filePath, err := ensureRuleFilePath(session.AssessmentName, fileName)
-		if err != nil {
-			return err
-		}
-		if writeErr := os.WriteFile(filePath, []byte(contentJSON), 0o644); writeErr != nil {
-			return fmt.Errorf("failed to write rule file content: %w", writeErr)
-		}
-		record = model.RuleFile{
-			AssessmentID: input.AssessmentID,
-			RuleName:     ruleName,
-			Description:  strings.TrimSpace(input.Description),
-			ContentJSON:  contentJSON,
-			FilePath:     filePath,
-			IsCopy:       false,
-			CreatedBy:    operatorRef,
-			UpdatedBy:    operatorRef,
-		}
-		if err := tx.Create(&record).Error; err != nil {
-			return fmt.Errorf("failed to create rule file metadata: %w", err)
-		}
-		return nil
-	}); err != nil {
+	record, err := s.ensureSessionRuleFile(ctx, session, operatorRef)
+	if err != nil {
 		return nil, err
+	}
+
+	updates := map[string]any{
+		"rule_name":    ruleName,
+		"description":  strings.TrimSpace(input.Description),
+		"content_json": contentJSON,
+		"updated_by":   operatorRef,
+		"updated_at":   time.Now().Unix(),
+	}
+	if err := s.db.WithContext(ctx).Model(&model.RuleFile{}).Where("id = ?", record.ID).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("failed to update session rule file metadata: %w", err)
+	}
+	if writeErr := os.WriteFile(record.FilePath, []byte(contentJSON), 0o644); writeErr != nil {
+		return nil, fmt.Errorf("failed to write rule file content: %w", writeErr)
+	}
+	if err := s.db.WithContext(ctx).Where("id = ?", record.ID).First(record).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload rule file: %w", err)
 	}
 
 	targetID := record.ID
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "rule_files", &targetID, map[string]any{
-		"event":         "create_rule_file",
-		"assessmentId":  input.AssessmentID,
-		"ruleName":      ruleName,
-		"isCopy":        false,
+		"event":        "upsert_session_rule_file",
+		"assessmentId": input.AssessmentID,
+		"ruleName":     ruleName,
 	}, ipAddress, userAgent))
 
 	return &RuleFileSummary{
-		RuleFile:            record,
-		HiddenByCurrentOrg:  false,
-		CanEdit:             false,
-		CanDelete:           true,
+		RuleFile:           *record,
+		HiddenByCurrentOrg: false,
+		CanEdit:            true,
+		CanDelete:          false,
 	}, nil
 }
 
@@ -228,18 +241,6 @@ func (s *RuleManagementService) UpdateRuleFile(
 	}
 	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
 		return nil, err
-	}
-	if !record.IsCopy {
-		return nil, ErrForbidden
-	}
-	if !isRootClaims(claims) {
-		adminOrgID, err := resolveAdminOrganizationID(claims)
-		if err != nil {
-			return nil, err
-		}
-		if record.OwnerOrgID == nil || *record.OwnerOrgID != adminOrgID {
-			return nil, ErrForbidden
-		}
 	}
 
 	contentJSON := strings.TrimSpace(input.ContentJSON)
@@ -276,335 +277,11 @@ func (s *RuleManagementService) UpdateRuleFile(
 	}, ipAddress, userAgent))
 
 	return &RuleFileSummary{
-		RuleFile:            record,
-		HiddenByCurrentOrg:  false,
-		CanEdit:             true,
-		CanDelete:           true,
+		RuleFile:           record,
+		HiddenByCurrentOrg: false,
+		CanEdit:            true,
+		CanDelete:          false,
 	}, nil
-}
-
-func (s *RuleManagementService) DeleteRuleFile(
-	ctx context.Context,
-	claims *auth.Claims,
-	operatorID uint,
-	ruleID uint,
-	ipAddress string,
-	userAgent string,
-) error {
-	if ruleID == 0 {
-		return ErrInvalidParam
-	}
-	var record model.RuleFile
-	if err := s.db.WithContext(ctx).Where("id = ?", ruleID).First(&record).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return ErrRuleNotFound
-		}
-		return fmt.Errorf("failed to query rule file: %w", err)
-	}
-	session, err := s.loadSessionSummary(ctx, record.AssessmentID)
-	if err != nil {
-		return err
-	}
-	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
-		return err
-	}
-
-	if record.IsCopy {
-		if !isRootClaims(claims) {
-			adminOrgID, err := resolveAdminOrganizationID(claims)
-			if err != nil {
-				return err
-			}
-			if record.OwnerOrgID == nil || *record.OwnerOrgID != adminOrgID {
-				return ErrForbidden
-			}
-		}
-	} else if !isRootClaims(claims) {
-		return ErrForbidden
-	}
-
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("rule_file_id = ?", ruleID).Delete(&model.AssessmentRuleBindingV2{}).Error; err != nil {
-			return fmt.Errorf("failed to delete rule bindings: %w", err)
-		}
-		if err := tx.Where("rule_file_id = ?", ruleID).Delete(&model.RuleFileHide{}).Error; err != nil {
-			return fmt.Errorf("failed to delete rule hides: %w", err)
-		}
-		if err := tx.Delete(&model.RuleFile{}, ruleID).Error; err != nil {
-			return fmt.Errorf("failed to delete rule file: %w", err)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	_ = os.Remove(record.FilePath)
-	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
-	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "rule_files", &targetID, map[string]any{
-		"event": "delete_rule_file",
-	}, ipAddress, userAgent))
-	return nil
-}
-
-func (s *RuleManagementService) HideRuleFile(
-	ctx context.Context,
-	claims *auth.Claims,
-	operatorID uint,
-	ruleID uint,
-) error {
-	if isRootClaims(claims) {
-		return ErrForbidden
-	}
-	adminOrgID, err := resolveAdminOrganizationID(claims)
-	if err != nil {
-		return err
-	}
-	var record model.RuleFile
-	if err := s.db.WithContext(ctx).Where("id = ?", ruleID).First(&record).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return ErrRuleNotFound
-		}
-		return err
-	}
-	if record.IsCopy {
-		return ErrForbidden
-	}
-	hide := model.RuleFileHide{
-		RuleFileID:     ruleID,
-		OrganizationID: adminOrgID,
-		CreatedBy:      resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID),
-	}
-	if err := s.db.WithContext(ctx).Create(&hide).Error; err != nil && !isUniqueConstraintError(err) {
-		return fmt.Errorf("failed to hide rule file: %w", err)
-	}
-	return nil
-}
-
-func (s *RuleManagementService) UnhideRuleFile(
-	ctx context.Context,
-	claims *auth.Claims,
-	ruleID uint,
-) error {
-	if isRootClaims(claims) {
-		return ErrForbidden
-	}
-	adminOrgID, err := resolveAdminOrganizationID(claims)
-	if err != nil {
-		return err
-	}
-	if err := s.db.WithContext(ctx).
-		Where("rule_file_id = ? AND organization_id = ?", ruleID, adminOrgID).
-		Delete(&model.RuleFileHide{}).Error; err != nil {
-		return fmt.Errorf("failed to unhide rule file: %w", err)
-	}
-	return nil
-}
-
-func (s *RuleManagementService) ListBindings(
-	ctx context.Context,
-	claims *auth.Claims,
-	filter RuleBindingListFilter,
-) ([]AssessmentRuleBindingDetail, error) {
-	if filter.AssessmentID == 0 {
-		return nil, ErrInvalidParam
-	}
-	session, err := s.loadSessionSummary(ctx, filter.AssessmentID)
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	query := s.db.WithContext(ctx).Model(&model.AssessmentRuleBindingV2{}).
-		Where("assessment_id = ?", filter.AssessmentID)
-	if period := strings.TrimSpace(filter.PeriodCode); period != "" {
-		query = query.Where("period_code = ?", strings.ToUpper(period))
-	}
-	rows := make([]model.AssessmentRuleBindingV2, 0, 32)
-	if err := query.Order("period_code ASC, object_group_code ASC, id ASC").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to list rule bindings: %w", err)
-	}
-	if len(rows) == 0 {
-		return []AssessmentRuleBindingDetail{}, nil
-	}
-
-	ruleIDs := make([]uint, 0, len(rows))
-	for _, row := range rows {
-		ruleIDs = append(ruleIDs, row.RuleFileID)
-	}
-	files := make([]model.RuleFile, 0, len(rows))
-	if err := s.db.WithContext(ctx).Where("id IN ?", ruleIDs).Find(&files).Error; err != nil {
-		return nil, fmt.Errorf("failed to query bound rule files: %w", err)
-	}
-	fileMap := map[uint]model.RuleFile{}
-	for _, item := range files {
-		fileMap[item.ID] = item
-	}
-
-	result := make([]AssessmentRuleBindingDetail, 0, len(rows))
-	for _, row := range rows {
-		ruleFile, ok := fileMap[row.RuleFileID]
-		if !ok {
-			continue
-		}
-		result = append(result, AssessmentRuleBindingDetail{
-			AssessmentRuleBindingV2: row,
-			RuleFile: RuleFileSummary{
-				RuleFile:           ruleFile,
-				CanEdit:            ruleFile.IsCopy,
-				CanDelete:          ruleFile.IsCopy || isRootClaims(claims),
-				HiddenByCurrentOrg: false,
-			},
-		})
-	}
-	return result, nil
-}
-
-func (s *RuleManagementService) SelectRuleForBinding(
-	ctx context.Context,
-	claims *auth.Claims,
-	operatorID uint,
-	input SelectRuleBindingInput,
-	ipAddress string,
-	userAgent string,
-) (*AssessmentRuleBindingDetail, error) {
-	if input.AssessmentID == 0 || input.SourceRuleID == 0 || strings.TrimSpace(input.PeriodCode) == "" || strings.TrimSpace(input.ObjectGroupCode) == "" {
-		return nil, ErrInvalidParam
-	}
-	session, err := s.loadSessionSummary(ctx, input.AssessmentID)
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	periodCode := strings.ToUpper(strings.TrimSpace(input.PeriodCode))
-	objectGroupCode := strings.TrimSpace(input.ObjectGroupCode)
-	source := model.RuleFile{}
-	if err := s.db.WithContext(ctx).Where("id = ? AND assessment_id = ?", input.SourceRuleID, input.AssessmentID).First(&source).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return nil, ErrRuleNotFound
-		}
-		return nil, fmt.Errorf("failed to query source rule file: %w", err)
-	}
-
-	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
-	binding := model.AssessmentRuleBindingV2{}
-	copyRule := model.RuleFile{}
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		operatorRef = resolveBusinessWriteOperatorRefTx(tx, operatorID)
-		if !s.periodExistsTx(tx, input.AssessmentID, periodCode) {
-			return ErrPeriodNotFound
-		}
-		if !s.objectGroupExistsTx(tx, input.AssessmentID, objectGroupCode) {
-			return ErrInvalidRuleObjectCategory
-		}
-
-		fileName := buildRuleFileName(source.RuleName + "_copy")
-		filePath, err := ensureRuleFilePath(session.AssessmentName, fileName)
-		if err != nil {
-			return err
-		}
-		if writeErr := os.WriteFile(filePath, []byte(source.ContentJSON), 0o644); writeErr != nil {
-			return fmt.Errorf("failed to create copied rule file: %w", writeErr)
-		}
-
-		orgID := session.OrganizationID
-		copyRule = model.RuleFile{
-			AssessmentID: input.AssessmentID,
-			RuleName:     source.RuleName + " (拷贝)",
-			Description:  source.Description,
-			ContentJSON:  source.ContentJSON,
-			FilePath:     filePath,
-			IsCopy:       true,
-			SourceRuleID: uintPtr(source.ID),
-			OwnerOrgID:   uintPtr(orgID),
-			CreatedBy:    operatorRef,
-			UpdatedBy:    operatorRef,
-		}
-		if err := tx.Create(&copyRule).Error; err != nil {
-			return fmt.Errorf("failed to save copied rule file metadata: %w", err)
-		}
-
-		query := tx.Where(
-			"assessment_id = ? AND period_code = ? AND object_group_code = ? AND organization_id = ?",
-			input.AssessmentID,
-			periodCode,
-			objectGroupCode,
-			orgID,
-		)
-		err = query.First(&binding).Error
-		if err == nil {
-			if updateErr := query.Updates(map[string]any{
-				"rule_file_id": copyRule.ID,
-				"updated_by":   operatorRef,
-				"updated_at":   time.Now().Unix(),
-			}).Error; updateErr != nil {
-				return fmt.Errorf("failed to update existing rule binding: %w", updateErr)
-			}
-			if reloadErr := query.First(&binding).Error; reloadErr != nil {
-				return fmt.Errorf("failed to reload updated rule binding: %w", reloadErr)
-			}
-			return nil
-		}
-		if !repository.IsRecordNotFound(err) {
-			return fmt.Errorf("failed to query existing rule binding: %w", err)
-		}
-		binding = model.AssessmentRuleBindingV2{
-			AssessmentID:    input.AssessmentID,
-			PeriodCode:      periodCode,
-			ObjectGroupCode: objectGroupCode,
-			OrganizationID:  orgID,
-			RuleFileID:      copyRule.ID,
-			CreatedBy:       operatorRef,
-			UpdatedBy:       operatorRef,
-		}
-		if err := tx.Create(&binding).Error; err != nil {
-			return fmt.Errorf("failed to create rule binding: %w", err)
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	targetID := binding.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "assessment_rule_bindings", &targetID, map[string]any{
-		"event":          "bind_rule_with_copy",
-		"assessmentId":   input.AssessmentID,
-		"periodCode":     periodCode,
-		"objectGroupCode": objectGroupCode,
-		"sourceRuleId":   input.SourceRuleID,
-		"copyRuleId":     copyRule.ID,
-	}, ipAddress, userAgent))
-
-	return &AssessmentRuleBindingDetail{
-		AssessmentRuleBindingV2: binding,
-		RuleFile: RuleFileSummary{
-			RuleFile:            copyRule,
-			HiddenByCurrentOrg:  false,
-			CanEdit:             true,
-			CanDelete:           true,
-		},
-	}, nil
-}
-
-func (s *RuleManagementService) periodExistsTx(tx *gorm.DB, assessmentID uint, periodCode string) bool {
-	var count int64
-	_ = tx.Model(&model.AssessmentSessionPeriod{}).
-		Where("assessment_id = ? AND period_code = ?", assessmentID, periodCode).
-		Count(&count).Error
-	return count > 0
-}
-
-func (s *RuleManagementService) objectGroupExistsTx(tx *gorm.DB, assessmentID uint, groupCode string) bool {
-	var count int64
-	_ = tx.Model(&model.AssessmentObjectGroup{}).
-		Where("assessment_id = ? AND group_code = ?", assessmentID, groupCode).
-		Count(&count).Error
-	return count > 0
 }
 
 func (s *RuleManagementService) loadSessionSummary(ctx context.Context, sessionID uint) (*AssessmentSessionSummary, error) {

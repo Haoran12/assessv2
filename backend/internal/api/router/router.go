@@ -108,11 +108,6 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		rules.GET("/files", middleware.RequirePermission("rule:view"), ruleHandler.ListRuleFiles)
 		rules.POST("/files", middleware.RequirePermission("rule:update"), ruleHandler.CreateRuleFile)
 		rules.PUT("/files/:id", middleware.RequirePermission("rule:update"), ruleHandler.UpdateRuleFile)
-		rules.DELETE("/files/:id", middleware.RequirePermission("rule:update"), ruleHandler.DeleteRuleFile)
-		rules.POST("/files/:id/hide", middleware.RequirePermission("rule:view"), ruleHandler.HideRuleFile)
-		rules.DELETE("/files/:id/hide", middleware.RequirePermission("rule:view"), ruleHandler.UnhideRuleFile)
-		rules.GET("/bindings", middleware.RequirePermission("rule:view"), ruleHandler.ListBindings)
-		rules.POST("/bindings/select", middleware.RequirePermission("rule:update"), ruleHandler.SelectBinding)
 
 		backup := api.Group("/backup")
 		backup.Use(middleware.RequireJWT(cfg.JWTSecret), middleware.RequireOrgScope())

@@ -15,35 +15,9 @@ export interface RuleFileItem {
   canDelete?: boolean;
 }
 
-export interface RuleBindingItem {
-  id: number;
-  assessmentId: number;
-  periodCode: string;
-  objectGroupCode: string;
-  organizationId: number;
-  ruleFileId: number;
-  createdAt: number;
-  updatedAt: number;
-  ruleFile: RuleFileItem;
-}
-
-export interface CreateRuleFilePayload {
-  assessmentId: number;
-  ruleName: string;
-  description?: string;
-  contentJson?: string;
-}
-
 export interface UpdateRuleFilePayload {
   assessmentId: number;
   ruleName?: string;
   description?: string;
   contentJson?: string;
-}
-
-export interface SelectRuleBindingPayload {
-  assessmentId: number;
-  periodCode: string;
-  objectGroupCode: string;
-  sourceRuleId: number;
 }
