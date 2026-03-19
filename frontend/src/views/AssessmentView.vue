@@ -57,7 +57,12 @@
                 <el-table :data="periodDrafts" border>
                   <el-table-column label="#" width="60">
                     <template #default="{ row, $index }">
-                      <span class="period-index-tag" :class="{ 'is-shared': isSharedRulePeriod(row) }">
+                      <span
+                        class="period-index-tag"
+                        :class="{ 'is-shared': periodSharedGroupIndex(row) >= 0 }"
+                        :style="periodSharedTagStyle(row)"
+                        :title="periodSharedGroupTitle(row)"
+                      >
                         {{ $index + 1 }}
                       </span>
                     </template>
@@ -433,6 +438,14 @@ const periodBaseline = ref("");
 const groupBaseline = ref("");
 const objectBaseline = ref("");
 const sharedRulesExpanded = ref(false);
+const sharedRuleTagPalette = [
+  { bg: "#ecf5ff", fg: "#409eff" },
+  { bg: "#f0f9eb", fg: "#67c23a" },
+  { bg: "#fdf6ec", fg: "#e6a23c" },
+  { bg: "#fef0f0", fg: "#f56c6c" },
+  { bg: "#f0fafa", fg: "#14b8a6" },
+  { bg: "#f4f4f5", fg: "#606266" },
+];
 
 const groupNameByCode = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
@@ -512,29 +525,54 @@ function normalizePeriodCode(code: string): string {
   return String(code || "").trim().toUpperCase();
 }
 
-const sharedRulePeriodCodeSet = computed(() => {
-  const set = new Set<string>();
-  for (const group of ruleBindingGroups.value) {
+const sharedRuleGroupIndexByPeriodCode = computed(() => {
+  const map = new Map<string, number>();
+  for (let groupIndex = 0; groupIndex < ruleBindingGroups.value.length; groupIndex += 1) {
+    const group = ruleBindingGroups.value[groupIndex];
     if (group.periodCodes.length <= 1) {
       continue;
     }
     for (const codeRaw of group.periodCodes) {
       const code = normalizePeriodCode(codeRaw);
-      if (!code) {
+      if (!code || map.has(code)) {
         continue;
       }
-      set.add(code);
+      map.set(code, groupIndex);
     }
   }
-  return set;
+  return map;
 });
 
-function isSharedRulePeriod(item: { periodCode: string }): boolean {
+function periodSharedGroupIndex(item: { periodCode: string }): number {
   const code = normalizePeriodCode(item.periodCode);
   if (!code) {
-    return false;
+    return -1;
   }
-  return sharedRulePeriodCodeSet.value.has(code);
+  const hit = sharedRuleGroupIndexByPeriodCode.value.get(code);
+  if (hit === undefined) {
+    return -1;
+  }
+  return hit;
+}
+
+function periodSharedTagStyle(item: { periodCode: string }): Record<string, string> | undefined {
+  const groupIndex = periodSharedGroupIndex(item);
+  if (groupIndex < 0) {
+    return undefined;
+  }
+  const tone = sharedRuleTagPalette[groupIndex % sharedRuleTagPalette.length];
+  return {
+    backgroundColor: tone.bg,
+    color: tone.fg,
+  };
+}
+
+function periodSharedGroupTitle(item: { periodCode: string }): string {
+  const groupIndex = periodSharedGroupIndex(item);
+  if (groupIndex < 0) {
+    return "";
+  }
+  return `共用规则分组 ${groupIndex + 1}`;
 }
 
 function periodDraftSignature(): string {
@@ -1418,8 +1456,7 @@ onBeforeUnmount(() => {
 }
 
 .period-index-tag.is-shared {
-  background: #ecf5ff;
-  color: #409eff;
+  font-weight: 600;
 }
 
 @media (max-width: 960px) {
