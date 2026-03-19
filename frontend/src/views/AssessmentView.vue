@@ -61,32 +61,41 @@
                 <el-input v-model="row.periodName" />
               </template>
             </el-table-column>
-            <el-table-column label="规则绑定" min-width="220">
-              <template #default="{ row }">
-                <el-select
-                  v-model="row.ruleBindingKey"
-                  style="width: 100%"
-                  filterable
-                  placeholder="默认绑定自己"
-                  @change="onRuleBindingKeyChange(row)"
-                >
-                  <el-option
-                    v-for="code in periodCodeOptions"
-                    :key="`binding_${code}`"
-                    :label="periodCodeLabelMap[code] || code"
-                    :value="code"
-                  />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="180">
+            <el-table-column label="操作" width="100">
               <template #default="{ $index }">
-                <el-button link :disabled="!canEdit || $index === 0" @click="bindPeriodToPrevious($index)">绑定上一周期</el-button>
                 <el-button link type="danger" :disabled="!canEdit" @click="removePeriod($index)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <div class="period-hint">同一绑定键下的周期会共用同一套规则配置，未设置时默认绑定自身。</div>
+          <div class="binding-section">
+            <div class="section-head">
+              <strong>共用规则分组</strong>
+              <el-button size="small" :disabled="!canEdit" @click="addRuleBindingGroup">新增分组</el-button>
+            </div>
+            <el-empty
+              v-if="ruleBindingGroups.length === 0"
+              description="未配置分组时，每个周期使用独立规则"
+            />
+            <div
+              v-for="(group, groupIndex) in ruleBindingGroups"
+              v-else
+              :key="group.id"
+              class="binding-group-row"
+            >
+              <div class="binding-group-head">
+                <span>分组 {{ groupIndex + 1 }}</span>
+                <el-button link type="danger" :disabled="!canEdit" @click="removeRuleBindingGroup(group.id)">
+                  删除分组
+                </el-button>
+              </div>
+              <el-checkbox-group v-model="group.periodCodes" @change="onRuleBindingGroupChange">
+                <el-checkbox v-for="code in periodCodeOptions" :key="`${group.id}_${code}`" :label="code">
+                  {{ periodCodeLabelMap[code] || code }}
+                </el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+          <div class="period-hint">同组周期将共用规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
           <div class="section-foot">
             <el-button type="primary" :disabled="!canEdit || savingPeriods" :loading="savingPeriods" @click="savePeriods">
               保存周期
@@ -312,6 +321,7 @@ const loadingDetail = ref(false);
 const loadingObjects = ref(false);
 
 const periodDrafts = ref<Array<{ periodCode: string; periodName: string; ruleBindingKey: string }>>([]);
+const ruleBindingGroups = ref<Array<{ id: string; periodCodes: string[] }>>([]);
 const groupDrafts = ref<Array<{ objectType: "team" | "individual"; groupCode: string; groupName: string }>>([]);
 const objects = ref<AssessmentSessionObjectItem[]>([]);
 const objectDrafts = ref<AssessmentSessionObjectItem[]>([]);
@@ -418,12 +428,17 @@ const periodCodeLabelMap = computed<Record<string, string>>(() => {
   return map;
 });
 
+function bindingGroupId(): string {
+  return `binding_group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function addPeriod(): void {
   periodDrafts.value.push({ periodCode: "", periodName: "", ruleBindingKey: "" });
 }
 
 function removePeriod(index: number): void {
   periodDrafts.value.splice(index, 1);
+  ensureRuleBindingGroupsIntegrity();
   ensurePeriodBindingKeys();
 }
 
@@ -432,29 +447,138 @@ function onPeriodCodeBlur(row: { periodCode: string; ruleBindingKey: string }): 
   if (!row.ruleBindingKey.trim()) {
     row.ruleBindingKey = row.periodCode;
   }
+  ensureRuleBindingGroupsIntegrity();
   ensurePeriodBindingKeys();
 }
 
-function onRuleBindingKeyChange(row: { ruleBindingKey: string }): void {
-  row.ruleBindingKey = row.ruleBindingKey.trim().toUpperCase();
+function addRuleBindingGroup(): void {
+  ruleBindingGroups.value.push({ id: bindingGroupId(), periodCodes: [] });
+}
+
+function removeRuleBindingGroup(groupID: string): void {
+  ruleBindingGroups.value = ruleBindingGroups.value.filter((item) => item.id !== groupID);
+  ensureRuleBindingGroupsIntegrity();
   ensurePeriodBindingKeys();
 }
 
-function bindPeriodToPrevious(index: number): void {
-  if (index <= 0 || index >= periodDrafts.value.length) {
-    return;
+function onRuleBindingGroupChange(): void {
+  ensureRuleBindingGroupsIntegrity();
+  ensurePeriodBindingKeys();
+}
+
+function ensureRuleBindingGroupsIntegrity(): void {
+  const available = new Set(periodCodeOptions.value);
+  for (const group of ruleBindingGroups.value) {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const codeRaw of group.periodCodes) {
+      const code = String(codeRaw || "").trim().toUpperCase();
+      if (!code || seen.has(code) || !available.has(code)) {
+        continue;
+      }
+      seen.add(code);
+      normalized.push(code);
+    }
+    group.periodCodes = normalized;
   }
-  const previousCode = periodDrafts.value[index - 1].periodCode.trim().toUpperCase();
-  if (!previousCode) {
-    ElMessage.warning("请先设置上一行周期编码");
-    return;
+}
+
+function validateRuleBindingGroups(): string {
+  const ownerByCode = new Map<string, number>();
+  for (let index = 0; index < ruleBindingGroups.value.length; index += 1) {
+    const group = ruleBindingGroups.value[index];
+    for (const code of group.periodCodes) {
+      const owner = ownerByCode.get(code);
+      if (owner !== undefined) {
+        return `周期「${code}」被分组 ${owner + 1} 和分组 ${index + 1} 重复选择`;
+      }
+      ownerByCode.set(code, index);
+    }
   }
-  periodDrafts.value[index].ruleBindingKey = previousCode;
+  return "";
+}
+
+function applyRuleBindingGroupsToPeriods(): void {
+  for (const item of periodDrafts.value) {
+    const code = item.periodCode.trim().toUpperCase();
+    item.ruleBindingKey = code;
+  }
+
+  const orderMap = new Map<string, number>();
+  periodDrafts.value.forEach((item, index) => {
+    const code = item.periodCode.trim().toUpperCase();
+    orderMap.set(code, index);
+  });
+
+  const periodMap = new Map<string, { periodCode: string; periodName: string; ruleBindingKey: string }>();
+  for (const item of periodDrafts.value) {
+    const code = item.periodCode.trim().toUpperCase();
+    if (!code) {
+      continue;
+    }
+    periodMap.set(code, item);
+  }
+
+  for (const group of ruleBindingGroups.value) {
+    if (group.periodCodes.length <= 1) {
+      continue;
+    }
+    const sortedCodes = [...group.periodCodes].sort((a, b) => (orderMap.get(a) || 0) - (orderMap.get(b) || 0));
+    const anchor = sortedCodes[0];
+    if (!anchor) {
+      continue;
+    }
+    for (const code of sortedCodes) {
+      const item = periodMap.get(code);
+      if (item) {
+        item.ruleBindingKey = anchor;
+      }
+    }
+  }
+}
+
+function buildRuleBindingGroupsFromPeriods(): void {
+  const available = new Set(periodCodeOptions.value);
+  const groupsByAnchor = new Map<string, string[]>();
+
+  for (const item of periodDrafts.value) {
+    const code = item.periodCode.trim().toUpperCase();
+    if (!code) {
+      continue;
+    }
+    let anchor = item.ruleBindingKey.trim().toUpperCase();
+    if (!anchor || !available.has(anchor)) {
+      anchor = code;
+    }
+    const bucket = groupsByAnchor.get(anchor) || [];
+    bucket.push(code);
+    groupsByAnchor.set(anchor, bucket);
+  }
+
+  const result: Array<{ id: string; periodCodes: string[] }> = [];
+  for (const codes of groupsByAnchor.values()) {
+    const deduped = Array.from(new Set(codes));
+    if (deduped.length <= 1) {
+      continue;
+    }
+    result.push({
+      id: bindingGroupId(),
+      periodCodes: deduped,
+    });
+  }
+
+  ruleBindingGroups.value = result;
   ensurePeriodBindingKeys();
 }
 
 function ensurePeriodBindingKeys(): void {
   const available = new Set(periodCodeOptions.value);
+  for (const item of periodDrafts.value) {
+    item.periodCode = item.periodCode.trim().toUpperCase();
+  }
+
+  applyRuleBindingGroupsToPeriods();
+
   for (const item of periodDrafts.value) {
     const code = item.periodCode.trim().toUpperCase();
     let bindingKey = item.ruleBindingKey.trim().toUpperCase();
@@ -534,7 +658,7 @@ async function selectSession(sessionId: number): Promise<void> {
       periodName: item.periodName,
       ruleBindingKey: item.ruleBindingKey || item.periodCode,
     }));
-    ensurePeriodBindingKeys();
+    buildRuleBindingGroupsFromPeriods();
     groupDrafts.value = detail.objectGroups.map((item) => ({
       objectType: item.objectType,
       groupCode: item.groupCode,
@@ -597,6 +721,14 @@ async function savePeriods(): Promise<void> {
   if (!selectedSessionId.value) {
     return;
   }
+  ensureRuleBindingGroupsIntegrity();
+  const groupValidation = validateRuleBindingGroups();
+  if (groupValidation) {
+    ElMessage.warning(groupValidation);
+    return;
+  }
+  ensurePeriodBindingKeys();
+
   const items = periodDrafts.value.map((item, index) => ({
     periodCode: item.periodCode.trim().toUpperCase(),
     periodName: item.periodName.trim(),
@@ -606,6 +738,14 @@ async function savePeriods(): Promise<void> {
   if (items.some((item) => !item.periodCode || !item.periodName)) {
     ElMessage.warning("周期编码和名称不能为空");
     return;
+  }
+  const duplicateCheck = new Set<string>();
+  for (const item of items) {
+    if (duplicateCheck.has(item.periodCode)) {
+      ElMessage.warning(`周期编码「${item.periodCode}」重复，请检查`);
+      return;
+    }
+    duplicateCheck.add(item.periodCode);
   }
   const codeSet = new Set(items.map((item) => item.periodCode));
   for (const item of items) {
@@ -835,6 +975,26 @@ onMounted(async () => {
 
 .section-foot {
   margin-top: 10px;
+}
+
+.binding-section {
+  margin-top: 12px;
+}
+
+.binding-group-row {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+}
+
+.binding-group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #606266;
 }
 
 .period-hint {
