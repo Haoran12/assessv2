@@ -38,15 +38,24 @@
                 description="请先在顶部选择考核周期和考核对象分组"
               />
               <template v-else>
-                <el-table :data="activeScopedRule.scoreModules" class="rules-table">
+                <el-table
+                  :data="activeScopedRule.scoreModules"
+                  class="rules-table module-table"
+                  :row-class-name="moduleRowClassName"
+                >
                   <el-table-column label="拖动排序" width="96" align="center">
                     <template #default="{ $index }">
                       <div
                         class="drag-handle"
-                        :class="{ 'is-disabled': !canEditRule, 'is-dragging': draggingModuleIndex === $index }"
+                        :class="{
+                          'is-disabled': !canEditRule,
+                          'is-dragging': draggingModuleIndex === $index,
+                          'is-drop-target': moduleDropTargetIndex === $index && draggingModuleIndex !== $index,
+                        }"
                         :draggable="canEditRule"
                         @dragstart="onModuleDragStart($index, $event)"
                         @dragover="onModuleDragOver($event)"
+                        @dragenter.prevent="onModuleDragEnter($index, $event)"
                         @drop.prevent="onModuleDrop($index)"
                         @dragend="onModuleDragEnd"
                       >
@@ -54,22 +63,28 @@
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="模块名" min-width="200">
+                  <el-table-column label="模块名" min-width="240">
                     <template #default="{ row }">
                       <el-input v-model="row.moduleName" :disabled="!canEditRule" />
                     </template>
                   </el-table-column>
-                  <el-table-column label="权重" width="140">
+                  <el-table-column label="权重" min-width="160">
                     <template #default="{ row }">
-                      <el-input-number v-model="row.weight" :disabled="!canEditRule" :min="0" :step="1" />
+                      <el-input-number
+                        v-model="row.weight"
+                        class="module-weight-input"
+                        :disabled="!canEditRule"
+                        :min="0"
+                        :step="1"
+                      />
                     </template>
                   </el-table-column>
-                  <el-table-column label="计分方式" width="170">
+                  <el-table-column label="计分方式" min-width="200">
                     <template #default="{ row }">
                       <el-select
                         v-model="row.calculationMethod"
+                        class="module-method-select"
                         :disabled="!canEditRule"
-                        style="width: 150px"
                         @change="handleMethodChange(row)"
                       >
                         <el-option label="直接录入" value="direct_input" />
@@ -90,7 +105,9 @@
                 <div
                   v-if="canEditRule"
                   class="module-drop-tail"
-                  @dragover="onModuleDragOver($event)"
+                  :class="{ 'is-active': moduleDropTargetIndex === -1 }"
+                  @dragover="onModuleDragOverTail($event)"
+                  @dragenter.prevent="onModuleDragEnterTail($event)"
                   @drop.prevent="onModuleDropToEnd"
                 >
                   拖到这里可移到末尾
@@ -119,63 +136,66 @@
                   <strong>等第规则（按行顺序从高到低匹配）</strong>
                 </div>
                 <el-table :data="activeScopedRule.grades" class="rules-table">
-                  <el-table-column label="等第标题" width="130">
+                  <el-table-column label="等第标题" min-width="170">
                     <template #default="{ row }">
                       <el-input v-model="row.title" :disabled="!canEditRule" />
                     </template>
                   </el-table-column>
-                  <el-table-column label="上限" width="250">
+                  <el-table-column label="上限" min-width="300">
                     <template #default="{ row }">
                       <div class="grade-node-cell">
                         <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
                         <el-select
                           v-model="row.scoreNode.upperOperator"
+                          class="grade-operator-select"
                           :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
-                          style="width: 72px"
                         >
                           <el-option label="<" value="<" />
                           <el-option label="≤" value="<=" />
                         </el-select>
                         <el-input-number
                           v-model="row.scoreNode.upperScore"
+                          class="grade-score-input"
                           :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
                           :step="0.1"
                         />
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="下限" width="250">
+                  <el-table-column label="下限" min-width="300">
                     <template #default="{ row }">
                       <div class="grade-node-cell">
                         <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
                         <el-select
                           v-model="row.scoreNode.lowerOperator"
+                          class="grade-operator-select"
                           :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
-                          style="width: 72px"
                         >
                           <el-option label=">" value=">" />
                           <el-option label="≥" value=">=" />
                         </el-select>
                         <el-input-number
                           v-model="row.scoreNode.lowerScore"
+                          class="grade-score-input"
                           :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
                           :step="0.1"
                         />
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="区间/条件" width="130">
+                  <el-table-column label="区间/条件" min-width="150">
                     <template #default="{ row }">
-                      <el-select v-model="row.conditionLogic" :disabled="!canEditRule" style="width: 108px">
+                      <el-select v-model="row.conditionLogic" class="grade-logic-select" :disabled="!canEditRule">
                         <el-option label="AND" value="and" />
                         <el-option label="OR" value="or" />
                       </el-select>
                     </template>
                   </el-table-column>
-                  <el-table-column label="人数上限比例(%)" width="150">
+                  <el-table-column label="人数上限比例(%)" min-width="180">
                     <template #default="{ row }">
                       <el-input-number
                         v-model="row.maxRatioPercent"
+                        class="grade-ratio-input"
                         :disabled="!canEditRule"
                         :min="0"
                         :max="100"
@@ -433,6 +453,8 @@ const loading = ref(false);
 const loadingFiles = ref(false);
 const saving = ref(false);
 const draggingModuleIndex = ref<number | null>(null);
+const draggingModuleId = ref("");
+const moduleDropTargetIndex = ref<number | null>(null);
 
 const currentRule = ref<RuleFileItem | null>(null);
 const activeScopedRuleId = ref("");
@@ -966,12 +988,57 @@ function handleMethodChange(module: ScoreModule): void {
   }
 }
 
+function clearModuleDragState(): void {
+  draggingModuleIndex.value = null;
+  draggingModuleId.value = "";
+  moduleDropTargetIndex.value = null;
+}
+
+function moveModuleToIndex(targetIndex: number): void {
+  if (!activeScopedRule.value) {
+    return;
+  }
+  const fromIndex = draggingModuleIndex.value;
+  if (fromIndex === null || fromIndex === targetIndex) {
+    return;
+  }
+  const modules = activeScopedRule.value.scoreModules;
+  if (fromIndex < 0 || fromIndex >= modules.length || targetIndex < 0 || targetIndex >= modules.length) {
+    return;
+  }
+  const [moved] = modules.splice(fromIndex, 1);
+  const insertIndex = targetIndex;
+  modules.splice(insertIndex, 0, moved);
+  draggingModuleIndex.value = insertIndex;
+  moduleDropTargetIndex.value = insertIndex;
+}
+
+function moveModuleToEnd(): void {
+  if (!activeScopedRule.value) {
+    return;
+  }
+  const fromIndex = draggingModuleIndex.value;
+  if (fromIndex === null) {
+    return;
+  }
+  const modules = activeScopedRule.value.scoreModules;
+  if (fromIndex < 0 || fromIndex >= modules.length) {
+    return;
+  }
+  const [moved] = modules.splice(fromIndex, 1);
+  modules.push(moved);
+  draggingModuleIndex.value = modules.length - 1;
+  moduleDropTargetIndex.value = -1;
+}
+
 function onModuleDragStart(index: number, event: DragEvent): void {
   if (!canEditRule.value || !activeScopedRule.value) {
     event.preventDefault();
     return;
   }
   draggingModuleIndex.value = index;
+  draggingModuleId.value = activeScopedRule.value.scoreModules[index]?.id || "";
+  moduleDropTargetIndex.value = index;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", String(index));
@@ -988,48 +1055,62 @@ function onModuleDragOver(event: DragEvent): void {
   }
 }
 
+function onModuleDragEnter(targetIndex: number, event: DragEvent): void {
+  if (!canEditRule.value || draggingModuleIndex.value === null) {
+    return;
+  }
+  event.preventDefault();
+  moveModuleToIndex(targetIndex);
+}
+
+function onModuleDragOverTail(event: DragEvent): void {
+  onModuleDragOver(event);
+  if (!canEditRule.value || draggingModuleIndex.value === null) {
+    return;
+  }
+  moduleDropTargetIndex.value = -1;
+}
+
+function onModuleDragEnterTail(event: DragEvent): void {
+  if (!canEditRule.value || draggingModuleIndex.value === null) {
+    return;
+  }
+  event.preventDefault();
+  moveModuleToEnd();
+}
+
 function onModuleDrop(targetIndex: number): void {
   if (!canEditRule.value || !activeScopedRule.value) {
-    draggingModuleIndex.value = null;
+    clearModuleDragState();
     return;
   }
-  const fromIndex = draggingModuleIndex.value;
-  if (fromIndex === null || fromIndex === targetIndex) {
-    draggingModuleIndex.value = null;
-    return;
-  }
-  const modules = activeScopedRule.value.scoreModules;
-  if (fromIndex < 0 || fromIndex >= modules.length || targetIndex < 0 || targetIndex >= modules.length) {
-    draggingModuleIndex.value = null;
-    return;
-  }
-  const [moved] = modules.splice(fromIndex, 1);
-  const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
-  modules.splice(insertIndex, 0, moved);
-  draggingModuleIndex.value = null;
+  moveModuleToIndex(targetIndex);
+  clearModuleDragState();
 }
 
 function onModuleDropToEnd(): void {
   if (!canEditRule.value || !activeScopedRule.value) {
-    draggingModuleIndex.value = null;
+    clearModuleDragState();
     return;
   }
-  const fromIndex = draggingModuleIndex.value;
-  if (fromIndex === null) {
-    return;
-  }
-  const modules = activeScopedRule.value.scoreModules;
-  if (fromIndex < 0 || fromIndex >= modules.length) {
-    draggingModuleIndex.value = null;
-    return;
-  }
-  const [moved] = modules.splice(fromIndex, 1);
-  modules.push(moved);
-  draggingModuleIndex.value = null;
+  moveModuleToEnd();
+  clearModuleDragState();
 }
 
 function onModuleDragEnd(): void {
-  draggingModuleIndex.value = null;
+  clearModuleDragState();
+}
+
+function moduleRowClassName({
+  row,
+}: {
+  row: ScoreModule;
+  rowIndex: number;
+}): string {
+  if (!draggingModuleId.value) {
+    return "";
+  }
+  return row.id === draggingModuleId.value ? "is-module-dragging-row" : "";
 }
 
 function openModuleDetail(module: ScoreModule): void {
@@ -1571,6 +1652,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
 }
 
 .json-preview {
@@ -1603,6 +1685,13 @@ onBeforeUnmount(() => {
 .drag-handle.is-dragging {
   background: #ecf5ff;
   border-color: #409eff;
+  transform: scale(1.04);
+}
+
+.drag-handle.is-drop-target {
+  background: #f0f9eb;
+  border-color: #67c23a;
+  color: #67c23a;
 }
 
 .drag-handle.is-disabled {
@@ -1618,14 +1707,44 @@ onBeforeUnmount(() => {
   color: #909399;
   text-align: center;
   padding: 8px;
+  transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+}
+
+.module-drop-tail.is-active {
+  border-color: #409eff;
+  color: #409eff;
+  background: #ecf5ff;
 }
 
 .rules-table {
   width: 100%;
 }
 
+.rules-table :deep(.module-weight-input),
+.rules-table :deep(.module-method-select),
+.rules-table :deep(.grade-logic-select),
+.rules-table :deep(.grade-ratio-input) {
+  width: 100%;
+}
+
+.rules-table :deep(.grade-operator-select) {
+  width: 72px;
+  flex: 0 0 72px;
+}
+
+.rules-table :deep(.grade-score-input) {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
 .rules-table :deep(.el-table__row:hover > td.el-table__cell) {
   background: #f5f9ff;
+}
+
+.module-table :deep(.el-table__body tr.is-module-dragging-row > td.el-table__cell) {
+  background: #ecf5ff;
+  transition: background-color 0.2s ease;
 }
 
 .table-row-actions {
