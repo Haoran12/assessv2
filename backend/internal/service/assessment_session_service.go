@@ -1111,35 +1111,70 @@ func ensureAssessmentDataDir(assessmentName string) (string, error) {
 
 func buildDefaultRuleTemplateJSON() string {
 	payload := map[string]any{
-		"version": 2,
-		"scoreModules": []map[string]any{
+		"version": 3,
+		"scopedRules": []map[string]any{
 			{
-				"moduleKey":  "base_performance",
-				"moduleName": "基础绩效",
-				"weight":     100,
-				"method":     "direct_input",
-				"subModules": []map[string]any{
+				"id":                     "default_rule",
+				"applicablePeriods":      []string{},
+				"applicableObjectGroups": []string{},
+				"scoreModules": []map[string]any{
 					{
-						"id":     "base_daily",
-						"name":   "日常工作",
-						"weight": 100,
-						"method": "direct_input",
+						"id":                "base_performance",
+						"moduleKey":         "base_performance",
+						"moduleName":        "Base Performance",
+						"weight":            100,
+						"calculationMethod": "direct_input",
+						"customScript":      "",
+					},
+				},
+				"grades": []map[string]any{
+					{
+						"id":    "grade_a",
+						"title": "A",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    100,
+							"upperOperator": "<=",
+							"hasLowerLimit": true,
+							"lowerScore":    90,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript": "",
+						"conditionLogic":       "and",
+						"maxRatioPercent":      nil,
+					},
+					{
+						"id":    "grade_b",
+						"title": "B",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    89.99,
+							"upperOperator": "<=",
+							"hasLowerLimit": true,
+							"lowerScore":    80,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript": "",
+						"conditionLogic":       "and",
+						"maxRatioPercent":      nil,
+					},
+					{
+						"id":    "grade_c",
+						"title": "C",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    79.99,
+							"upperOperator": "<=",
+							"hasLowerLimit": false,
+							"lowerScore":    nil,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript": "",
+						"conditionLogic":       "and",
+						"maxRatioPercent":      nil,
 					},
 				},
 			},
-			{
-				"moduleKey":  "extra_adjust",
-				"moduleName": "额外加减分模块",
-				"isExtra":    true,
-				"method":     "direct_input",
-				"subModules": []map[string]any{},
-			},
-		},
-		"gradeRules": []map[string]any{
-			{"grade": "A", "min": 90, "max": 100},
-			{"grade": "B", "min": 80, "max": 89.99},
-			{"grade": "C", "min": 70, "max": 79.99},
-			{"grade": "D", "min": 0, "max": 69.99},
 		},
 	}
 	raw, _ := json.Marshal(payload)
