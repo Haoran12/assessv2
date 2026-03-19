@@ -90,6 +90,7 @@ import { ArrowDown } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import { appBrandName } from "@/config/branding";
+import { resolveUnsavedBeforeLeave } from "@/guards/unsaved";
 
 interface NavItem {
   path: string;
@@ -159,6 +160,10 @@ watch(
 );
 
 async function handleLogout(): Promise<void> {
+  const canLeave = await resolveUnsavedBeforeLeave();
+  if (!canLeave) {
+    return;
+  }
   await appStore.logout();
   ElMessage.success("已退出登录");
   await router.push("/login");

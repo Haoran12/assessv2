@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import { useAppStore } from "@/stores/app";
+import { resolveUnsavedBeforeLeave } from "@/guards/unsaved";
 
 const MainLayout = () => import("@/layouts/MainLayout.vue");
 const LoginView = () => import("@/views/LoginView.vue");
@@ -112,11 +113,18 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach(async (to) => {
+router.beforeEach(async (to, from) => {
   const store = useAppStore();
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
   const publicOnly = to.matched.some((record) => record.meta.publicOnly);
   const allowWhenMustChange = to.matched.some((record) => record.meta.allowWhenMustChange);
+
+  if (from.matched.length > 0 && to.fullPath !== from.fullPath) {
+    const allowed = await resolveUnsavedBeforeLeave();
+    if (!allowed) {
+      return false;
+    }
+  }
 
   if (!store.initialized) {
     try {

@@ -24,8 +24,8 @@ const defaultDialogState: UnsavedDialogState = {
   title: "未保存改动提醒",
   message: "检测到存在未保存改动，请选择下一步操作。",
   saveButtonText: "保存并离开",
-  discardButtonText: "放弃改动",
-  returnButtonText: "返回编辑",
+  discardButtonText: "放弃更改",
+  returnButtonText: "取消操作",
 };
 
 const state = reactive<UnsavedDialogState>({

@@ -283,10 +283,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
+import { useUnsavedStore } from "@/stores/unsaved";
 import {
   createAssessmentSession,
   getAssessmentSession,
@@ -310,7 +311,11 @@ import type { OrganizationItem } from "@/types/org";
 
 const appStore = useAppStore();
 const contextStore = useContextStore();
+const unsavedStore = useUnsavedStore();
 const canEdit = computed(() => appStore.hasPermission("assessment:update"));
+const periodDirtySourceId = "assessment:periods";
+const groupDirtySourceId = "assessment:groups";
+const objectDirtySourceId = "assessment:objects";
 
 const sessions = ref<AssessmentSessionDetail["session"][]>([]);
 const selectedSessionId = ref<number | undefined>();
@@ -353,6 +358,9 @@ const candidateFilter = reactive({
 const objectDialog = reactive({
   groupCode: "",
 });
+const periodBaseline = ref("");
+const groupBaseline = ref("");
+const objectBaseline = ref("");
 
 const groupNameByCode = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
@@ -428,6 +436,104 @@ const periodCodeLabelMap = computed<Record<string, string>>(() => {
   return map;
 });
 
+function periodDraftSignature(): string {
+  const periods = periodDrafts.value.map((item) => ({
+    periodCode: item.periodCode.trim().toUpperCase(),
+    periodName: item.periodName.trim(),
+    ruleBindingKey: item.ruleBindingKey.trim().toUpperCase(),
+  }));
+  const bindings = ruleBindingGroups.value.map((group) => ({
+    periodCodes: group.periodCodes.map((code) => String(code || "").trim().toUpperCase()),
+  }));
+  return JSON.stringify({ periods, bindings });
+}
+
+function groupDraftSignature(): string {
+  return JSON.stringify(
+    groupDrafts.value.map((item) => ({
+      objectType: item.objectType,
+      groupCode: item.groupCode.trim(),
+      groupName: item.groupName.trim(),
+    })),
+  );
+}
+
+function objectDraftSignature(): string {
+  return JSON.stringify(
+    objectDrafts.value.map((item) => ({
+      objectType: item.objectType,
+      groupCode: item.groupCode,
+      targetType: item.targetType,
+      targetId: item.targetId,
+      objectName: item.objectName,
+      sortOrder: item.sortOrder,
+      isActive: item.isActive,
+    })),
+  );
+}
+
+function resetPeriodBaseline(): void {
+  periodBaseline.value = periodDraftSignature();
+  unsavedStore.clearDirty(periodDirtySourceId);
+}
+
+function resetGroupBaseline(): void {
+  groupBaseline.value = groupDraftSignature();
+  unsavedStore.clearDirty(groupDirtySourceId);
+}
+
+function resetObjectBaseline(): void {
+  objectBaseline.value = objectDraftSignature();
+  unsavedStore.clearDirty(objectDirtySourceId);
+}
+
+function syncPeriodDirty(): void {
+  if (!selectedDetail.value || !periodBaseline.value) {
+    unsavedStore.clearDirty(periodDirtySourceId);
+    return;
+  }
+  const current = periodDraftSignature();
+  if (current === periodBaseline.value) {
+    unsavedStore.clearDirty(periodDirtySourceId);
+    return;
+  }
+  unsavedStore.markDirty(periodDirtySourceId);
+}
+
+function syncGroupDirty(): void {
+  if (!selectedDetail.value || !groupBaseline.value) {
+    unsavedStore.clearDirty(groupDirtySourceId);
+    return;
+  }
+  const current = groupDraftSignature();
+  if (current === groupBaseline.value) {
+    unsavedStore.clearDirty(groupDirtySourceId);
+    return;
+  }
+  unsavedStore.markDirty(groupDirtySourceId);
+}
+
+function syncObjectDirty(): void {
+  if (!selectedDetail.value || !objectBaseline.value) {
+    unsavedStore.clearDirty(objectDirtySourceId);
+    return;
+  }
+  const current = objectDraftSignature();
+  if (current === objectBaseline.value) {
+    unsavedStore.clearDirty(objectDirtySourceId);
+    return;
+  }
+  unsavedStore.markDirty(objectDirtySourceId);
+}
+
+function isDialogCancel(error: unknown): boolean {
+  return (
+    error === "cancel" ||
+    error === "close" ||
+    (error instanceof Error && (error.message === "cancel" || error.message === "close"))
+  );
+}
+
 function bindingGroupId(): string {
   return `binding_group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -436,10 +542,27 @@ function addPeriod(): void {
   periodDrafts.value.push({ periodCode: "", periodName: "", ruleBindingKey: "" });
 }
 
-function removePeriod(index: number): void {
-  periodDrafts.value.splice(index, 1);
-  ensureRuleBindingGroupsIntegrity();
-  ensurePeriodBindingKeys();
+async function removePeriod(index: number): Promise<void> {
+  const period = periodDrafts.value[index];
+  if (!period) {
+    return;
+  }
+  const periodLabel = period.periodName.trim() || period.periodCode.trim().toUpperCase() || `第${index + 1}个周期`;
+  try {
+    await ElMessageBox.confirm(`确认删除周期「${periodLabel}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    periodDrafts.value.splice(index, 1);
+    ensureRuleBindingGroupsIntegrity();
+    ensurePeriodBindingKeys();
+  } catch (error) {
+    if (isDialogCancel(error)) {
+      return;
+    }
+    ElMessage.error("删除周期失败");
+  }
 }
 
 function onPeriodCodeBlur(row: { periodCode: string; ruleBindingKey: string }): void {
@@ -455,10 +578,26 @@ function addRuleBindingGroup(): void {
   ruleBindingGroups.value.push({ id: bindingGroupId(), periodCodes: [] });
 }
 
-function removeRuleBindingGroup(groupID: string): void {
-  ruleBindingGroups.value = ruleBindingGroups.value.filter((item) => item.id !== groupID);
-  ensureRuleBindingGroupsIntegrity();
-  ensurePeriodBindingKeys();
+async function removeRuleBindingGroup(groupID: string): Promise<void> {
+  const groupIndex = ruleBindingGroups.value.findIndex((item) => item.id === groupID);
+  if (groupIndex < 0) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除分组 ${groupIndex + 1} 吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    ruleBindingGroups.value = ruleBindingGroups.value.filter((item) => item.id !== groupID);
+    ensureRuleBindingGroupsIntegrity();
+    ensurePeriodBindingKeys();
+  } catch (error) {
+    if (isDialogCancel(error)) {
+      return;
+    }
+    ElMessage.error("删除分组失败");
+  }
 }
 
 function onRuleBindingGroupChange(): void {
@@ -596,8 +735,25 @@ function addGroup(): void {
   groupDrafts.value.push({ objectType: "team", groupCode: "", groupName: "" });
 }
 
-function removeGroup(index: number): void {
-  groupDrafts.value.splice(index, 1);
+async function removeGroup(index: number): Promise<void> {
+  const group = groupDrafts.value[index];
+  if (!group) {
+    return;
+  }
+  const groupLabel = group.groupName.trim() || group.groupCode.trim() || `第${index + 1}个分组`;
+  try {
+    await ElMessageBox.confirm(`确认删除对象分组「${groupLabel}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    groupDrafts.value.splice(index, 1);
+  } catch (error) {
+    if (isDialogCancel(error)) {
+      return;
+    }
+    ElMessage.error("删除对象分组失败");
+  }
 }
 
 function candidateKey(item: Pick<AssessmentObjectCandidateItem, "targetType" | "targetId">): string {
@@ -627,6 +783,19 @@ async function loadSessions(): Promise<void> {
   loadingSessions.value = true;
   try {
     sessions.value = await listAssessmentSessions();
+    if (sessions.value.length === 0) {
+      selectedSessionId.value = undefined;
+      selectedDetail.value = null;
+      periodDrafts.value = [];
+      ruleBindingGroups.value = [];
+      groupDrafts.value = [];
+      objects.value = [];
+      objectDrafts.value = [];
+      resetPeriodBaseline();
+      resetGroupBaseline();
+      resetObjectBaseline();
+      return;
+    }
     if (!selectedSessionId.value && sessions.value.length > 0) {
       await selectSession(sessions.value[0].id);
     }
@@ -668,6 +837,9 @@ async function selectSession(sessionId: number): Promise<void> {
     if (contextStore.sessionId !== sessionId) {
       await contextStore.setSession(sessionId);
     }
+    resetPeriodBaseline();
+    resetGroupBaseline();
+    resetObjectBaseline();
   } catch (_error) {
     ElMessage.error("加载场次详情失败");
   } finally {
@@ -799,8 +971,24 @@ async function saveGroups(): Promise<void> {
   }
 }
 
-function removeObject(index: number): void {
-  objectDrafts.value.splice(index, 1);
+async function removeObject(index: number): Promise<void> {
+  const object = objectDrafts.value[index];
+  if (!object) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除对象「${object.objectName}」吗？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+    objectDrafts.value.splice(index, 1);
+  } catch (error) {
+    if (isDialogCancel(error)) {
+      return;
+    }
+    ElMessage.error("删除对象失败");
+  }
 }
 
 async function saveObjects(): Promise<void> {
@@ -819,6 +1007,7 @@ async function saveObjects(): Promise<void> {
   try {
     objects.value = await updateAssessmentObjects(selectedSessionId.value, { items });
     objectDrafts.value = objects.value.map((item) => ({ ...item }));
+    resetObjectBaseline();
     ElMessage.success("考核对象已保存");
   } catch (error) {
     const message = error instanceof Error ? error.message : "保存考核对象失败";
@@ -910,6 +1099,7 @@ async function resetObjects(): Promise<void> {
   try {
     objects.value = await resetAssessmentSessionObjects(selectedSessionId.value);
     objectDrafts.value = objects.value.map((item) => ({ ...item }));
+    resetObjectBaseline();
     ElMessage.success("已重置为默认对象");
   } catch (error) {
     const message = error instanceof Error ? error.message : "重置对象失败";
@@ -936,11 +1126,54 @@ watch(
   },
 );
 
+watch(
+  () => [selectedDetail.value, periodDrafts.value, ruleBindingGroups.value],
+  () => {
+    syncPeriodDirty();
+  },
+  { deep: true },
+);
+
+watch(
+  () => [selectedDetail.value, groupDrafts.value],
+  () => {
+    syncGroupDirty();
+  },
+  { deep: true },
+);
+
+watch(
+  () => [selectedDetail.value, objectDrafts.value],
+  () => {
+    syncObjectDirty();
+  },
+  { deep: true },
+);
+
 onMounted(async () => {
+  unsavedStore.setSourceMeta(periodDirtySourceId, {
+    label: "考核管理-周期配置",
+    save: savePeriods,
+  });
+  unsavedStore.setSourceMeta(groupDirtySourceId, {
+    label: "考核管理-对象分组",
+    save: saveGroups,
+  });
+  unsavedStore.setSourceMeta(objectDirtySourceId, {
+    label: "考核管理-考核对象",
+    save: saveObjects,
+  });
+
   await Promise.all([loadOrganizations(), loadSessions()]);
   if (contextStore.sessionId) {
     await selectSession(contextStore.sessionId);
   }
+});
+
+onBeforeUnmount(() => {
+  unsavedStore.unregisterSource(periodDirtySourceId);
+  unsavedStore.unregisterSource(groupDirtySourceId);
+  unsavedStore.unregisterSource(objectDirtySourceId);
 });
 </script>
 
