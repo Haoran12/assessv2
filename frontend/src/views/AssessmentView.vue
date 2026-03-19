@@ -1,52 +1,46 @@
 <template>
   <div ref="assessmentViewRef" class="assessment-view">
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="考核周期" name="period">
-        <div class="tab-stack">
-          <el-card>
-            <template #header>
-              <div class="card-header">
-                <strong>考核场次</strong>
+      <el-tab-pane label="考核场次" name="sessions">
+        <el-card>
+          <div class="tool-row">
+            <div class="header-actions">
+              <el-button :loading="loadingSessions" @click="loadSessions">刷新</el-button>
+              <el-button type="primary" :disabled="!canEdit" @click="openCreateDialog">
+                创建考核场次
+              </el-button>
+            </div>
+          </div>
+
+          <el-table v-loading="loadingSessions" :data="sessions" border>
+            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column prop="displayName" label="场次名称" min-width="260" />
+            <el-table-column prop="year" label="年度" width="100" />
+            <el-table-column prop="assessmentName" label="目录名" min-width="220" />
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="selectSession(row.id)">管理</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-tab-pane>
+
+      <el-tab-pane label="周期配置" name="period">
+        <el-card>
+          <div class="tool-row">
+            <div class="header-actions">
+              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+            </div>
+          </div>
+
+          <el-empty v-if="!selectedDetail" description="请先在考核场次标签选择一个考核场次" />
+
+          <template v-else>
+            <div class="section">
+              <div class="tool-row">
                 <div class="header-actions">
-                  <el-button :loading="loadingSessions" @click="loadSessions">刷新</el-button>
-                  <el-button type="primary" :disabled="!canEdit" @click="openCreateDialog">
-                    创建考核场次
-                  </el-button>
-                </div>
-              </div>
-            </template>
-
-            <el-table v-loading="loadingSessions" :data="sessions" border>
-              <el-table-column prop="id" label="ID" width="80" />
-              <el-table-column prop="displayName" label="场次名称" min-width="260" />
-              <el-table-column prop="year" label="年度" width="100" />
-              <el-table-column prop="assessmentName" label="目录名" min-width="220" />
-              <el-table-column label="操作" width="150" fixed="right">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="selectSession(row.id)">管理</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-
-          <el-card>
-            <template #header>
-              <div class="card-header">
-                <strong>周期管理</strong>
-                <div class="header-actions">
-                  <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
-                </div>
-              </div>
-            </template>
-
-            <el-empty v-if="!selectedDetail" description="请选择一个考核场次进行管理" />
-
-            <template v-else>
-              <div class="section">
-                <div class="section-head">
-                  <strong>周期配置</strong>
                   <el-button
-                    size="small"
                     type="primary"
                     :disabled="!canEdit"
                     @click="addPeriod"
@@ -54,119 +48,115 @@
                     新增周期
                   </el-button>
                 </div>
-                <el-table :data="periodDrafts" border>
-                  <el-table-column label="#" width="60">
-                    <template #default="{ row, $index }">
-                      <span
-                        class="period-index-tag"
-                        :class="{ 'is-shared': periodSharedGroupIndex(row) >= 0 }"
-                        :style="periodSharedTagStyle(row)"
-                        :title="periodSharedGroupTitle(row)"
-                      >
-                        {{ $index + 1 }}
-                      </span>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="编码" width="160">
-                    <template #default="{ row }">
-                      <el-input v-model="row.periodCode" @blur="onPeriodCodeBlur(row)" />
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="名称" min-width="180">
-                    <template #default="{ row }">
-                      <el-input v-model="row.periodName" />
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="操作" width="100">
-                    <template #default="{ $index }">
-                      <el-button link type="danger" :disabled="!canEdit" @click="removePeriod($index)">删除</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-                <div class="shared-rules-toggle">
-                  <el-button size="small" type="primary" plain @click="sharedRulesExpanded = !sharedRulesExpanded">
-                    共用规则
-                  </el-button>
-                </div>
-                <el-collapse-transition>
-                  <div v-show="sharedRulesExpanded" class="binding-section">
-                    <div class="section-head">
-                      <strong>共用规则分组</strong>
-                      <el-button
-                        size="small"
-                        type="primary"
-                        :disabled="!canEdit"
-                        @click="addRuleBindingGroup"
-                      >
-                        新增分组
+              </div>
+              <el-table :data="periodDrafts" border>
+                <el-table-column label="#" width="60">
+                  <template #default="{ row, $index }">
+                    <span
+                      class="period-index-tag"
+                      :class="{ 'is-shared': periodSharedGroupIndex(row) >= 0 }"
+                      :style="periodSharedTagStyle(row)"
+                      :title="periodSharedGroupTitle(row)"
+                    >
+                      {{ $index + 1 }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="编码" width="160">
+                  <template #default="{ row }">
+                    <el-input v-model="row.periodCode" @blur="onPeriodCodeBlur(row)" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="名称" min-width="180">
+                  <template #default="{ row }">
+                    <el-input v-model="row.periodName" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="100">
+                  <template #default="{ $index }">
+                    <el-button link type="danger" :disabled="!canEdit" @click="removePeriod($index)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div class="shared-rules-toggle">
+                <el-button size="small" type="primary" plain @click="sharedRulesExpanded = !sharedRulesExpanded">
+                  共用规则
+                </el-button>
+              </div>
+              <el-collapse-transition>
+                <div v-show="sharedRulesExpanded" class="binding-section">
+                  <div class="section-head">
+                    <strong>共用规则分组</strong>
+                    <el-button
+                      type="primary"
+                      :disabled="!canEdit"
+                      @click="addRuleBindingGroup"
+                    >
+                      新增分组
+                    </el-button>
+                  </div>
+                  <el-empty
+                    v-if="ruleBindingGroups.length === 0"
+                    description="未配置分组时，每个周期使用独立规则"
+                  />
+                  <div
+                    v-for="(group, groupIndex) in ruleBindingGroups"
+                    v-else
+                    :key="group.id"
+                    class="binding-group-row"
+                  >
+                    <div class="binding-group-head">
+                      <span>分组 {{ groupIndex + 1 }}</span>
+                      <el-button link type="danger" :disabled="!canEdit" @click="removeRuleBindingGroup(group.id)">
+                        删除分组
                       </el-button>
                     </div>
-                    <el-empty
-                      v-if="ruleBindingGroups.length === 0"
-                      description="未配置分组时，每个周期使用独立规则"
-                    />
-                    <div
-                      v-for="(group, groupIndex) in ruleBindingGroups"
-                      v-else
-                      :key="group.id"
-                      class="binding-group-row"
-                    >
-                      <div class="binding-group-head">
-                        <span>分组 {{ groupIndex + 1 }}</span>
-                        <el-button link type="danger" :disabled="!canEdit" @click="removeRuleBindingGroup(group.id)">
-                          删除分组
-                        </el-button>
-                      </div>
-                      <el-checkbox-group v-model="group.periodCodes" @change="onRuleBindingGroupChange">
-                        <el-checkbox v-for="code in periodCodeOptions" :key="`${group.id}_${code}`" :label="code">
-                          {{ periodCodeLabelMap[code] || code }}
-                        </el-checkbox>
-                      </el-checkbox-group>
-                    </div>
-                    <div class="period-hint">同组周期将共用规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
+                    <el-checkbox-group v-model="group.periodCodes" @change="onRuleBindingGroupChange">
+                      <el-checkbox v-for="code in periodCodeOptions" :key="`${group.id}_${code}`" :label="code">
+                        {{ periodCodeLabelMap[code] || code }}
+                      </el-checkbox>
+                    </el-checkbox-group>
                   </div>
-                </el-collapse-transition>
-                <div class="section-foot">
-                  <el-button
-                    type="primary"
-                    :disabled="!canEdit || savingPeriods"
-                    :loading="savingPeriods"
-                    @click="savePeriods"
-                  >
-                    保存周期
-                  </el-button>
+                  <div class="period-hint">同组周期将共用规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
                 </div>
-              </div>
-            </template>
-          </el-card>
-        </div>
-      </el-tab-pane>
-
-      <el-tab-pane label="考核对象" name="objects">
-        <el-card>
-          <template #header>
-            <div class="card-header">
-              <strong>考核对象管理</strong>
-              <div class="header-actions">
-                <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              </el-collapse-transition>
+              <div class="section-foot">
+                <el-button
+                  type="primary"
+                  :disabled="!canEdit || savingPeriods"
+                  :loading="savingPeriods"
+                  @click="savePeriods"
+                >
+                  保存周期
+                </el-button>
               </div>
             </div>
           </template>
+        </el-card>
+      </el-tab-pane>
 
-          <el-empty v-if="!selectedDetail" description="请先在考核周期标签选择一个考核场次" />
+      <el-tab-pane label="对象分组配置" name="groups">
+        <el-card>
+          <div class="tool-row">
+            <div class="header-actions">
+              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+            </div>
+          </div>
+
+          <el-empty v-if="!selectedDetail" description="请先在考核场次标签选择一个考核场次" />
 
           <template v-else>
             <div class="section">
-              <div class="section-head">
-                <strong>考核对象分组</strong>
-                <el-button
-                  size="small"
-                  type="primary"
-                  :disabled="!canEdit"
-                  @click="addGroup"
-                >
-                  新增分组
-                </el-button>
+              <div class="tool-row">
+                <div class="header-actions">
+                  <el-button
+                    type="primary"
+                    :disabled="!canEdit"
+                    @click="addGroup"
+                  >
+                    新增分组
+                  </el-button>
+                </div>
               </div>
               <el-table :data="groupDrafts" border>
                 <el-table-column type="index" label="#" width="60" />
@@ -205,13 +195,25 @@
                 </el-button>
               </div>
             </div>
+          </template>
+        </el-card>
+      </el-tab-pane>
 
+      <el-tab-pane label="考核对象" name="objects">
+        <el-card>
+          <div class="tool-row">
+            <div class="header-actions">
+              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+            </div>
+          </div>
+
+          <el-empty v-if="!selectedDetail" description="请先在考核场次标签选择一个考核场次" />
+
+          <template v-else>
             <div class="section">
-              <div class="section-head">
-                <strong>考核对象（默认来自组织架构）</strong>
+              <div class="tool-row">
                 <div class="header-actions">
                   <el-button
-                    size="small"
                     type="primary"
                     :disabled="!canEdit"
                     @click="openObjectDialog"
@@ -219,7 +221,6 @@
                     新增对象
                   </el-button>
                   <el-button
-                    size="small"
                     type="primary"
                     :disabled="!canEdit || savingObjects"
                     :loading="savingObjects"
@@ -228,7 +229,6 @@
                     保存对象
                   </el-button>
                   <el-button
-                    size="small"
                     :disabled="!canEdit || resettingObjects"
                     :loading="resettingObjects"
                     @click="resetObjects"
@@ -398,7 +398,7 @@ const selectedDetail = ref<AssessmentSessionDetail | null>(null);
 const loadingSessions = ref(false);
 const loadingDetail = ref(false);
 const loadingObjects = ref(false);
-const activeTab = ref("period");
+const activeTab = ref<"sessions" | "period" | "groups" | "objects">("sessions");
 const assessmentViewRef = ref<HTMLElement>();
 
 const periodDrafts = ref<Array<{ periodCode: string; periodName: string; ruleBindingKey: string }>>([]);
@@ -698,11 +698,66 @@ async function saveActiveTab(): Promise<void> {
     await savePeriods();
     return;
   }
-  const groupsSaved = await saveGroups();
-  if (!groupsSaved) {
+  if (activeTab.value === "groups") {
+    await saveGroups();
     return;
   }
-  await saveObjects();
+  if (activeTab.value === "objects") {
+    await saveObjects();
+  }
+}
+
+function canTriggerSaveShortcut(): boolean {
+  if (!canEdit.value) {
+    return false;
+  }
+  if (activeTab.value === "period") {
+    return Boolean(selectedSessionId.value) && !savingPeriods.value && !loadingDetail.value;
+  }
+  if (activeTab.value === "groups") {
+    return Boolean(selectedSessionId.value) && !savingGroups.value && !loadingDetail.value;
+  }
+  if (activeTab.value === "objects") {
+    return Boolean(selectedSessionId.value) && !savingObjects.value && !loadingDetail.value;
+  }
+  return false;
+}
+
+function canTriggerCreateShortcut(): boolean {
+  if (!canEdit.value) {
+    return false;
+  }
+  if (activeTab.value === "sessions") {
+    return !creating.value;
+  }
+  if (activeTab.value === "period") {
+    return Boolean(selectedDetail.value) && !loadingDetail.value;
+  }
+  if (activeTab.value === "groups") {
+    return Boolean(selectedDetail.value) && !loadingDetail.value;
+  }
+  if (activeTab.value === "objects") {
+    return Boolean(selectedDetail.value) && !loadingDetail.value && !loadingCandidates.value;
+  }
+  return false;
+}
+
+function createInActiveTab(): void {
+  if (activeTab.value === "sessions") {
+    openCreateDialog();
+    return;
+  }
+  if (activeTab.value === "period") {
+    addPeriod();
+    return;
+  }
+  if (activeTab.value === "groups") {
+    addGroup();
+    return;
+  }
+  if (activeTab.value === "objects") {
+    void openObjectDialog();
+  }
 }
 
 function handleAssessmentViewKeydown(event: KeyboardEvent): void {
@@ -720,11 +775,22 @@ function handleAssessmentViewKeydown(event: KeyboardEvent): void {
     return;
   }
   const key = String(event.key || "").toLowerCase();
-  if (key !== "s") {
+  if (key === "s") {
+    if (!canTriggerSaveShortcut()) {
+      return;
+    }
+    event.preventDefault();
+    void saveActiveTab();
     return;
   }
-  event.preventDefault();
-  void saveActiveTab();
+  if (key === "n") {
+    if (!canTriggerCreateShortcut()) {
+      return;
+    }
+    event.preventDefault();
+    createInActiveTab();
+    return;
+  }
 }
 
 function bindingGroupId(): string {
@@ -1384,21 +1450,15 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
-.tab-stack {
-  display: grid;
-  gap: 16px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .header-actions {
   display: flex;
   gap: 8px;
+}
+
+.tool-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 .section {
@@ -1457,12 +1517,5 @@ onBeforeUnmount(() => {
 
 .period-index-tag.is-shared {
   font-weight: 600;
-}
-
-@media (max-width: 960px) {
-  .card-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 }
 </style>
