@@ -60,7 +60,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: "system/backup",
     name: "system-backup",
     component: BackupManageView,
-    meta: { requiresAuth: true, permission: "backup:view" },
+    meta: { requiresAuth: true, permission: ["backup:view", "backup:org:view"] },
   },
   {
     path: "system/audit",

@@ -25,7 +25,19 @@ const (
 	BackupTypeBeforeImport  = "before_import"
 	BackupTypeBeforeRestore = "before_restore"
 
-	restoreConfirmText = "CONFIRM_RESTORE"
+	BackupContentTypeFullSnapshot = "full_snapshot"
+	BackupContentTypeOrgLogical   = "org_logical"
+
+	BackupScopeTypeGlobal       = "global"
+	BackupScopeTypeOrganization = "organization"
+
+	backupFormatVersionFullSnapshot = "snapshot-v1"
+	backupFormatVersionOrgPackage   = "orgpkg-v1"
+
+	restoreConfirmText    = "CONFIRM_RESTORE"
+	orgRestoreConfirmText = "CONFIRM_ORG_RESTORE"
+
+	RestoreModeReplaceScope = "replace_scope"
 )
 
 var validBackupTypes = map[string]struct{}{
@@ -53,13 +65,18 @@ type BackupListInput struct {
 }
 
 type BackupRecordDTO struct {
-	ID          uint   `json:"id"`
-	BackupName  string `json:"backupName"`
-	BackupType  string `json:"backupType"`
-	FileSize    int64  `json:"fileSize"`
-	Description string `json:"description"`
-	CreatedBy   *uint  `json:"createdBy,omitempty"`
-	CreatedAt   int64  `json:"createdAt"`
+	ID             uint   `json:"id"`
+	BackupName     string `json:"backupName"`
+	BackupType     string `json:"backupType"`
+	ContentType    string `json:"contentType"`
+	ScopeType      string `json:"scopeType"`
+	ScopeOrgID     *uint  `json:"scopeOrgId,omitempty"`
+	FormatVersion  string `json:"formatVersion"`
+	ChecksumSHA256 string `json:"checksumSha256"`
+	FileSize       int64  `json:"fileSize"`
+	Description    string `json:"description"`
+	CreatedBy      *uint  `json:"createdBy,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
 }
 
 type BackupListResult struct {
@@ -98,7 +115,9 @@ func (s *BackupService) List(ctx context.Context, input BackupListInput) (*Backu
 		pageSize = 20
 	}
 
-	query := s.db.WithContext(ctx).Model(&model.BackupRecord{})
+	query := s.db.WithContext(ctx).
+		Model(&model.BackupRecord{}).
+		Where("COALESCE(content_type, ?) = ?", BackupContentTypeFullSnapshot, BackupContentTypeFullSnapshot)
 	backupType := strings.TrimSpace(input.Type)
 	if backupType != "" {
 		if !isValidBackupType(backupType) {
@@ -158,7 +177,9 @@ func (s *BackupService) Delete(
 	userAgent string,
 ) error {
 	var record model.BackupRecord
-	if err := s.db.WithContext(ctx).Where("id = ?", backupID).First(&record).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND COALESCE(content_type, ?) = ?", backupID, BackupContentTypeFullSnapshot, BackupContentTypeFullSnapshot).
+		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrBackupNotFound
 		}
@@ -203,7 +224,9 @@ func (s *BackupService) Delete(
 
 func (s *BackupService) ResolveDownloadPath(ctx context.Context, backupID uint) (string, string, error) {
 	var record model.BackupRecord
-	if err := s.db.WithContext(ctx).Where("id = ?", backupID).First(&record).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND COALESCE(content_type, ?) = ?", backupID, BackupContentTypeFullSnapshot, BackupContentTypeFullSnapshot).
+		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", "", ErrBackupNotFound
 		}
@@ -231,7 +254,9 @@ func (s *BackupService) Restore(
 	}
 
 	var record model.BackupRecord
-	if err := s.db.WithContext(ctx).Where("id = ?", backupID).First(&record).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND COALESCE(content_type, ?) = ?", backupID, BackupContentTypeFullSnapshot, BackupContentTypeFullSnapshot).
+		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrBackupNotFound
 		}
@@ -321,13 +346,18 @@ func (s *BackupService) createBackup(
 	}
 
 	record := &model.BackupRecord{
-		BackupName:  backupName,
-		BackupPath:  backupPath,
-		BackupType:  backupType,
-		FileSize:    info.Size(),
-		Description: strings.TrimSpace(description),
-		CreatedBy:   createdBy,
-		CreatedAt:   now.Unix(),
+		BackupName:     backupName,
+		BackupPath:     backupPath,
+		BackupType:     backupType,
+		ContentType:    BackupContentTypeFullSnapshot,
+		ScopeType:      BackupScopeTypeGlobal,
+		FormatVersion:  backupFormatVersionFullSnapshot,
+		FileSize:       info.Size(),
+		Description:    strings.TrimSpace(description),
+		CreatedBy:      createdBy,
+		CreatedAt:      now.Unix(),
+		ChecksumSHA256: "",
+		ManifestJSON:   "",
 	}
 	if err := s.db.WithContext(ctx).Create(record).Error; err != nil {
 		return nil, fmt.Errorf("failed to create backup record: %w", err)
@@ -593,13 +623,18 @@ func (s *BackupService) readTimeLocationSetting(ctx context.Context, key string,
 
 func backupRecordToDTO(record model.BackupRecord) BackupRecordDTO {
 	return BackupRecordDTO{
-		ID:          record.ID,
-		BackupName:  record.BackupName,
-		BackupType:  record.BackupType,
-		FileSize:    record.FileSize,
-		Description: record.Description,
-		CreatedBy:   record.CreatedBy,
-		CreatedAt:   record.CreatedAt,
+		ID:             record.ID,
+		BackupName:     record.BackupName,
+		BackupType:     record.BackupType,
+		ContentType:    strings.TrimSpace(record.ContentType),
+		ScopeType:      strings.TrimSpace(record.ScopeType),
+		ScopeOrgID:     record.ScopeOrgID,
+		FormatVersion:  strings.TrimSpace(record.FormatVersion),
+		ChecksumSHA256: strings.TrimSpace(record.ChecksumSHA256),
+		FileSize:       record.FileSize,
+		Description:    record.Description,
+		CreatedBy:      record.CreatedBy,
+		CreatedAt:      record.CreatedAt,
 	}
 }
 

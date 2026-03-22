@@ -23,8 +23,8 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply business migrations failed: %v", err)
 	}
-	if applied != 6 {
-		t.Fatalf("expected business applied migrations=6, got=%d", applied)
+	if applied != 7 {
+		t.Fatalf("expected business applied migrations=7, got=%d", applied)
 	}
 
 	accountsManager, err := NewManager(accountsDB, migrationsDirFromRepo(t, "accounts"))

@@ -95,7 +95,7 @@ import { resolveUnsavedBeforeLeave } from "@/guards/unsaved";
 interface NavItem {
   path: string;
   label: string;
-  permission?: string;
+  permission?: string | string[];
   rootOnly?: boolean;
 }
 
@@ -105,7 +105,7 @@ const navItems: NavItem[] = [
   { path: "/org", label: "组织架构", permission: "org:view" },
   { path: "/rules", label: "规则管理", permission: "rule:view" },
   { path: "/system/users", label: "用户管理", permission: "user:view", rootOnly: true },
-  { path: "/system/backup", label: "备份恢复", permission: "backup:view" },
+  { path: "/system/backup", label: "备份恢复", permission: ["backup:view", "backup:org:view"] },
   { path: "/system/audit", label: "审计日志", permission: "audit:view" },
   { path: "/system/settings", label: "系统设置", permission: "setting:view", rootOnly: true },
 ];
@@ -122,7 +122,11 @@ const visibleMenus = computed(() =>
     if (item.rootOnly && appStore.primaryRole !== "root" && !appStore.roles.includes("root")) {
       return false;
     }
-    return !item.permission || appStore.hasPermission(item.permission);
+    if (!item.permission) {
+      return true;
+    }
+    const required = Array.isArray(item.permission) ? item.permission : [item.permission];
+    return appStore.hasAnyPermission(required);
   }),
 );
 

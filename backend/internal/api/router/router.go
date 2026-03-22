@@ -120,6 +120,10 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		backup.GET("/records/:id/download", middleware.RequirePermission("backup:view"), backupHandler.Download)
 		backup.DELETE("/records/:id", middleware.RequirePermission("backup:update"), backupHandler.Delete)
 		backup.POST("/records/:id/restore", middleware.RequirePermission("backup:update"), backupHandler.Restore)
+		backup.GET("/org-packages", middleware.RequirePermission("backup:org:view"), backupHandler.ListOrgPackages)
+		backup.POST("/org-packages", middleware.RequirePermission("backup:org:update"), backupHandler.CreateOrgPackage)
+		backup.GET("/org-packages/:id/download", middleware.RequirePermission("backup:org:view"), backupHandler.DownloadOrgPackage)
+		backup.POST("/org-packages/:id/restore", middleware.RequirePermission("backup:org:update"), backupHandler.RestoreOrgPackage)
 
 		system := api.Group("/system")
 		system.Use(middleware.RequireJWT(cfg.JWTSecret), middleware.RequireOrgScope())

@@ -4,6 +4,8 @@ import type {
   AuditLogListResponse,
   BackupListResponse,
   BackupRecordItem,
+  OrgPackageItem,
+  OrgPackageListResponse,
   BackupType,
   SystemSettingsResponse,
 } from "@/types/system";
@@ -12,6 +14,12 @@ interface BackupListQuery {
   page: number;
   pageSize: number;
   type?: BackupType | "";
+}
+
+interface OrgPackageListQuery {
+  page: number;
+  pageSize: number;
+  rootOrganizationId?: number;
 }
 
 interface AuditLogListQuery {
@@ -50,6 +58,38 @@ export async function deleteBackup(backupId: number): Promise<void> {
 
 export async function restoreBackup(backupId: number, confirmText: string): Promise<void> {
   await http.post(`/api/backup/records/${backupId}/restore`, { confirmText });
+}
+
+export async function listOrgPackages(params: OrgPackageListQuery): Promise<OrgPackageListResponse> {
+  const response = await http.get("/api/backup/org-packages", { params });
+  return response.data?.data as OrgPackageListResponse;
+}
+
+export async function createOrgPackage(payload: {
+  rootOrganizationId: number;
+  description?: string;
+  includeEmployeeHistory?: boolean;
+}): Promise<OrgPackageItem> {
+  const response = await http.post("/api/backup/org-packages", {
+    rootOrganizationId: payload.rootOrganizationId,
+    description: payload.description || "",
+    includeEmployeeHistory: payload.includeEmployeeHistory ?? true,
+  });
+  return response.data?.data as OrgPackageItem;
+}
+
+export async function downloadOrgPackageFile(backupId: number): Promise<Blob> {
+  const response = await http.get(`/api/backup/org-packages/${backupId}/download`, {
+    responseType: "blob",
+  });
+  return response.data as Blob;
+}
+
+export async function restoreOrgPackage(
+  backupId: number,
+  payload: { confirmText: string; mode: "replace_scope"; targetRootOrganizationId: number },
+): Promise<void> {
+  await http.post(`/api/backup/org-packages/${backupId}/restore`, payload);
 }
 
 export async function listAuditLogs(params: AuditLogListQuery): Promise<AuditLogListResponse> {

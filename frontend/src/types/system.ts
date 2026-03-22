@@ -64,6 +64,28 @@ export interface BackupListResponse {
   pageSize: number;
 }
 
+export interface OrgPackageItem {
+  id: number;
+  backupName: string;
+  fileSize: number;
+  description: string;
+  createdBy?: number;
+  createdAt: number;
+  rootOrganizationId: number;
+  formatVersion: string;
+  checksumSha256: string;
+  scopedOrganizationIds?: number[];
+  tableRowCounts?: Record<string, number>;
+  sanitizedHistoryRefsCount: number;
+}
+
+export interface OrgPackageListResponse {
+  items: OrgPackageItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface AuditDiffItem {
   field: string;
   before: unknown;

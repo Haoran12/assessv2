@@ -100,9 +100,12 @@ var (
 	ErrCalcDependencyCycle = errors.New("calculation dependency graph has cycle")
 	ErrCalcExpressionEval  = errors.New("failed to evaluate custom expression")
 
-	ErrBackupNotFound        = errors.New("backup record not found")
-	ErrInvalidBackupType     = errors.New("invalid backup type")
-	ErrBackupConfirmMismatch = errors.New("restore confirmation mismatch")
+	ErrBackupNotFound           = errors.New("backup record not found")
+	ErrInvalidBackupType        = errors.New("invalid backup type")
+	ErrBackupConfirmMismatch    = errors.New("restore confirmation mismatch")
+	ErrInvalidBackupRestoreMode = errors.New("invalid backup restore mode")
+	ErrBackupTargetMismatch     = errors.New("backup target organization mismatch")
+	ErrBackupPackageBroken      = errors.New("backup package is invalid or corrupted")
 
 	ErrAuditLogNotFound         = errors.New("audit log not found")
 	ErrAuditRollbackUnsupported = errors.New("audit log does not support rollback")
