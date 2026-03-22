@@ -99,6 +99,8 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		assessment.PUT("/sessions/:id/object-groups", middleware.RequirePermission("assessment:update"), assessmentHandler.ReplaceObjectGroups)
 		assessment.GET("/sessions/:id/object-candidates", middleware.RequirePermission("assessment:view"), assessmentHandler.ListObjectCandidates)
 		assessment.GET("/sessions/:id/objects", middleware.RequirePermission("assessment:view"), assessmentHandler.ListObjects)
+		assessment.GET("/sessions/:id/calculated-objects", middleware.RequirePermission("assessment:view"), assessmentHandler.ListCalculatedObjects)
+		assessment.PUT("/sessions/:id/module-scores", middleware.RequirePermission("assessment:update"), assessmentHandler.UpsertModuleScores)
 		assessment.PUT("/sessions/:id/objects", middleware.RequirePermission("assessment:update"), assessmentHandler.ReplaceObjects)
 		assessment.POST("/sessions/:id/objects/reset-default", middleware.RequirePermission("assessment:update"), assessmentHandler.ResetObjects)
 
@@ -108,6 +110,7 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		rules.GET("/files", middleware.RequirePermission("rule:view"), ruleHandler.ListRuleFiles)
 		rules.POST("/files", middleware.RequirePermission("rule:update"), ruleHandler.CreateRuleFile)
 		rules.PUT("/files/:id", middleware.RequirePermission("rule:update"), ruleHandler.UpdateRuleFile)
+		rules.POST("/files/:id/dependency-check", middleware.RequirePermission("rule:update"), ruleHandler.CheckRuleDependencies)
 
 		backup := api.Group("/backup")
 		backup.Use(middleware.RequireJWT(cfg.JWTSecret), middleware.RequireOrgScope())

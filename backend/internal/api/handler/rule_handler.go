@@ -110,6 +110,25 @@ func (h *RuleHandler) UpdateRuleFile(c *gin.Context) {
 	response.Success(c, item)
 }
 
+func (h *RuleHandler) CheckRuleDependencies(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	ruleID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid rule id")
+		return
+	}
+	result, err := h.service.CheckRuleDependencies(c.Request.Context(), claims, ruleID)
+	if err != nil {
+		h.handleRuleError(c, err, "failed to check rule dependencies")
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, service.ErrInvalidParam),

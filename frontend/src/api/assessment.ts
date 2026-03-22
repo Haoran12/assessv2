@@ -5,6 +5,7 @@ import type {
   AssessmentSessionItem,
   AssessmentSessionObjectItem,
   CreateAssessmentSessionPayload,
+  UpdateAssessmentModuleScoresPayload,
   UpdateAssessmentObjectGroupsPayload,
   UpdateAssessmentObjectsPayload,
   UpdateAssessmentPeriodsPayload,
@@ -55,6 +56,20 @@ export async function listAssessmentSessionObjects(sessionId: number): Promise<A
   return (response.data?.data?.items ?? []) as AssessmentSessionObjectItem[];
 }
 
+export async function listCalculatedAssessmentSessionObjects(
+  sessionId: number,
+  periodCode: string,
+  objectGroupCode: string,
+): Promise<AssessmentSessionObjectItem[]> {
+  const response = await http.get(`/api/assessment/sessions/${sessionId}/calculated-objects`, {
+    params: {
+      periodCode: periodCode.trim().toUpperCase(),
+      objectGroupCode: objectGroupCode.trim(),
+    },
+  });
+  return (response.data?.data?.items ?? []) as AssessmentSessionObjectItem[];
+}
+
 export async function listAssessmentObjectCandidates(
   sessionId: number,
   keyword?: string,
@@ -78,4 +93,12 @@ export async function updateAssessmentObjects(
 export async function resetAssessmentSessionObjects(sessionId: number): Promise<AssessmentSessionObjectItem[]> {
   const response = await http.post(`/api/assessment/sessions/${sessionId}/objects/reset-default`);
   return (response.data?.data?.items ?? []) as AssessmentSessionObjectItem[];
+}
+
+export async function upsertAssessmentModuleScores(
+  sessionId: number,
+  payload: UpdateAssessmentModuleScoresPayload,
+): Promise<Array<{ periodCode: string; objectId: number; moduleKey: string; score: number }>> {
+  const response = await http.put(`/api/assessment/sessions/${sessionId}/module-scores`, payload);
+  return (response.data?.data?.items ?? []) as Array<{ periodCode: string; objectId: number; moduleKey: string; score: number }>;
 }

@@ -44,7 +44,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { listAssessmentSessionObjects } from "@/api/assessment";
+import { listCalculatedAssessmentSessionObjects } from "@/api/assessment";
 import { listRuleFiles } from "@/api/rules";
 import { useContextStore } from "@/stores/context";
 import type { AssessmentSessionObjectItem } from "@/types/assessment";
@@ -176,7 +176,7 @@ async function loadAssessmentTableData(): Promise<void> {
   loadingTable.value = true;
   try {
     const [objects, ruleFiles] = await Promise.all([
-      listAssessmentSessionObjects(contextStore.sessionId),
+      listCalculatedAssessmentSessionObjects(contextStore.sessionId, contextStore.periodCode, contextStore.objectGroupCode),
       listRuleFiles(contextStore.sessionId, false),
     ]);
     if (currentSeq !== fetchSequence) {
@@ -184,9 +184,7 @@ async function loadAssessmentTableData(): Promise<void> {
     }
 
     const modules = resolveModulesByContext(ruleFiles, contextStore.periodCode, contextStore.objectGroupCode);
-    const filteredObjects = objects
-      .filter((item) => item.groupCode === contextStore.objectGroupCode && item.isActive)
-      .sort(compareObjectOrder);
+    const filteredObjects = objects.sort(compareObjectOrder);
 
     moduleColumns.value = modules;
     assessmentRows.value = filteredObjects.map((item, index) => {

@@ -21,3 +21,22 @@ export interface UpdateRuleFilePayload {
   description?: string;
   contentJson?: string;
 }
+
+export interface RuleDependencyIssue {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  path?: string[];
+}
+
+export interface RuleDependencyCheckSummary {
+  errorCount: number;
+  warningCount: number;
+  nodeCount: number;
+  edgeCount: number;
+}
+
+export interface RuleDependencyCheckResult {
+  summary: RuleDependencyCheckSummary;
+  issues: RuleDependencyIssue[];
+}

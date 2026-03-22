@@ -68,6 +68,7 @@ func (a *schemaAudit) run() error {
 		"assessment_session_periods",
 		"assessment_object_groups",
 		"assessment_session_objects",
+		"assessment_object_module_scores",
 		"rule_files",
 		"system_settings",
 		"audit_logs",

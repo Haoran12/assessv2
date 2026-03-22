@@ -43,6 +43,10 @@ type updateObjectsRequest struct {
 	Items []service.SessionObjectUpsertItem `json:"items"`
 }
 
+type updateModuleScoresRequest struct {
+	Items []service.SessionObjectModuleScoreUpsertItem `json:"items"`
+}
+
 func (h *AssessmentHandler) ListSessions(c *gin.Context) {
 	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
@@ -164,6 +168,73 @@ func (h *AssessmentHandler) ListObjects(c *gin.Context) {
 	items, err := h.service.ListObjects(c.Request.Context(), claims, sessionID)
 	if err != nil {
 		h.handleAssessmentError(c, err, "failed to list assessment objects")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) ListCalculatedObjects(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	periodCode := strings.TrimSpace(c.Query("periodCode"))
+	objectGroupCode := strings.TrimSpace(c.Query("objectGroupCode"))
+	if periodCode == "" || objectGroupCode == "" {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "periodCode and objectGroupCode are required")
+		return
+	}
+	items, err := h.service.ListCalculatedObjects(
+		c.Request.Context(),
+		claims,
+		sessionID,
+		periodCode,
+		objectGroupCode,
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to list calculated assessment objects")
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
+func (h *AssessmentHandler) UpsertModuleScores(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	var req updateModuleScoresRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid module scores payload")
+		return
+	}
+	items, err := h.service.UpsertModuleScores(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		req.Items,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to upsert module scores")
 		return
 	}
 	response.Success(c, gin.H{"items": items})
@@ -333,6 +404,10 @@ func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fal
 		errors.Is(err, service.ErrInvalidRuleObjectType),
 		errors.Is(err, service.ErrInvalidRuleObjectCategory):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+	case errors.Is(err, service.ErrCalcDependencyCycle):
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
+	case errors.Is(err, service.ErrInvalidExpression):
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrForbidden):
 		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrYearNotFound),

@@ -62,6 +62,11 @@ export interface AssessmentSessionObjectItem {
   parentObjectId?: number;
   sortOrder: number;
   isActive: boolean;
+  moduleScores?: Record<string, number | null>;
+  totalScore?: number;
+  rank?: number;
+  grade?: string;
+  scoreSource?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -125,5 +130,14 @@ export interface UpdateAssessmentObjectsPayload {
     parentTargetId?: number;
     sortOrder?: number;
     isActive: boolean;
+  }>;
+}
+
+export interface UpdateAssessmentModuleScoresPayload {
+  items: Array<{
+    periodCode: string;
+    objectId: number;
+    moduleKey: string;
+    score: number;
   }>;
 }

@@ -383,11 +383,12 @@
 <script setup lang="ts">
 import { Rank } from "@element-plus/icons-vue";
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { getAssessmentSession } from "@/api/assessment";
 import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
 import {
+  checkRuleDependencies,
   listRuleFiles,
   updateRuleFile,
 } from "@/api/rules";
@@ -396,7 +397,7 @@ import type {
   AssessmentSessionItem,
   AssessmentSessionPeriodItem,
 } from "@/types/assessment";
-import type { RuleFileItem } from "@/types/rules";
+import type { RuleDependencyCheckResult, RuleFileItem } from "@/types/rules";
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
 type ConditionLogic = "and" | "or";
@@ -1479,6 +1480,57 @@ function validateRuleContent(content: StructuredRuleContent): string {
   return "";
 }
 
+function formatDependencyIssueLine(result: RuleDependencyCheckResult, index: number): string {
+  const issue = result.issues[index];
+  if (!issue) {
+    return "";
+  }
+  const pathText = Array.isArray(issue.path) && issue.path.length > 0 ? ` (${issue.path.join(" -> ")})` : "";
+  return `${index + 1}. [${issue.severity}] ${issue.code}: ${issue.message}${pathText}`;
+}
+
+function notifyDependencyCheckResult(result: RuleDependencyCheckResult): void {
+  const errorCount = Number(result?.summary?.errorCount || 0);
+  const warningCount = Number(result?.summary?.warningCount || 0);
+  const total = errorCount + warningCount;
+  if (total <= 0) {
+    return;
+  }
+  const showCount = Math.min(5, result.issues.length);
+  const lines: string[] = [];
+  for (let index = 0; index < showCount; index += 1) {
+    const line = formatDependencyIssueLine(result, index);
+    if (line) {
+      lines.push(line);
+    }
+  }
+  const remain = result.issues.length - showCount;
+  if (remain > 0) {
+    lines.push(`... and ${remain} more issue(s).`);
+  }
+
+  const title =
+    errorCount > 0
+      ? `Dependency check found ${errorCount} error(s), ${warningCount} warning(s)`
+      : `Dependency check found ${warningCount} warning(s)`;
+  ElNotification({
+    title,
+    type: errorCount > 0 ? "error" : "warning",
+    duration: 12000,
+    message: lines.join("\n"),
+  });
+}
+
+async function runDependencyCheckAfterSave(ruleId: number): Promise<void> {
+  try {
+    const result = await checkRuleDependencies(ruleId);
+    notifyDependencyCheckResult(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    ElMessage.warning(`Rule saved, but dependency check failed: ${message}`);
+  }
+}
+
 async function saveRule(): Promise<void> {
   if (!currentRule.value) {
     return;
@@ -1520,6 +1572,7 @@ async function saveRule(): Promise<void> {
     if (currentRule.value?.id !== updated.id) {
       setCurrentRule(updated);
     }
+    void runDependencyCheckAfterSave(updated.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "保存规则失败";
     ElMessage.error(message);
