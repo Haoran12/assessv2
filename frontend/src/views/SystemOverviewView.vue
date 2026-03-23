@@ -109,7 +109,7 @@
                       :controls="false"
                       style="width: 100%"
                       :disabled="!canEditScores"
-                      @change="(value) => onDirectScoreChange(row, module, value)"
+                      @change="onDirectScoreChange(row, module, $event)"
                     />
                   </template>
                   <template v-else-if="module.calculationMethod === 'vote'">
