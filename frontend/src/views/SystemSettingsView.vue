@@ -30,19 +30,26 @@
         <el-form-item label="排名规则">
           <el-input v-model="form.assessmentRankingRule" placeholder="例如 dense / competition" />
         </el-form-item>
-        <el-form-item label="投票截止时间">
-          <el-input v-model="form.voteDeadlineTime" placeholder="HH:mm，例如 18:00" />
+        <el-form-item>
+          <el-alert
+            type="info"
+            :closable="false"
+            title="线上投票功能当前仅保留占位。系统内仅维护线下纸质票决折算分值参数。"
+          />
         </el-form-item>
-        <el-form-item label="投票优秀档分值">
+        <el-form-item label="线上投票截止时间(占位)">
+          <el-input v-model="form.voteDeadlineTime" disabled placeholder="线上投票未启用，此项仅占位" />
+        </el-form-item>
+        <el-form-item label="票决优秀档分值(参考)">
           <el-input-number v-model="form.voteExcellentScore" :min="0" :max="100" />
         </el-form-item>
-        <el-form-item label="投票良好档分值">
+        <el-form-item label="票决良好档分值(参考)">
           <el-input-number v-model="form.voteGoodScore" :min="0" :max="100" />
         </el-form-item>
-        <el-form-item label="投票中等档分值">
+        <el-form-item label="票决中等档分值(参考)">
           <el-input-number v-model="form.voteAverageScore" :min="0" :max="100" />
         </el-form-item>
-        <el-form-item label="投票较差档分值">
+        <el-form-item label="票决较差档分值(参考)">
           <el-input-number v-model="form.votePoorScore" :min="0" :max="100" />
         </el-form-item>
 
@@ -179,7 +186,7 @@ async function handleSave(): Promise<void> {
   if (!canUpdate.value) {
     return;
   }
-  if (!isTimeText(form.backupAutoTime) || !isTimeText(form.voteDeadlineTime)) {
+  if (!isTimeText(form.backupAutoTime)) {
     ElMessage.warning("时间格式必须为 HH:mm，例如 02:00");
     return;
   }
@@ -213,7 +220,6 @@ async function handleSave(): Promise<void> {
       { settingKey: "system.timezone", settingValue: form.systemTimezone.trim() },
       { settingKey: "score.decimal_places", settingValue: Number(form.scoreDecimalPlaces) },
       { settingKey: "assessment.ranking_rule", settingValue: form.assessmentRankingRule.trim() },
-      { settingKey: "vote.deadline_time", settingValue: form.voteDeadlineTime.trim() },
       { settingKey: "vote.grade_scores", settingValue: voteGradeScores },
       { settingKey: "security.password_policy", settingValue: passwordPolicyObject },
       { settingKey: "security.session_timeout_minutes", settingValue: Number(form.securitySessionTimeoutMinutes) },

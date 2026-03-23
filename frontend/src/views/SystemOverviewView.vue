@@ -93,7 +93,7 @@
                 <template #header>
                   <div class="entry-header">
                     <span>{{ module.moduleName }}</span>
-                    <el-tag v-if="module.calculationMethod === 'vote'" size="small" type="warning">投票</el-tag>
+                    <el-tag v-if="module.calculationMethod === 'vote'" size="small" type="warning">票决(线下)</el-tag>
                     <el-tag v-else-if="module.calculationMethod === 'custom_script'" size="small">脚本</el-tag>
                     <el-tag v-else size="small" type="success">直录</el-tag>
                   </div>
@@ -138,6 +138,7 @@
           v-if="activeTab === 'rule-modules'"
           :initial-edit-tab="'modules'"
           :lock-edit-tab="true"
+          :header-title="'分数计算规则'"
         />
       </el-tab-pane>
 
@@ -146,11 +147,13 @@
           v-if="activeTab === 'rule-grades'"
           :initial-edit-tab="'grades'"
           :lock-edit-tab="true"
+          :header-title="'等第划分规则'"
+          :hide-grade-inner-title="true"
         />
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="voteDialogVisible" title="投票分录入" width="560px" destroy-on-close>
+    <el-dialog v-model="voteDialogVisible" title="线下票决结果录入" width="620px" destroy-on-close>
       <el-form label-width="96px">
         <el-form-item label="考核对象">
           <span>{{ voteDialog.objectName }}</span>
@@ -158,7 +161,54 @@
         <el-form-item label="分数模块">
           <span>{{ voteDialog.moduleName }}</span>
         </el-form-item>
-        <el-form-item label="投票得分" required>
+        <el-form-item label="纸质票数">
+          <div class="vote-count-grid">
+            <el-input-number
+              v-model="voteDialog.excellentCount"
+              :min="0"
+              :step="1"
+              :precision="0"
+              :controls="false"
+              placeholder="优秀票"
+            />
+            <el-input-number
+              v-model="voteDialog.goodCount"
+              :min="0"
+              :step="1"
+              :precision="0"
+              :controls="false"
+              placeholder="良好票"
+            />
+            <el-input-number
+              v-model="voteDialog.averageCount"
+              :min="0"
+              :step="1"
+              :precision="0"
+              :controls="false"
+              placeholder="中等票"
+            />
+            <el-input-number
+              v-model="voteDialog.poorCount"
+              :min="0"
+              :step="1"
+              :precision="0"
+              :controls="false"
+              placeholder="较差票"
+            />
+          </div>
+        </el-form-item>
+        <el-form-item>
+          <div class="vote-convert-row">
+            <span class="vote-convert-text">
+              折算分值：
+              <strong>{{ formatScore(voteConvertedScore) }}</strong>
+            </span>
+            <el-button plain type="primary" :disabled="voteConvertedScore === null" @click="applyVoteConvertedScore">
+              使用折算分值
+            </el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="最终分值" required>
           <el-input-number
             v-model="voteDialog.score"
             :min="0"
@@ -172,7 +222,7 @@
           <el-alert
             type="info"
             :closable="false"
-            title="请先按业务规则完成投票折算，再录入该模块最终分值。"
+            title="线上投票功能当前仅保留占位。请按线下纸质票结果录入模块最终分值。"
           />
         </el-form-item>
       </el-form>
@@ -234,15 +284,29 @@ const voteDialog = ref<{
   objectName: string;
   moduleKey: string;
   moduleName: string;
+  excellentCount?: number;
+  goodCount?: number;
+  averageCount?: number;
+  poorCount?: number;
   score?: number;
 }>({
   objectId: 0,
   objectName: "",
   moduleKey: "",
   moduleName: "",
+  excellentCount: undefined,
+  goodCount: undefined,
+  averageCount: undefined,
+  poorCount: undefined,
   score: undefined,
 });
 let fetchSequence = 0;
+const voteGradeScores = {
+  excellent: 100,
+  good: 85,
+  average: 70,
+  poor: 60,
+} as const;
 
 const isContextReady = computed(() =>
   Boolean(contextStore.sessionId && contextStore.periodCode && contextStore.objectGroupCode),
@@ -287,6 +351,31 @@ function toInputNumberValue(value: number | null): number | undefined {
   }
   return value;
 }
+
+function toVoteCount(value: unknown): number {
+  const parsed = toNumberOrNull(value);
+  if (parsed === null || parsed <= 0) {
+    return 0;
+  }
+  return Math.floor(parsed);
+}
+
+const voteConvertedScore = computed(() => {
+  const excellentCount = toVoteCount(voteDialog.value.excellentCount);
+  const goodCount = toVoteCount(voteDialog.value.goodCount);
+  const averageCount = toVoteCount(voteDialog.value.averageCount);
+  const poorCount = toVoteCount(voteDialog.value.poorCount);
+  const totalCount = excellentCount + goodCount + averageCount + poorCount;
+  if (totalCount <= 0) {
+    return null;
+  }
+  const weightedSum =
+    excellentCount * voteGradeScores.excellent
+    + goodCount * voteGradeScores.good
+    + averageCount * voteGradeScores.average
+    + poorCount * voteGradeScores.poor;
+  return weightedSum / totalCount;
+});
 
 function normalizeMethod(value: unknown): ScoreMethod {
   const text = String(value || "").trim().toLowerCase();
@@ -409,16 +498,29 @@ function openVoteDialog(row: TableRow, module: TableModuleColumn): void {
     objectName: row.objectName,
     moduleKey: module.moduleKey,
     moduleName: module.moduleName,
+    excellentCount: undefined,
+    goodCount: undefined,
+    averageCount: undefined,
+    poorCount: undefined,
     score: toInputNumberValue(row.moduleScores[module.moduleKey]),
   };
   voteDialogVisible.value = true;
+}
+
+function applyVoteConvertedScore(): void {
+  const converted = voteConvertedScore.value;
+  if (converted === null) {
+    ElMessage.warning("请先录入至少一项票数");
+    return;
+  }
+  voteDialog.value.score = Number(converted.toFixed(2));
 }
 
 function applyVoteDialogScore(): void {
   const objectId = voteDialog.value.objectId;
   const moduleKey = voteDialog.value.moduleKey;
   if (!objectId || !moduleKey) {
-    ElMessage.warning("投票录入对象无效");
+    ElMessage.warning("票决录入对象无效");
     return;
   }
   const row = assessmentRows.value.find((item) => item.objectId === objectId);
@@ -659,6 +761,26 @@ watch(
   color: #606266;
 }
 
+.vote-count-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.vote-convert-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vote-convert-text {
+  color: #606266;
+  font-size: 13px;
+}
+
 @media (max-width: 1280px) {
   .card-header {
     align-items: flex-start;
@@ -679,6 +801,15 @@ watch(
     display: inline-block;
     max-width: 100%;
     word-break: break-all;
+  }
+
+  .vote-count-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vote-convert-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

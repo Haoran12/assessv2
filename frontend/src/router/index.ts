@@ -7,7 +7,6 @@ const LoginView = () => import("@/views/LoginView.vue");
 const ChangePasswordView = () => import("@/views/ChangePasswordView.vue");
 const SystemUsersView = () => import("@/views/SystemUsersView.vue");
 const ForbiddenView = () => import("@/views/ForbiddenView.vue");
-const RulesView = () => import("@/views/RulesView.vue");
 const OrganizationView = () => import("@/views/OrganizationView.vue");
 const SystemOverviewView = () => import("@/views/SystemOverviewView.vue");
 const AssessmentView = () => import("@/views/AssessmentView.vue");
@@ -42,8 +41,8 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: "rules",
     name: "rules",
-    component: RulesView,
-    meta: { requiresAuth: true, permission: "rule:view" },
+    redirect: "/overview",
+    meta: { requiresAuth: true },
   },
   {
     path: "system",

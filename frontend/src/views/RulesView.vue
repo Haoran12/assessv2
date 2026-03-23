@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <div class="card-title">规则管理</div>
+          <div class="card-title">{{ displayTitle }}</div>
           <div class="header-actions">
             <el-button :loading="loading" @click="loadData">刷新</el-button>
             <el-button
@@ -63,7 +63,7 @@
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="模块名" min-width="240">
+                  <el-table-column label="模块名称" min-width="240">
                     <template #default="{ row }">
                       <el-input v-model="row.moduleName" :disabled="!canEditRule" />
                     </template>
@@ -132,8 +132,8 @@
             />
             <template v-else>
               <div class="section-block">
-                <div class="section-head">
-                  <strong>等第规则（按行顺序从高到低匹配）</strong>
+                <div v-if="!hideGradeInnerTitle" class="section-head">
+                  <strong>等第划分规则</strong>
                 </div>
                 <el-table :data="activeScopedRule.grades" class="rules-table">
                   <el-table-column label="等第标题" min-width="170">
@@ -151,7 +151,7 @@
                           :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
                         >
                           <el-option label="<" value="<" />
-                          <el-option label="≤" value="<=" />
+                          <el-option label="<=" value="<=" />
                         </el-select>
                         <el-input-number
                           v-model="row.scoreNode.upperScore"
@@ -172,7 +172,7 @@
                           :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
                         >
                           <el-option label=">" value=">" />
-                          <el-option label="≥" value=">=" />
+                          <el-option label=">=" value=">=" />
                         </el-select>
                         <el-input-number
                           v-model="row.scoreNode.lowerScore"
@@ -224,7 +224,7 @@
                 type="info"
                 :closable="false"
                 class="section-block"
-                title="等第分配规则：先按顺序做首轮匹配，再按人数上限迭代回退到更低等第，直到各等第上限满足。"
+                title="等第分配规则：按顺序匹配并受人数上限约束。"
               />
             </template>
           </el-tab-pane>
@@ -379,7 +379,7 @@
               </div>
             </div>
             <div class="script-picker-preview">
-              <span class="script-picker-preview-label">将插入代码</span>
+              <span class="script-picker-preview-label">灏嗘彃鍏ヤ唬鐮</span>
               <code class="script-picker-preview-code">{{ moduleInsertCodePreview || "请先完成三项选择" }}</code>
             </div>
             <div class="script-picker-actions">
@@ -396,14 +396,42 @@
         </template>
 
         <template v-else-if="moduleDetailTarget.calculationMethod === 'vote'">
-          <div class="field-label">投票详情（文本或 JSON）</div>
-          <el-input
-            v-model="moduleDetailDraft.voteConfigJson"
-            type="textarea"
-            :rows="12"
-            :disabled="!canEditRule"
-            placeholder="可填写投票维度、权重、说明等配置"
-          />
+          <div class="field-label">投票挡位与分值</div>
+          <el-table :data="moduleVoteGradeRows" border class="rules-table vote-grade-table">
+            <el-table-column label="挡位名称" min-width="220">
+              <template #default="{ row }">
+                <el-input v-model="row.label" :disabled="!canEditRule" placeholder="例如：优秀" />
+              </template>
+            </el-table-column>
+            <el-table-column label="分值" width="180">
+              <template #default="{ row }">
+                <el-input-number
+                  v-model="row.score"
+                  :disabled="!canEditRule"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :precision="0"
+                  style="width: 100%"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" align="center">
+              <template #default="{ $index }">
+                <el-button
+                  link
+                  type="danger"
+                  :disabled="!canEditRule || moduleVoteGradeRows.length <= 1"
+                  @click="removeVoteGradeRow($index)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="canEditRule" class="table-footer-actions">
+            <el-button type="primary" plain @click="addVoteGradeRow">新增挡位</el-button>
+          </div>
         </template>
 
         <el-empty v-else description="直接录入方式暂无额外详情配置" />
@@ -492,7 +520,7 @@
             </div>
           </div>
           <div class="script-picker-preview">
-            <span class="script-picker-preview-label">将插入代码</span>
+            <span class="script-picker-preview-label">灏嗘彃鍏ヤ唬鐮</span>
             <code class="script-picker-preview-code">{{ gradeInsertCodePreview || "请先完成三项选择" }}</code>
           </div>
           <div class="script-picker-actions">
@@ -562,6 +590,12 @@ interface ScoreModule {
   voteConfigJson: string;
 }
 
+interface VoteGradeRow {
+  id: string;
+  label: string;
+  score: number | null;
+}
+
 interface GradeScoreNode {
   hasUpperLimit: boolean;
   upperScore: number | null;
@@ -608,14 +642,23 @@ interface ExpressionInsertPicker {
 interface RulesViewProps {
   initialEditTab?: "modules" | "grades";
   lockEditTab?: boolean;
+  headerTitle?: string;
+  hideGradeInnerTitle?: boolean;
 }
 
 const props = withDefaults(defineProps<RulesViewProps>(), {
   initialEditTab: "modules",
   lockEditTab: false,
+  headerTitle: "",
+  hideGradeInnerTitle: false,
 });
 
 const lockEditTab = computed(() => props.lockEditTab);
+const hideGradeInnerTitle = computed(() => props.hideGradeInnerTitle);
+const displayTitle = computed(() => {
+  const custom = String(props.headerTitle || "").trim();
+  return custom || "规则管理";
+});
 
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
@@ -639,6 +682,8 @@ const moduleDetailDraft = reactive({
   customScript: "",
   voteConfigJson: "",
 });
+const moduleVoteGradeRows = ref<VoteGradeRow[]>([]);
+const moduleVoteConfigExtras = ref<Record<string, unknown>>({});
 const gradeDetailVisible = ref(false);
 const gradeDetailTargetId = ref("");
 const gradeDetailDraft = reactive({
@@ -739,7 +784,7 @@ const expressionDataOptions = computed<ExpressionInsertDataOption[]>(() => {
     const moduleName = String(expressionModuleNameByKey.value[key] || "").trim() || key;
     options.push({
       value: `module_score:${key}`,
-      label: `模块分-${moduleName}`,
+      label: `模块分：${moduleName}`,
     });
   }
   return options;
@@ -1050,6 +1095,106 @@ function parseJsonOrText(value: string): unknown {
   } catch (_error) {
     return text;
   }
+}
+
+function defaultVoteGradeRows(): VoteGradeRow[] {
+  const seeds = [
+    { label: "优秀", score: 100 },
+    { label: "良好", score: 85 },
+    { label: "合格", score: 70 },
+    { label: "较差", score: 60 },
+  ];
+  return seeds.map((item) => ({
+    id: uuid("vote_grade"),
+    label: item.label,
+    score: item.score,
+  }));
+}
+
+function normalizeVoteGradeRow(raw: unknown, index: number): VoteGradeRow | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  const label = String(row.label ?? row.name ?? row.title ?? row.grade ?? row.option ?? "").trim();
+  const score = toNullableNumber(row.score ?? row.value ?? row.points);
+  if (!label && score === null) {
+    return null;
+  }
+  return {
+    id: uuid("vote_grade"),
+    label: label || `挡位${index + 1}`,
+    score,
+  };
+}
+
+function parseVoteGradeRowsFromConfig(configText: string): {
+  rows: VoteGradeRow[];
+  extras: Record<string, unknown>;
+} {
+  const parsed = parseJsonOrText(configText);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      rows: defaultVoteGradeRows(),
+      extras: {},
+    };
+  }
+
+  const extras: Record<string, unknown> = { ...(parsed as Record<string, unknown>) };
+  let candidate: unknown;
+  const candidateKeys = ["gradeScores", "grades", "levels", "options", "items"];
+  for (const key of candidateKeys) {
+    if (Object.prototype.hasOwnProperty.call(extras, key)) {
+      candidate = extras[key];
+      delete extras[key];
+      break;
+    }
+  }
+
+  const rows: VoteGradeRow[] = [];
+  if (Array.isArray(candidate)) {
+    candidate.forEach((item, index) => {
+      const normalized = normalizeVoteGradeRow(item, index);
+      if (normalized) {
+        rows.push(normalized);
+      }
+    });
+  } else if (candidate && typeof candidate === "object") {
+    Object.entries(candidate as Record<string, unknown>).forEach(([key, value], index) => {
+      const score = toNullableNumber(value);
+      if (score === null) {
+        return;
+      }
+      rows.push({
+        id: uuid("vote_grade"),
+        label: String(key || "").trim() || `挡位${index + 1}`,
+        score,
+      });
+    });
+  }
+
+  if (rows.length === 0) {
+    const numericEntries = Object.entries(extras).filter(([, value]) => toNullableNumber(value) !== null);
+    if (numericEntries.length >= 2) {
+      numericEntries.forEach(([key, value], index) => {
+        const score = toNullableNumber(value);
+        if (score === null) {
+          return;
+        }
+        rows.push({
+          id: uuid("vote_grade"),
+          label: String(key || "").trim() || `挡位${index + 1}`,
+          score,
+        });
+        delete extras[key];
+      });
+    }
+  }
+
+  return {
+    rows: rows.length > 0 ? rows : defaultVoteGradeRows(),
+    extras,
+  };
 }
 
 function newScoreModule(seed = "模块", weight = 100): ScoreModule {
@@ -1549,6 +1694,14 @@ function openModuleDetail(module: ScoreModule): void {
   moduleDetailTargetId.value = module.id;
   moduleDetailDraft.customScript = module.customScript || "";
   moduleDetailDraft.voteConfigJson = module.voteConfigJson || "";
+  if (module.calculationMethod === "vote") {
+    const parsed = parseVoteGradeRowsFromConfig(module.voteConfigJson || "");
+    moduleVoteGradeRows.value = parsed.rows;
+    moduleVoteConfigExtras.value = parsed.extras;
+  } else {
+    moduleVoteGradeRows.value = [];
+    moduleVoteConfigExtras.value = {};
+  }
   ensureExpressionPickerState(moduleInsertPicker);
   moduleDetailVisible.value = true;
 }
@@ -1558,6 +1711,23 @@ function closeModuleDetail(): void {
   moduleDetailTargetId.value = "";
   moduleDetailDraft.customScript = "";
   moduleDetailDraft.voteConfigJson = "";
+  moduleVoteGradeRows.value = [];
+  moduleVoteConfigExtras.value = {};
+}
+
+function addVoteGradeRow(): void {
+  moduleVoteGradeRows.value.push({
+    id: uuid("vote_grade"),
+    label: `挡位${moduleVoteGradeRows.value.length + 1}`,
+    score: null,
+  });
+}
+
+function removeVoteGradeRow(index: number): void {
+  if (moduleVoteGradeRows.value.length <= 1) {
+    return;
+  }
+  moduleVoteGradeRows.value.splice(index, 1);
 }
 
 function applyModuleDetail(): void {
@@ -1570,7 +1740,39 @@ function applyModuleDetail(): void {
     target.customScript = String(moduleDetailDraft.customScript || "");
     target.voteConfigJson = "";
   } else if (target.calculationMethod === "vote") {
-    target.voteConfigJson = String(moduleDetailDraft.voteConfigJson || "");
+    const cleanedRows = moduleVoteGradeRows.value.map((item, index) => ({
+      label: String(item.label || "").trim() || `挡位${index + 1}`,
+      score: toNullableNumber(item.score),
+    }));
+    if (cleanedRows.length === 0) {
+      ElMessage.warning("请至少配置一个投票挡位");
+      return;
+    }
+    const seenLabels = new Set<string>();
+    for (const row of cleanedRows) {
+      if (row.score === null || !Number.isFinite(row.score)) {
+        ElMessage.warning(`请填写挡位「${row.label}」的分值`);
+        return;
+      }
+      if (row.score < 0 || row.score > 100) {
+        ElMessage.warning(`挡位「${row.label}」分值必须在 0 到 100 之间`);
+        return;
+      }
+      if (seenLabels.has(row.label)) {
+        ElMessage.warning(`挡位名称「${row.label}」重复，请调整`);
+        return;
+      }
+      seenLabels.add(row.label);
+    }
+    const voteConfig = {
+      ...moduleVoteConfigExtras.value,
+      gradeScores: cleanedRows.map((item) => ({
+        label: item.label,
+        score: item.score as number,
+      })),
+    };
+    target.voteConfigJson = JSON.stringify(voteConfig, null, 2);
+    moduleDetailDraft.voteConfigJson = target.voteConfigJson;
     target.customScript = "";
   } else {
     target.customScript = "";
@@ -2482,3 +2684,5 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
 }
 </style>
+
+

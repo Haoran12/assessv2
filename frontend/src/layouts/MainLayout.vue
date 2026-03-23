@@ -103,7 +103,6 @@ const navItems: NavItem[] = [
   { path: "/overview", label: "系统概览" },
   { path: "/assessment-management", label: "考核管理", permission: "assessment:view" },
   { path: "/org", label: "组织架构", permission: "org:view" },
-  { path: "/rules", label: "规则管理", permission: "rule:view" },
   { path: "/system/users", label: "用户管理", permission: "user:view", rootOnly: true },
   { path: "/system/backup", label: "备份恢复", permission: ["backup:view", "backup:org:view"] },
   { path: "/system/audit", label: "审计日志", permission: "audit:view" },
@@ -319,3 +318,4 @@ function roleLabel(roleCode: string): string {
   }
 }
 </style>
+
