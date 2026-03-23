@@ -89,6 +89,7 @@ import { getSystemSettings, updateSystemSettings } from "@/api/system-admin";
 import { useAppStore } from "@/stores/app";
 import { useUnsavedStore } from "@/stores/unsaved";
 import type { SystemSettingItem, SystemSettingsResponse } from "@/types/system";
+import { normalizeScoreDecimalPlaces, persistScoreDecimalPlaces } from "@/utils/score-decimal";
 
 const appStore = useAppStore();
 const unsavedStore = useUnsavedStore();
@@ -165,7 +166,8 @@ function applySettings(result: SystemSettingsResponse): void {
   form.systemName = settingString(result, "system.name", "AssessV2");
   form.systemLogo = settingString(result, "system.logo", "");
   form.systemTimezone = settingString(result, "system.timezone", "Asia/Shanghai");
-  form.scoreDecimalPlaces = settingNumber(result, "score.decimal_places", 2);
+  form.scoreDecimalPlaces = normalizeScoreDecimalPlaces(settingNumber(result, "score.decimal_places", 2), 2);
+  persistScoreDecimalPlaces(form.scoreDecimalPlaces);
   form.assessmentRankingRule = settingString(result, "assessment.ranking_rule", "dense");
   form.voteDeadlineTime = settingString(result, "vote.deadline_time", "18:00");
   form.voteExcellentScore = settingVoteGradeScore(result, "excellent", 100);
@@ -186,6 +188,7 @@ async function handleSave(): Promise<void> {
   if (!canUpdate.value) {
     return;
   }
+  form.scoreDecimalPlaces = normalizeScoreDecimalPlaces(form.scoreDecimalPlaces, 2);
   if (!isTimeText(form.backupAutoTime)) {
     ElMessage.warning("时间格式必须为 HH:mm，例如 02:00");
     return;

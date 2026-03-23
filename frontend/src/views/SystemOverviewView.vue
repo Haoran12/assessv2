@@ -1,7 +1,7 @@
 ﻿<template>
   <div ref="overviewViewRef" class="overview-view">
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="当前考核数据" name="summary">
+      <el-tab-pane label="结果概览" name="summary">
         <el-card>
           <template #header>
             <div class="card-header">
@@ -104,8 +104,8 @@
                       :model-value="toInputNumberValue(row.moduleScores[module.moduleKey])"
                       :min="0"
                       :max="100"
-                      :step="0.1"
-                      :precision="2"
+                      :step="scoreInputStep"
+                      :precision="scoreDecimalPlaces"
                       :controls="false"
                       style="width: 100%"
                       :disabled="!canEditScores"
@@ -213,8 +213,8 @@
             v-model="voteDialog.score"
             :min="0"
             :max="100"
-            :step="0.1"
-            :precision="2"
+            :step="scoreInputStep"
+            :precision="scoreDecimalPlaces"
             style="width: 100%"
           />
         </el-form-item>
@@ -244,6 +244,12 @@ import { useContextStore } from "@/stores/context";
 import RulesView from "@/views/RulesView.vue";
 import type { AssessmentSessionObjectItem } from "@/types/assessment";
 import type { RuleFileItem } from "@/types/rules";
+import {
+  formatScoreWithDecimalPlaces,
+  readScoreDecimalPlaces,
+  roundScoreWithDecimalPlaces,
+  toScoreInputStep,
+} from "@/utils/score-decimal";
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
 
@@ -278,6 +284,7 @@ const assessmentRows = ref<TableRow[]>([]);
 const loadingTable = ref(false);
 const savingScores = ref(false);
 const pendingScoreMap = ref<Record<string, PendingScoreItem>>({});
+const scoreDecimalPlaces = ref(readScoreDecimalPlaces());
 const voteDialogVisible = ref(false);
 const voteDialog = ref<{
   objectId: number;
@@ -313,6 +320,7 @@ const isContextReady = computed(() =>
 );
 const canEditScores = computed(() => appStore.hasPermission("assessment:update"));
 const pendingScoreCount = computed(() => Object.keys(pendingScoreMap.value).length);
+const scoreInputStep = computed(() => toScoreInputStep(scoreDecimalPlaces.value));
 const contextSummaryText = computed(() => {
   const sessionName = contextStore.currentSession?.displayName || "-";
   const periodName = contextStore.currentPeriod?.periodName || contextStore.periodCode || "-";
@@ -334,10 +342,7 @@ function toNumberOrNull(value: unknown): number | null {
 }
 
 function formatScore(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) {
-    return "-";
-  }
-  return value.toFixed(2);
+  return formatScoreWithDecimalPlaces(value, scoreDecimalPlaces.value);
 }
 
 function formatScoreAction(value: number | null): string {
@@ -513,7 +518,7 @@ function applyVoteConvertedScore(): void {
     ElMessage.warning("请先录入至少一项票数");
     return;
   }
-  voteDialog.value.score = Number(converted.toFixed(2));
+  voteDialog.value.score = roundScoreWithDecimalPlaces(converted, scoreDecimalPlaces.value);
 }
 
 function applyVoteDialogScore(): void {
@@ -631,6 +636,7 @@ function handleOverviewKeydown(event: KeyboardEvent): void {
 }
 
 async function loadAssessmentTableData(): Promise<void> {
+  scoreDecimalPlaces.value = readScoreDecimalPlaces();
   const currentSeq = ++fetchSequence;
   if (!isContextReady.value || !contextStore.sessionId) {
     moduleColumns.value = [];
