@@ -30,12 +30,13 @@ type calculationScoreNode struct {
 }
 
 type calculationGradeRule struct {
-	ID                   string                    `json:"id"`
-	Title                string                    `json:"title"`
-	ScoreNode            calculationGradeScoreNode `json:"scoreNode"`
-	ExtraConditionScript string                    `json:"extraConditionScript"`
-	ConditionLogic       string                    `json:"conditionLogic"`
-	MaxRatioPercent      *float64                  `json:"maxRatioPercent"`
+	ID                    string                    `json:"id"`
+	Title                 string                    `json:"title"`
+	ScoreNode             calculationGradeScoreNode `json:"scoreNode"`
+	ExtraConditionScript  string                    `json:"extraConditionScript"`
+	ExtraConditionEnabled *bool                     `json:"extraConditionEnabled,omitempty"`
+	ConditionLogic        string                    `json:"conditionLogic"`
+	MaxRatioPercent       *float64                  `json:"maxRatioPercent"`
 }
 
 type calculationGradeScoreNode struct {
@@ -139,8 +140,9 @@ func toGradeRules(grades []calculationGradeRule) []RuleEngineGradeRule {
 			continue
 		}
 		rule := RuleEngineGradeRule{
-			Title:                title,
-			ExtraConditionScript: strings.TrimSpace(item.ExtraConditionScript),
+			Title:                 title,
+			ExtraConditionScript:  strings.TrimSpace(item.ExtraConditionScript),
+			ExtraConditionEnabled: resolveGradeExtraConditionEnabled(item),
 			ScoreNode: RuleEngineGradeScoreNode{
 				HasUpperLimit: item.ScoreNode.HasUpperLimit,
 				UpperScore:    item.ScoreNode.UpperScore,
@@ -161,6 +163,14 @@ func toGradeRules(grades []calculationGradeRule) []RuleEngineGradeRule {
 		result = append(result, rule)
 	}
 	return result
+}
+
+func resolveGradeExtraConditionEnabled(rule calculationGradeRule) bool {
+	if rule.ExtraConditionEnabled != nil {
+		return *rule.ExtraConditionEnabled
+	}
+	// Backward compatibility for legacy rules without explicit switch.
+	return strings.TrimSpace(rule.ExtraConditionScript) != ""
 }
 
 func normalizeUpperOperator(value string) string {

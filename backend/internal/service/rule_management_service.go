@@ -312,27 +312,18 @@ func validateRuleExpressions(contentJSON string) error {
 		return fmt.Errorf("%w: %v", ErrInvalidExpression, err)
 	}
 	for scopedIndex, scoped := range content.ScopedRules {
-		for moduleIndex, module := range scoped.ScoreModules {
-			if normalizeCalculationMethod(module.CalculationMethod) != "custom_script" {
+		for gradeIndex, grade := range scoped.Grades {
+			if !resolveGradeExtraConditionEnabled(grade) {
 				continue
 			}
-			script := strings.TrimSpace(module.CustomScript)
-			if script == "" {
-				return fmt.Errorf(
-					"%w: scopedRules[%d].scoreModules[%d].customScript is required",
-					ErrInvalidExpression,
-					scopedIndex,
-					moduleIndex,
-				)
-			}
-			if _, err := CompileNumber(script); err != nil {
-				return err
-			}
-		}
-		for _, grade := range scoped.Grades {
 			script := strings.TrimSpace(grade.ExtraConditionScript)
 			if script == "" {
-				continue
+				return fmt.Errorf(
+					"%w: scopedRules[%d].grades[%d].extraConditionScript is required when extraConditionEnabled is true",
+					ErrInvalidExpression,
+					scopedIndex,
+					gradeIndex,
+				)
 			}
 			if _, err := CompileBool(script); err != nil {
 				return err

@@ -781,20 +781,20 @@ func evaluateRuleModuleScores(
 			hasInput = true
 			continue
 		}
-		if len(rawModuleScores) == 0 && !hasInput {
-			continue
-		}
-
 		script := strings.TrimSpace(module.CustomScript)
 		if script == "" {
-			return nil, false, fmt.Errorf("%w: custom script is required for module %s", ErrCalcExpressionEval, moduleKey)
+			calculated[moduleKey] = 0
+			hasInput = true
+			continue
 		}
 		score, err := EvalNumber(
 			script,
 			buildModuleScriptEnv(periodCode, object, calculated, rawModuleScores, extraAdjust, lookup),
 		)
 		if err != nil {
-			return nil, false, err
+			calculated[moduleKey] = 0
+			hasInput = true
+			continue
 		}
 		calculated[moduleKey] = score
 		hasInput = true

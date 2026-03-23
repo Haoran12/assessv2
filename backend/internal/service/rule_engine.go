@@ -1,6 +1,9 @@
 package service
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 type RuleEngineScoreModule struct {
 	ModuleKey         string
@@ -19,10 +22,11 @@ type RuleEngineGradeScoreNode struct {
 }
 
 type RuleEngineGradeRule struct {
-	Title                string
-	ScoreNode            RuleEngineGradeScoreNode
-	ExtraConditionScript string
-	ConditionLogic       string
+	Title                 string
+	ScoreNode             RuleEngineGradeScoreNode
+	ExtraConditionScript  string
+	ExtraConditionEnabled bool
+	ConditionLogic        string
 	// MaxRatio is in [0,1], nil means no limit.
 	MaxRatio *float64
 }
@@ -199,7 +203,7 @@ func matchGradeRule(item RuleEngineObject, rule RuleEngineGradeRule, evaluator G
 		}
 	}
 
-	if rule.ExtraConditionScript == "" {
+	if !rule.ExtraConditionEnabled || strings.TrimSpace(rule.ExtraConditionScript) == "" {
 		return scorePass
 	}
 

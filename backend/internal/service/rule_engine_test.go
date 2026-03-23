@@ -89,9 +89,10 @@ func TestAssignGradesConditionLogic(t *testing.T) {
 
 	gradeRules := []RuleEngineGradeRule{
 		{
-			Title:                "A",
-			ExtraConditionScript: "custom",
-			ConditionLogic:       "or",
+			Title:                 "A",
+			ExtraConditionScript:  "custom",
+			ExtraConditionEnabled: true,
+			ConditionLogic:        "or",
 			ScoreNode: RuleEngineGradeScoreNode{
 				HasLowerLimit: true,
 				LowerScore:    90,

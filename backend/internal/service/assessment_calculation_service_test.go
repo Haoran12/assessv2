@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"math"
 	"strconv"
 	"testing"
@@ -147,7 +146,7 @@ func TestListCalculatedObjects_ExtraConditionScript(t *testing.T) {
 	replaceCalculationFixtureRuleContent(
 		t,
 		fixture,
-		buildRuleContentJSONWithExtraConditionScript(t, `moduleScores["base_performance"] >= 80`, "or"),
+		buildRuleContentJSONWithExtraConditionScript(t, `moduleScores["base_performance"] >= 80`, "or", true),
 	)
 
 	if err := fixture.db.Create(&model.AssessmentObjectModuleScore{
@@ -178,7 +177,42 @@ func TestListCalculatedObjects_ExtraConditionScript(t *testing.T) {
 	}
 }
 
-func TestListCalculatedObjects_CustomScriptRuntimeError(t *testing.T) {
+func TestListCalculatedObjects_ExtraConditionScriptDisabledByDefault(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+	replaceCalculationFixtureRuleContent(
+		t,
+		fixture,
+		buildRuleContentJSONWithExtraConditionScript(t, `moduleScores["base_performance"] >= 80`, "or", false),
+	)
+	if err := fixture.db.Create(&model.AssessmentObjectModuleScore{
+		AssessmentID: fixture.sessionID,
+		PeriodCode:   "Q1",
+		ObjectID:     fixture.individualObjectID,
+		ModuleKey:    "base_performance",
+		Score:        85,
+	}).Error; err != nil {
+		t.Fatalf("create module score failed: %v", err)
+	}
+
+	rows, err := fixture.service.ListCalculatedObjects(
+		context.Background(),
+		fixture.claims,
+		fixture.sessionID,
+		"Q1",
+		"dept_main",
+	)
+	if err != nil {
+		t.Fatalf("list calculated objects failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got=%d", len(rows))
+	}
+	if rows[0].Grade == "A" {
+		t.Fatalf("expected extra condition to be ignored when disabled")
+	}
+}
+
+func TestListCalculatedObjects_CustomScriptRuntimeErrorDefaultsZero(t *testing.T) {
 	fixture := setupCalculationFixture(t)
 	replaceCalculationFixtureRuleContent(t, fixture, buildRuleContentJSONWithCustomModule(t, "unknown_value + 1"))
 	if err := fixture.db.Create(&model.AssessmentObjectModuleScore{
@@ -191,15 +225,52 @@ func TestListCalculatedObjects_CustomScriptRuntimeError(t *testing.T) {
 		t.Fatalf("create module score failed: %v", err)
 	}
 
-	_, err := fixture.service.ListCalculatedObjects(
+	rows, err := fixture.service.ListCalculatedObjects(
 		context.Background(),
 		fixture.claims,
 		fixture.sessionID,
 		"Q1",
 		"dept_main",
 	)
-	if !errors.Is(err, ErrCalcExpressionEval) {
-		t.Fatalf("expected ErrCalcExpressionEval, got=%v", err)
+	if err != nil {
+		t.Fatalf("expected fallback score instead of error, got=%v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got=%d", len(rows))
+	}
+	if rows[0].ModuleScores["derived_score"] == nil || !almostEqual(*rows[0].ModuleScores["derived_score"], 0) {
+		t.Fatalf("expected derived_score fallback to 0, got=%v", rows[0].ModuleScores["derived_score"])
+	}
+}
+
+func TestListCalculatedObjects_CustomScriptEmptyDefaultsZero(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+	replaceCalculationFixtureRuleContent(t, fixture, buildRuleContentJSONWithCustomModule(t, ""))
+	if err := fixture.db.Create(&model.AssessmentObjectModuleScore{
+		AssessmentID: fixture.sessionID,
+		PeriodCode:   "Q1",
+		ObjectID:     fixture.individualObjectID,
+		ModuleKey:    "base_performance",
+		Score:        80,
+	}).Error; err != nil {
+		t.Fatalf("create module score failed: %v", err)
+	}
+
+	rows, err := fixture.service.ListCalculatedObjects(
+		context.Background(),
+		fixture.claims,
+		fixture.sessionID,
+		"Q1",
+		"dept_main",
+	)
+	if err != nil {
+		t.Fatalf("expected fallback score instead of error, got=%v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got=%d", len(rows))
+	}
+	if rows[0].ModuleScores["derived_score"] == nil || !almostEqual(*rows[0].ModuleScores["derived_score"], 0) {
+		t.Fatalf("expected empty script fallback to 0, got=%v", rows[0].ModuleScores["derived_score"])
 	}
 }
 
@@ -476,7 +547,12 @@ func buildRuleContentJSONWithCustomModule(t *testing.T, customScript string) str
 	return string(raw)
 }
 
-func buildRuleContentJSONWithExtraConditionScript(t *testing.T, gradeScript string, logic string) string {
+func buildRuleContentJSONWithExtraConditionScript(
+	t *testing.T,
+	gradeScript string,
+	logic string,
+	extraConditionEnabled bool,
+) string {
 	t.Helper()
 	payload := map[string]any{
 		"version": 3,
@@ -506,8 +582,9 @@ func buildRuleContentJSONWithExtraConditionScript(t *testing.T, gradeScript stri
 							"lowerScore":    90,
 							"lowerOperator": ">=",
 						},
-						"extraConditionScript": gradeScript,
-						"conditionLogic":       logic,
+						"extraConditionEnabled": extraConditionEnabled,
+						"extraConditionScript":  gradeScript,
+						"conditionLogic":        logic,
 					},
 					{
 						"id":    "grade_b",
@@ -520,8 +597,9 @@ func buildRuleContentJSONWithExtraConditionScript(t *testing.T, gradeScript stri
 							"lowerScore":    80,
 							"lowerOperator": ">=",
 						},
-						"extraConditionScript": "",
-						"conditionLogic":       "and",
+						"extraConditionEnabled": false,
+						"extraConditionScript":  "",
+						"conditionLogic":        "and",
 					},
 					{
 						"id":    "grade_c",
@@ -534,8 +612,9 @@ func buildRuleContentJSONWithExtraConditionScript(t *testing.T, gradeScript stri
 							"lowerScore":    0,
 							"lowerOperator": ">=",
 						},
-						"extraConditionScript": "",
-						"conditionLogic":       "and",
+						"extraConditionEnabled": false,
+						"extraConditionScript":  "",
+						"conditionLogic":        "and",
 					},
 				},
 			},
@@ -645,8 +724,9 @@ func buildRuleContentJSONWithLookupGradeScript(t *testing.T, gradeScript string)
 							"lowerScore":    90,
 							"lowerOperator": ">=",
 						},
-						"extraConditionScript": gradeScript,
-						"conditionLogic":       "or",
+						"extraConditionEnabled": true,
+						"extraConditionScript":  gradeScript,
+						"conditionLogic":        "or",
 					},
 					{
 						"id":    "grade_b",
@@ -659,8 +739,9 @@ func buildRuleContentJSONWithLookupGradeScript(t *testing.T, gradeScript string)
 							"lowerScore":    80,
 							"lowerOperator": ">=",
 						},
-						"extraConditionScript": "",
-						"conditionLogic":       "and",
+						"extraConditionEnabled": false,
+						"extraConditionScript":  "",
+						"conditionLogic":        "and",
 					},
 				},
 			},

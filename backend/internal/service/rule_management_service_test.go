@@ -13,9 +13,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestRuleManagementCreateRuleFileValidateExpressions(t *testing.T) {
+func TestRuleManagementCreateRuleFileAllowsInvalidModuleScript(t *testing.T) {
 	fixture := setupRuleManagementFixture(t)
-	contentJSON := buildRuleManagementRuleContentJSON(t, "custom_script", "1 +", "")
+	contentJSON := buildRuleManagementRuleContentJSON(t, "custom_script", "1 +", "", false)
 
 	_, err := fixture.service.CreateRuleFile(
 		context.Background(),
@@ -29,14 +29,14 @@ func TestRuleManagementCreateRuleFileValidateExpressions(t *testing.T) {
 		"127.0.0.1",
 		"unit-test",
 	)
-	if !errors.Is(err, ErrInvalidExpression) {
-		t.Fatalf("expected ErrInvalidExpression, got=%v", err)
+	if err != nil {
+		t.Fatalf("expected invalid module script to be allowed, got=%v", err)
 	}
 }
 
-func TestRuleManagementUpdateRuleFileValidateExpressions(t *testing.T) {
+func TestRuleManagementUpdateRuleFileValidateEnabledGradeExpressions(t *testing.T) {
 	fixture := setupRuleManagementFixture(t)
-	validContent := buildRuleManagementRuleContentJSON(t, "custom_script", "base + 1", "totalScore >= 90")
+	validContent := buildRuleManagementRuleContentJSON(t, "custom_script", "base + 1", "totalScore >= 90", true)
 
 	created, err := fixture.service.CreateRuleFile(
 		context.Background(),
@@ -54,7 +54,7 @@ func TestRuleManagementUpdateRuleFileValidateExpressions(t *testing.T) {
 		t.Fatalf("create rule file failed: %v", err)
 	}
 
-	invalidContent := buildRuleManagementRuleContentJSON(t, "custom_script", "base + 1", "1 + 1")
+	invalidContent := buildRuleManagementRuleContentJSON(t, "custom_script", "base + 1", "1 + 1", true)
 	_, err = fixture.service.UpdateRuleFile(
 		context.Background(),
 		fixture.claims,
@@ -80,6 +80,7 @@ func TestRuleManagementCreateRuleFileAllowsLookupFunctions(t *testing.T) {
 		"custom_script",
 		`score("Q1", objectId) + moduleScore("Q1", objectId, "base")`,
 		`hasScore("Q1", objectId) && targetScore("Q1", "department", 1) >= 80`,
+		true,
 	)
 
 	_, err := fixture.service.CreateRuleFile(
@@ -145,7 +146,13 @@ func setupRuleManagementFixture(t *testing.T) ruleManagementFixture {
 	}
 }
 
-func buildRuleManagementRuleContentJSON(t *testing.T, method string, moduleScript string, gradeScript string) string {
+func buildRuleManagementRuleContentJSON(
+	t *testing.T,
+	method string,
+	moduleScript string,
+	gradeScript string,
+	extraConditionEnabled bool,
+) string {
 	t.Helper()
 	payload := map[string]any{
 		"version": 3,
@@ -176,8 +183,9 @@ func buildRuleManagementRuleContentJSON(t *testing.T, method string, moduleScrip
 							"lowerScore":    90,
 							"lowerOperator": ">=",
 						},
-						"extraConditionScript": gradeScript,
-						"conditionLogic":       "and",
+						"extraConditionScript":  gradeScript,
+						"extraConditionEnabled": extraConditionEnabled,
+						"conditionLogic":        "and",
 					},
 				},
 			},

@@ -457,13 +457,17 @@
       destroy-on-close
     >
       <template v-if="gradeDetailTarget">
+        <div class="grade-extra-switch">
+          <span>启用额外脚本条件</span>
+          <el-switch v-model="gradeDetailDraft.extraConditionEnabled" :disabled="!canEditRule" />
+        </div>
         <div class="field-label">额外条件脚本</div>
         <el-input
           v-model="gradeDetailDraft.extraConditionScript"
           type="textarea"
           :rows="12"
-          :disabled="!canEditRule"
-          placeholder="可为空，复用自定义脚本"
+          :disabled="!canEditRule || !gradeDetailDraft.extraConditionEnabled"
+          placeholder="默认不启用；开启后脚本才会参与等第判断"
         />
         <div class="script-helper-panel">
           <div class="script-helper-header">
@@ -608,6 +612,7 @@ interface GradeRule {
   title: string;
   scoreNode: GradeScoreNode;
   extraConditionScript: string;
+  extraConditionEnabled: boolean;
   conditionLogic: ConditionLogic;
   maxRatioPercent: number | null;
 }
@@ -657,6 +662,7 @@ const gradeDetailVisible = ref(false);
 const gradeDetailTargetId = ref("");
 const gradeDetailDraft = reactive({
   extraConditionScript: "",
+  extraConditionEnabled: false,
 });
 const copyDialogVisible = ref(false);
 const copyingFromSource = ref(false);
@@ -1081,6 +1087,7 @@ function newGrade(seed = "A"): GradeRule {
       lowerOperator: ">=",
     },
     extraConditionScript: "",
+    extraConditionEnabled: false,
     conditionLogic: "and",
     maxRatioPercent: null,
   };
@@ -1165,6 +1172,10 @@ function normalizeGrade(raw: any, index: number): GradeRule {
       lowerOperator: normalizeLowerOperator(scoreNode?.lowerOperator ?? scoreNode?.minOp ?? ">="),
     },
     extraConditionScript: String(raw?.extraConditionScript || "").trim(),
+    extraConditionEnabled:
+      typeof raw?.extraConditionEnabled === "boolean"
+        ? raw.extraConditionEnabled
+        : String(raw?.extraConditionScript || "").trim().length > 0,
     conditionLogic: normalizeLogic(raw?.conditionLogic || "and"),
     maxRatioPercent: maxRatio,
   };
@@ -1380,6 +1391,7 @@ function insertGradeScriptSnippet(snippet: string): void {
   if (!canEditRule.value) {
     return;
   }
+  gradeDetailDraft.extraConditionEnabled = true;
   gradeDetailDraft.extraConditionScript = appendScriptSnippet(gradeDetailDraft.extraConditionScript, snippet);
 }
 
@@ -1554,6 +1566,7 @@ function applyModuleDetail(): void {
 function openGradeDetail(grade: GradeRule): void {
   gradeDetailTargetId.value = grade.id;
   gradeDetailDraft.extraConditionScript = grade.extraConditionScript || "";
+  gradeDetailDraft.extraConditionEnabled = Boolean(grade.extraConditionEnabled);
   gradeDetailVisible.value = true;
 }
 
@@ -1561,6 +1574,7 @@ function closeGradeDetail(): void {
   gradeDetailVisible.value = false;
   gradeDetailTargetId.value = "";
   gradeDetailDraft.extraConditionScript = "";
+  gradeDetailDraft.extraConditionEnabled = false;
 }
 
 function applyGradeDetail(): void {
@@ -1570,6 +1584,7 @@ function applyGradeDetail(): void {
     return;
   }
   target.extraConditionScript = String(gradeDetailDraft.extraConditionScript || "");
+  target.extraConditionEnabled = Boolean(gradeDetailDraft.extraConditionEnabled);
   closeGradeDetail();
 }
 
@@ -1800,6 +1815,7 @@ function normalizeRuleForSave(row: ScopedRule): ScopedRule {
       lowerScore: toNullableNumber(grade.scoreNode?.lowerScore),
       lowerOperator: normalizeLowerOperator(grade.scoreNode?.lowerOperator),
     },
+    extraConditionEnabled: Boolean(grade.extraConditionEnabled),
     extraConditionScript: String(grade.extraConditionScript || "").trim(),
     conditionLogic: normalizeLogic(grade.conditionLogic),
     maxRatioPercent: toNullableNumber(grade.maxRatioPercent),
@@ -1841,9 +1857,6 @@ function validateRuleContent(content: StructuredRuleContent): string {
       if (module.weight <= 0) {
         return `${title}中模块「${module.moduleName}」权重必须大于 0`;
       }
-      if (module.calculationMethod === "custom_script" && !module.customScript.trim()) {
-        return `${title}中模块「${module.moduleName}」使用脚本方式时脚本不能为空`;
-      }
     }
 
     if (scoped.grades.length === 0) {
@@ -1855,7 +1868,12 @@ function validateRuleContent(content: StructuredRuleContent): string {
         return `${title}存在空等第标题`;
       }
       const node = grade.scoreNode;
-      if (!node.hasLowerLimit && !node.hasUpperLimit && !grade.extraConditionScript.trim()) {
+      const enabledExtraCondition = Boolean(grade.extraConditionEnabled);
+      const extraScriptText = String(grade.extraConditionScript || "").trim();
+      if (enabledExtraCondition && !extraScriptText) {
+        return `${title}中等第「${grade.title}」启用额外脚本后，脚本不能为空`;
+      }
+      if (!node.hasLowerLimit && !node.hasUpperLimit && !(enabledExtraCondition && extraScriptText)) {
         return `${title}中等第「${grade.title}」必须配置分数节点或额外条件`;
       }
       if (node.hasLowerLimit && node.lowerScore === null) {
@@ -2104,6 +2122,15 @@ onBeforeUnmount(() => {
   margin-bottom: 6px;
   font-size: 13px;
   color: #606266;
+}
+
+.grade-extra-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #606266;
+  font-size: 13px;
 }
 
 .script-helper-panel {
