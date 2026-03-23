@@ -279,6 +279,31 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		rows = append(rows, row)
 	}
 
+	// Build rank lookup for all groups in target period so scripts can query rank(period, objectId).
+	allPeriodScoringItems := make([]RuleEngineObject, 0, len(activeObjects))
+	for _, object := range activeObjects {
+		node := buildDependencyNode(targetPeriod, object.ID)
+		state := states[node]
+		if state == nil || !state.HasValue {
+			continue
+		}
+		allPeriodScoringItems = append(allPeriodScoringItems, RuleEngineObject{
+			ObjectID:       object.ID,
+			GroupKey:       object.GroupCode,
+			PeriodCode:     targetPeriod,
+			ObjectType:     object.ObjectType,
+			TargetID:       object.TargetID,
+			TargetType:     object.TargetType,
+			ParentObjectID: object.ParentObjectID,
+			TotalScore:     state.Value,
+			ExtraAdjust:    extraAdjustByNode[node],
+			ModuleScores:   cloneFloatMap(calculatedModuleScoresByNode[node]),
+		})
+	}
+	for _, item := range RankObjectsByGroup(allPeriodScoringItems) {
+		lookup.setNodeRank(targetPeriod, item.ObjectID, item.Rank)
+	}
+
 	if len(scoringItems) == 0 {
 		return rows, nil
 	}
@@ -298,6 +323,8 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		if !exists {
 			continue
 		}
+		lookup.setNodeRank(targetPeriod, item.ObjectID, item.Rank)
+		lookup.setNodeGrade(targetPeriod, item.ObjectID, item.Grade)
 		rank := item.Rank
 		rows[index].Rank = &rank
 		rows[index].Grade = item.Grade

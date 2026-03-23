@@ -21,6 +21,12 @@ var expressionCompileEnv = map[string]any{
 	"score": func(periodCode string, objectID any) float64 {
 		return 0
 	},
+	"rank": func(periodCode string, objectID any) float64 {
+		return 0
+	},
+	"grade": func(periodCode string, objectID any) string {
+		return ""
+	},
 	"moduleScore": func(periodCode string, objectID any, moduleKey string) float64 {
 		return 0
 	},

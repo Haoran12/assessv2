@@ -10,6 +10,8 @@ import (
 
 type expressionScoreLookup struct {
 	totalScores      map[string]float64
+	ranks            map[string]int
+	grades           map[string]string
 	moduleScores     map[string]map[string]float64
 	objectIDByTarget map[string]uint
 }
@@ -21,6 +23,8 @@ func newExpressionScoreLookup(
 ) *expressionScoreLookup {
 	lookup := &expressionScoreLookup{
 		totalScores:      make(map[string]float64, len(rawScoresByNode)),
+		ranks:            make(map[string]int, len(rawScoresByNode)),
+		grades:           make(map[string]string, len(rawScoresByNode)),
 		moduleScores:     make(map[string]map[string]float64, len(rawScoresByNode)),
 		objectIDByTarget: make(map[string]uint, len(objects)),
 	}
@@ -54,6 +58,22 @@ func (l *expressionScoreLookup) setNodeModuleScores(periodCode string, objectID 
 		return
 	}
 	l.moduleScores[key] = cloneFloatMap(scores)
+}
+
+func (l *expressionScoreLookup) setNodeRank(periodCode string, objectID uint, rank int) {
+	if l == nil {
+		return
+	}
+	key := buildDependencyNode(periodCode, objectID)
+	l.ranks[key] = rank
+}
+
+func (l *expressionScoreLookup) setNodeGrade(periodCode string, objectID uint, grade string) {
+	if l == nil {
+		return
+	}
+	key := buildDependencyNode(periodCode, objectID)
+	l.grades[key] = strings.TrimSpace(grade)
 }
 
 func (l *expressionScoreLookup) score(periodCode string, objectID any) (float64, bool) {
@@ -94,6 +114,40 @@ func (l *expressionScoreLookup) moduleScore(periodCode string, objectID any, mod
 	return value, true
 }
 
+func (l *expressionScoreLookup) rank(periodCode string, objectID any) (int, bool) {
+	if l == nil {
+		return 0, false
+	}
+	normalizedPeriod := normalizeExpressionPeriodCode(periodCode)
+	parsedObjectID, ok := parseExpressionUint(objectID)
+	if !ok {
+		return 0, false
+	}
+	key := buildDependencyNode(normalizedPeriod, parsedObjectID)
+	value, exists := l.ranks[key]
+	if !exists {
+		return 0, false
+	}
+	return value, true
+}
+
+func (l *expressionScoreLookup) grade(periodCode string, objectID any) (string, bool) {
+	if l == nil {
+		return "", false
+	}
+	normalizedPeriod := normalizeExpressionPeriodCode(periodCode)
+	parsedObjectID, ok := parseExpressionUint(objectID)
+	if !ok {
+		return "", false
+	}
+	key := buildDependencyNode(normalizedPeriod, parsedObjectID)
+	value, exists := l.grades[key]
+	if !exists {
+		return "", false
+	}
+	return value, true
+}
+
 func (l *expressionScoreLookup) targetScore(periodCode string, targetType string, targetID any) (float64, bool) {
 	if l == nil {
 		return 0, false
@@ -118,6 +172,14 @@ func (l *expressionScoreLookup) expressionFunctions() map[string]any {
 	return map[string]any{
 		"score": func(periodCode string, objectID any) float64 {
 			value, _ := l.score(periodCode, objectID)
+			return value
+		},
+		"rank": func(periodCode string, objectID any) float64 {
+			value, _ := l.rank(periodCode, objectID)
+			return float64(value)
+		},
+		"grade": func(periodCode string, objectID any) string {
+			value, _ := l.grade(periodCode, objectID)
 			return value
 		},
 		"moduleScore": func(periodCode string, objectID any, moduleKey string) float64 {

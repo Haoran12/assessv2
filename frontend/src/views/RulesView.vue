@@ -693,16 +693,41 @@ const expressionModuleKeys = computed<string[]>(() => {
   }
   return keys;
 });
+const expressionModuleNameByKey = computed<Record<string, string>>(() => {
+  const mapping: Record<string, string> = {};
+  const applyName = (moduleKey: string, moduleName: string, overwrite: boolean): void => {
+    const key = String(moduleKey || "").trim();
+    const name = String(moduleName || "").trim();
+    if (!key || !name) {
+      return;
+    }
+    if (overwrite || !mapping[key]) {
+      mapping[key] = name;
+    }
+  };
+  for (const module of activeScopedRule.value?.scoreModules || []) {
+    applyName(module.moduleKey, module.moduleName, true);
+  }
+  for (const scoped of ruleContent.scopedRules) {
+    for (const module of scoped.scoreModules) {
+      applyName(module.moduleKey, module.moduleName, false);
+    }
+  }
+  return mapping;
+});
 const expressionDataOptions = computed<ExpressionInsertDataOption[]>(() => {
   const options: ExpressionInsertDataOption[] = [
-    { value: "score", label: "对象总分 score(period, object)" },
-    { value: "has_score", label: "是否已评分 hasScore(period, object)" },
-    { value: "target_score", label: "对象业务目标总分 targetScore(period, targetType, targetId)" },
+    { value: "score", label: "总分" },
+    { value: "rank", label: "排名" },
+    { value: "grade", label: "等第" },
+    { value: "has_score", label: "是否已评分" },
+    { value: "target_score", label: "业务目标总分" },
   ];
   for (const key of expressionModuleKeys.value) {
+    const moduleName = String(expressionModuleNameByKey.value[key] || "").trim() || key;
     options.push({
       value: `module_score:${key}`,
-      label: `对象模块分 moduleScore(period, object, "${key}")`,
+      label: `模块分-${moduleName}`,
     });
   }
   return options;
@@ -889,6 +914,12 @@ function buildExpressionInsertCode(
   const objectLiteral = String(object.objectId);
   if (normalizedDataKey === "score") {
     return `score(${periodLiteral}, ${objectLiteral})`;
+  }
+  if (normalizedDataKey === "rank") {
+    return `rank(${periodLiteral}, ${objectLiteral})`;
+  }
+  if (normalizedDataKey === "grade") {
+    return `grade(${periodLiteral}, ${objectLiteral})`;
   }
   if (normalizedDataKey === "has_score") {
     return `hasScore(${periodLiteral}, ${objectLiteral})`;

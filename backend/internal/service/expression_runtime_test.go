@@ -82,7 +82,13 @@ func TestExpressionRuntimeCompileSupportsLookupFunctions(t *testing.T) {
 	if _, err := runtime.CompileNumber(`score("Q1", objectId) + moduleScore("Q1", objectId, "base_performance")`); err != nil {
 		t.Fatalf("compile with lookup functions failed: %v", err)
 	}
+	if _, err := runtime.CompileNumber(`rank("Q1", objectId) + score("Q1", objectId)`); err != nil {
+		t.Fatalf("compile with rank lookup failed: %v", err)
+	}
 	if _, err := runtime.CompileBool(`hasScore("Q1", objectId) && targetScore("Q1", "department", targetId) >= 80`); err != nil {
 		t.Fatalf("compile bool with lookup functions failed: %v", err)
+	}
+	if _, err := runtime.CompileBool(`grade("Q1", objectId) == "A"`); err != nil {
+		t.Fatalf("compile bool with grade lookup failed: %v", err)
 	}
 }

@@ -227,6 +227,20 @@ func buildExpressionFunctions(moduleKeys []string) []RuleExpressionFunction {
 			InsertText:  `score(periodCode, objectId)`,
 		},
 		{
+			Name:        "rank",
+			Signature:   "rank(periodCode, objectId)",
+			ReturnType:  "number",
+			Description: "Read ranking inside current assessment session; returns 0 if not found",
+			InsertText:  `rank(periodCode, objectId)`,
+		},
+		{
+			Name:        "grade",
+			Signature:   "grade(periodCode, objectId)",
+			ReturnType:  "string",
+			Description: "Read grade title inside current assessment session; returns empty string if not found",
+			InsertText:  `grade(periodCode, objectId)`,
+		},
+		{
 			Name:        "moduleScore",
 			Signature:   "moduleScore(periodCode, objectId, moduleKey)",
 			ReturnType:  "number",
