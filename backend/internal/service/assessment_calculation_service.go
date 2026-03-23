@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -32,46 +32,6 @@ type SessionObjectModuleScoreUpsertItem struct {
 	ObjectID   uint    `json:"objectId"`
 	ModuleKey  string  `json:"moduleKey"`
 	Score      float64 `json:"score"`
-}
-
-type calculationRuleContent struct {
-	Version      int                 `json:"version"`
-	ScopedRules  []calculationScoped `json:"scopedRules"`
-	Dependencies []map[string]any    `json:"dependencies"`
-	Raw          map[string]any      `json:"-"`
-}
-
-type calculationScoped struct {
-	ID                    string                 `json:"id"`
-	ApplicablePeriods     []string               `json:"applicablePeriods"`
-	ApplicableObjectGroup []string               `json:"applicableObjectGroups"`
-	ScoreModules          []calculationScoreNode `json:"scoreModules"`
-	Grades                []calculationGradeRule `json:"grades"`
-}
-
-type calculationScoreNode struct {
-	ID                string  `json:"id"`
-	ModuleKey         string  `json:"moduleKey"`
-	ModuleName        string  `json:"moduleName"`
-	Weight            float64 `json:"weight"`
-	CalculationMethod string  `json:"calculationMethod"`
-}
-
-type calculationGradeRule struct {
-	ID              string                    `json:"id"`
-	Title           string                    `json:"title"`
-	ScoreNode       calculationGradeScoreNode `json:"scoreNode"`
-	ConditionLogic  string                    `json:"conditionLogic"`
-	MaxRatioPercent *float64                  `json:"maxRatioPercent"`
-}
-
-type calculationGradeScoreNode struct {
-	HasUpperLimit bool    `json:"hasUpperLimit"`
-	UpperScore    float64 `json:"upperScore"`
-	UpperOperator string  `json:"upperOperator"`
-	HasLowerLimit bool    `json:"hasLowerLimit"`
-	LowerScore    float64 `json:"lowerScore"`
-	LowerOperator string  `json:"lowerOperator"`
 }
 
 type calculationEdge struct {
@@ -153,7 +113,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 	}
 
 	collector := newDependencyIssueCollector(300)
-	dependencies := resolveDependencyConfigs(ruleContent.Raw, collector)
+	dependencies := resolveDependencyConfigs(ruleContent.Raw, periods, collector)
 	nodes, edges := buildCalculationEdges(periods, activeObjects, dependencies, collector)
 	if hasCycle(nodes, edges) {
 		return nil, ErrCalcDependencyCycle
@@ -183,6 +143,8 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 	}
 
 	states := make(map[string]*calculationNodeState, len(nodes))
+	calculatedModuleScoresByNode := make(map[string]map[string]float64, len(nodes))
+	extraAdjustByNode := make(map[string]float64, len(nodes))
 	for _, node := range nodes {
 		period, objectID, ok := parseCalculationNodeKey(node)
 		if !ok {
@@ -199,20 +161,21 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		}
 		scoreModules := toScoreModules(scoped.ScoreModules)
 		rawModuleScores := rawScoresByNode[node]
-		moduleScoreMap := map[string]float64{}
-		hasBaseInput := false
-		for _, module := range scoreModules {
-			score, exists := rawModuleScores[module.ModuleKey]
-			if !exists {
-				continue
-			}
-			moduleScoreMap[module.ModuleKey] = score
-			hasBaseInput = true
-		}
 		extraAdjust := 0.0
 		if rawModuleScores != nil {
 			if value, exists := rawModuleScores[extraAdjustModuleKey]; exists {
 				extraAdjust = value
+			}
+		}
+		moduleScoreMap, hasModuleInput, err := evaluateRuleModuleScores(period, object, scoreModules, rawModuleScores, extraAdjust)
+		if err != nil {
+			return nil, mapToCalculationEvalError(err)
+		}
+		calculatedModuleScoresByNode[node] = moduleScoreMap
+		extraAdjustByNode[node] = extraAdjust
+		hasBaseInput := hasModuleInput
+		if rawModuleScores != nil {
+			if _, exists := rawModuleScores[extraAdjustModuleKey]; exists {
 				hasBaseInput = true
 			}
 		}
@@ -273,9 +236,10 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 	rowIndexByObjectID := make(map[uint]int, len(targetObjects))
 	for _, object := range targetObjects {
 		node := buildDependencyNode(targetPeriod, object.ID)
+		nodeModuleScores := cloneFloatMap(calculatedModuleScoresByNode[node])
 		row := CalculatedAssessmentObject{
 			AssessmentSessionObject: object,
-			ModuleScores:            buildOutputModuleScores(rawScoresByNode[node], targetScoped.ScoreModules),
+			ModuleScores:            buildOutputModuleScores(nodeModuleScores, targetScoped.ScoreModules),
 			Grade:                   "",
 		}
 		if state := states[node]; state != nil && state.HasValue {
@@ -285,8 +249,11 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 			scoringItems = append(scoringItems, RuleEngineObject{
 				ObjectID:     object.ID,
 				GroupKey:     targetGroup,
+				PeriodCode:   targetPeriod,
+				ObjectType:   object.ObjectType,
 				TotalScore:   value,
-				ModuleScores: map[string]float64{},
+				ExtraAdjust:  extraAdjustByNode[node],
+				ModuleScores: nodeModuleScores,
 			})
 		}
 		rowIndexByObjectID[object.ID] = len(rows)
@@ -296,7 +263,17 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 	if len(scoringItems) == 0 {
 		return rows, nil
 	}
-	graded := AssignGradesByGroup(scoringItems, toGradeRules(targetScoped.Grades), nil)
+	var gradeEvalErr error
+	graded := AssignGradesByGroup(scoringItems, toGradeRules(targetScoped.Grades), func(object RuleEngineObject, rule RuleEngineGradeRule) (bool, error) {
+		passed, err := EvalBool(rule.ExtraConditionScript, buildGradeScriptEnv(object))
+		if err != nil && gradeEvalErr == nil {
+			gradeEvalErr = err
+		}
+		return passed, err
+	})
+	if gradeEvalErr != nil {
+		return nil, mapToCalculationEvalError(gradeEvalErr)
+	}
 	for _, item := range graded {
 		index, exists := rowIndexByObjectID[item.ObjectID]
 		if !exists {
@@ -456,133 +433,6 @@ func (s *AssessmentSessionService) pickSessionRuleFile(ctx context.Context, sess
 	return picked, nil
 }
 
-func parseCalculationRuleContent(raw string) (*calculationRuleContent, error) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
-		return nil, ErrRuleNotFound
-	}
-	contentRaw := map[string]any{}
-	if err := json.Unmarshal([]byte(text), &contentRaw); err != nil {
-		return nil, err
-	}
-	content := &calculationRuleContent{}
-	if err := json.Unmarshal([]byte(text), content); err != nil {
-		return nil, err
-	}
-	content.Raw = contentRaw
-	return content, nil
-}
-
-func matchScopedRule(content *calculationRuleContent, periodCode string, groupCode string) *calculationScoped {
-	if content == nil {
-		return nil
-	}
-	targetPeriod := strings.ToUpper(strings.TrimSpace(periodCode))
-	targetGroup := strings.TrimSpace(groupCode)
-	for index := range content.ScopedRules {
-		item := &content.ScopedRules[index]
-		if !containsPeriod(item.ApplicablePeriods, targetPeriod) {
-			continue
-		}
-		if !containsGroupCode(item.ApplicableObjectGroup, targetGroup) {
-			continue
-		}
-		return item
-	}
-	return nil
-}
-
-func containsPeriod(periods []string, target string) bool {
-	if target == "" {
-		return false
-	}
-	for _, item := range periods {
-		if strings.ToUpper(strings.TrimSpace(item)) == target {
-			return true
-		}
-	}
-	return false
-}
-
-func containsGroupCode(groups []string, target string) bool {
-	if target == "" {
-		return false
-	}
-	for _, item := range groups {
-		if strings.TrimSpace(item) == target {
-			return true
-		}
-	}
-	return false
-}
-
-func toScoreModules(modules []calculationScoreNode) []RuleEngineScoreModule {
-	result := make([]RuleEngineScoreModule, 0, len(modules))
-	for _, item := range modules {
-		key := strings.TrimSpace(item.ModuleKey)
-		if key == "" {
-			key = strings.TrimSpace(item.ID)
-		}
-		if key == "" {
-			continue
-		}
-		weight := item.Weight
-		if weight <= 0 {
-			continue
-		}
-		result = append(result, RuleEngineScoreModule{
-			ModuleKey: key,
-			Weight:    weight,
-		})
-	}
-	return result
-}
-
-func toGradeRules(grades []calculationGradeRule) []RuleEngineGradeRule {
-	result := make([]RuleEngineGradeRule, 0, len(grades))
-	for _, item := range grades {
-		title := strings.TrimSpace(item.Title)
-		if title == "" {
-			continue
-		}
-		rule := RuleEngineGradeRule{
-			Title: title,
-			ScoreNode: RuleEngineGradeScoreNode{
-				HasUpperLimit: item.ScoreNode.HasUpperLimit,
-				UpperScore:    item.ScoreNode.UpperScore,
-				UpperOperator: normalizeUpperOperator(item.ScoreNode.UpperOperator),
-				HasLowerLimit: item.ScoreNode.HasLowerLimit,
-				LowerScore:    item.ScoreNode.LowerScore,
-				LowerOperator: normalizeLowerOperator(item.ScoreNode.LowerOperator),
-			},
-			ConditionLogic: normalizeConditionLogic(item.ConditionLogic),
-		}
-		if item.MaxRatioPercent != nil {
-			percent := *item.MaxRatioPercent
-			if percent > 0 && percent <= 100 {
-				ratio := percent / 100
-				rule.MaxRatio = &ratio
-			}
-		}
-		result = append(result, rule)
-	}
-	return result
-}
-
-func normalizeUpperOperator(value string) string {
-	if strings.TrimSpace(value) == "<" {
-		return "<"
-	}
-	return "<="
-}
-
-func normalizeLowerOperator(value string) string {
-	if strings.TrimSpace(value) == ">" {
-		return ">"
-	}
-	return ">="
-}
-
 func buildCalculationEdges(
 	periods []model.AssessmentSessionPeriod,
 	objects []model.AssessmentSessionObject,
@@ -673,7 +523,18 @@ func buildCalculationEdges(
 		case dependencyTypePeriodRollup:
 			targetPeriod := strings.ToUpper(strings.TrimSpace(dependency.TargetPeriod))
 			if targetPeriod == "" {
-				targetPeriod = "YEAR_END"
+				defaultTarget, _, ok := resolveDefaultPeriodRollup(periodCodes)
+				if ok {
+					targetPeriod = defaultTarget
+				}
+			}
+			if targetPeriod == "" {
+				collector.add(
+					dependencySeverityError,
+					dependencyIssueInvalidRollup,
+					"period_rollup targetPeriod is empty and cannot be derived from session periods",
+				)
+				continue
 			}
 			if _, exists := periodSet[targetPeriod]; !exists {
 				collector.add(
@@ -685,6 +546,9 @@ func buildCalculationEdges(
 				continue
 			}
 			sourcePeriods := normalizePeriodCodes(stringsToAnySlice(dependency.SourcePeriods))
+			if len(sourcePeriods) == 0 {
+				sourcePeriods = defaultRollupSources(periodCodes, targetPeriod)
+			}
 			if len(sourcePeriods) == 0 {
 				collector.add(
 					dependencySeverityError,
@@ -869,6 +733,115 @@ func parseCalculationNodeKey(node string) (string, uint, bool) {
 		return "", 0, false
 	}
 	return period, uint(parsed), true
+}
+
+func evaluateRuleModuleScores(
+	periodCode string,
+	object model.AssessmentSessionObject,
+	scoreModules []RuleEngineScoreModule,
+	rawModuleScores map[string]float64,
+	extraAdjust float64,
+) (map[string]float64, bool, error) {
+	calculated := make(map[string]float64, len(scoreModules))
+	hasInput := false
+	for _, module := range scoreModules {
+		moduleKey := strings.TrimSpace(module.ModuleKey)
+		if moduleKey == "" {
+			continue
+		}
+		if normalizeCalculationMethod(module.CalculationMethod) != "custom_script" {
+			if rawModuleScores == nil {
+				continue
+			}
+			value, exists := rawModuleScores[moduleKey]
+			if !exists {
+				continue
+			}
+			calculated[moduleKey] = value
+			hasInput = true
+			continue
+		}
+		if len(rawModuleScores) == 0 && !hasInput {
+			continue
+		}
+
+		script := strings.TrimSpace(module.CustomScript)
+		if script == "" {
+			return nil, false, fmt.Errorf("%w: custom script is required for module %s", ErrCalcExpressionEval, moduleKey)
+		}
+		score, err := EvalNumber(script, buildModuleScriptEnv(periodCode, object, calculated, rawModuleScores, extraAdjust))
+		if err != nil {
+			return nil, false, err
+		}
+		calculated[moduleKey] = score
+		hasInput = true
+	}
+	return calculated, hasInput, nil
+}
+
+func buildModuleScriptEnv(
+	periodCode string,
+	object model.AssessmentSessionObject,
+	moduleScores map[string]float64,
+	rawModuleScores map[string]float64,
+	extraAdjust float64,
+) map[string]any {
+	env := map[string]any{
+		"periodCode":      strings.ToUpper(strings.TrimSpace(periodCode)),
+		"objectId":        object.ID,
+		"groupCode":       object.GroupCode,
+		"objectType":      object.ObjectType,
+		"targetId":        object.TargetID,
+		"targetType":      object.TargetType,
+		"extraAdjust":     extraAdjust,
+		"moduleScores":    cloneFloatMap(moduleScores),
+		"rawModuleScores": cloneFloatMap(rawModuleScores),
+	}
+	for key, value := range rawModuleScores {
+		env[key] = value
+	}
+	for key, value := range moduleScores {
+		env[key] = value
+	}
+	return env
+}
+
+func buildGradeScriptEnv(item RuleEngineObject) map[string]any {
+	env := map[string]any{
+		"objectId":     item.ObjectID,
+		"groupKey":     item.GroupKey,
+		"periodCode":   item.PeriodCode,
+		"objectType":   item.ObjectType,
+		"totalScore":   item.TotalScore,
+		"rank":         item.Rank,
+		"extraAdjust":  item.ExtraAdjust,
+		"moduleScores": cloneFloatMap(item.ModuleScores),
+	}
+	for key, value := range item.ModuleScores {
+		env[key] = value
+	}
+	return env
+}
+
+func mapToCalculationEvalError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrCalcExpressionEval) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", ErrCalcExpressionEval, err)
+}
+
+func cloneFloatMap(source map[string]float64) map[string]float64 {
+	if len(source) == 0 {
+		return map[string]float64{}
+	}
+	result := make(map[string]float64, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }
 
 func buildOutputModuleScores(

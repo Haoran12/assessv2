@@ -175,6 +175,9 @@ func (s *RuleManagementService) CreateRuleFile(
 	if contentJSON == "" {
 		contentJSON = buildDefaultRuleTemplateJSON()
 	}
+	if err := validateRuleExpressions(contentJSON); err != nil {
+		return nil, err
+	}
 
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
 	record, err := s.ensureSessionRuleFile(ctx, session, operatorRef)
@@ -247,6 +250,9 @@ func (s *RuleManagementService) UpdateRuleFile(
 	if contentJSON == "" {
 		contentJSON = record.ContentJSON
 	}
+	if err := validateRuleExpressions(contentJSON); err != nil {
+		return nil, err
+	}
 	ruleName := strings.TrimSpace(input.RuleName)
 	if ruleName == "" {
 		ruleName = record.RuleName
@@ -298,4 +304,40 @@ func (s *RuleManagementService) loadSessionSummary(ctx context.Context, sessionI
 		return nil, fmt.Errorf("failed to query assessment session: %w", err)
 	}
 	return item, nil
+}
+
+func validateRuleExpressions(contentJSON string) error {
+	content, err := parseCalculationRuleContent(contentJSON)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidExpression, err)
+	}
+	for scopedIndex, scoped := range content.ScopedRules {
+		for moduleIndex, module := range scoped.ScoreModules {
+			if normalizeCalculationMethod(module.CalculationMethod) != "custom_script" {
+				continue
+			}
+			script := strings.TrimSpace(module.CustomScript)
+			if script == "" {
+				return fmt.Errorf(
+					"%w: scopedRules[%d].scoreModules[%d].customScript is required",
+					ErrInvalidExpression,
+					scopedIndex,
+					moduleIndex,
+				)
+			}
+			if _, err := CompileNumber(script); err != nil {
+				return err
+			}
+		}
+		for _, grade := range scoped.Grades {
+			script := strings.TrimSpace(grade.ExtraConditionScript)
+			if script == "" {
+				continue
+			}
+			if _, err := CompileBool(script); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

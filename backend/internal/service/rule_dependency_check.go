@@ -195,7 +195,7 @@ func (s *RuleManagementService) CheckRuleDependencies(
 		return nil, err
 	}
 
-	dependencies := resolveDependencyConfigs(content, collector)
+	dependencies := resolveDependencyConfigs(content, periods, collector)
 	graph := compileDependencyGraph(periods, objects, dependencies, collector)
 	cycles := findDependencyCycles(graph, 20)
 	for _, cyclePath := range cycles {
@@ -272,8 +272,14 @@ func issueSeverityRank(severity string) int {
 	return 1
 }
 
-func resolveDependencyConfigs(content map[string]any, collector *dependencyIssueCollector) []dependencyConfig {
-	result := defaultDependencyConfigs()
+func resolveDependencyConfigs(
+	content map[string]any,
+	periods []model.AssessmentSessionPeriod,
+	collector *dependencyIssueCollector,
+) []dependencyConfig {
+	periodCodes := collectOrderedPeriodCodes(periods)
+	defaultTargetPeriod, defaultSourcePeriods, hasDefaultRollup := resolveDefaultPeriodRollup(periodCodes)
+	result := defaultDependencyConfigs(periodCodes)
 	rawItems, ok := content["dependencies"]
 	if !ok {
 		return result
@@ -316,12 +322,16 @@ func resolveDependencyConfigs(content map[string]any, collector *dependencyIssue
 			})
 		case dependencyTypePeriodRollup:
 			targetPeriod := strings.ToUpper(strings.TrimSpace(stringValue(row["targetPeriod"])))
-			if targetPeriod == "" {
-				targetPeriod = "YEAR_END"
+			if targetPeriod == "" && hasDefaultRollup {
+				targetPeriod = defaultTargetPeriod
 			}
 			sources := normalizePeriodCodes(anySlice(row["sourcePeriods"]))
 			if len(sources) == 0 {
-				sources = []string{"Q1", "Q2", "Q3", "Q4"}
+				if hasDefaultRollup {
+					sources = append(sources, defaultSourcePeriods...)
+				} else if targetPeriod != "" {
+					sources = defaultRollupSources(periodCodes, targetPeriod)
+				}
 			}
 			result = append(result, dependencyConfig{
 				Type:          dependencyTypePeriodRollup,
@@ -339,19 +349,23 @@ func resolveDependencyConfigs(content map[string]any, collector *dependencyIssue
 	return result
 }
 
-func defaultDependencyConfigs() []dependencyConfig {
-	return []dependencyConfig{
+func defaultDependencyConfigs(periodCodes []string) []dependencyConfig {
+	result := []dependencyConfig{
 		{
 			Type:             dependencyTypeObjectParent,
 			TargetObjectType: ObjectTypeIndividual,
 			SourceObjectType: ObjectTypeTeam,
 		},
-		{
-			Type:          dependencyTypePeriodRollup,
-			TargetPeriod:  "YEAR_END",
-			SourcePeriods: []string{"Q1", "Q2", "Q3", "Q4"},
-		},
 	}
+	targetPeriod, sourcePeriods, ok := resolveDefaultPeriodRollup(periodCodes)
+	if ok {
+		result = append(result, dependencyConfig{
+			Type:          dependencyTypePeriodRollup,
+			TargetPeriod:  targetPeriod,
+			SourcePeriods: sourcePeriods,
+		})
+	}
+	return result
 }
 
 func compileDependencyGraph(
@@ -396,7 +410,7 @@ func compileDependencyGraph(
 		case dependencyTypeObjectParent:
 			applyObjectParentDependency(graph, activeObjects, objectByID, periodCodes, dep, collector)
 		case dependencyTypePeriodRollup:
-			applyPeriodRollupDependency(graph, activeObjects, periodSet, dep, collector)
+			applyPeriodRollupDependency(graph, activeObjects, periodCodes, periodSet, dep, collector)
 		default:
 			collector.add(
 				dependencySeverityWarning,
@@ -469,15 +483,30 @@ func applyObjectParentDependency(
 func applyPeriodRollupDependency(
 	graph *dependencyGraph,
 	objects []model.AssessmentSessionObject,
+	periodCodes []string,
 	periodSet map[string]struct{},
 	dependency dependencyConfig,
 	collector *dependencyIssueCollector,
 ) {
 	targetPeriod := strings.ToUpper(strings.TrimSpace(dependency.TargetPeriod))
 	if targetPeriod == "" {
-		targetPeriod = "YEAR_END"
+		defaultTarget, _, ok := resolveDefaultPeriodRollup(periodCodes)
+		if ok {
+			targetPeriod = defaultTarget
+		}
+	}
+	if targetPeriod == "" {
+		collector.add(
+			dependencySeverityError,
+			dependencyIssueInvalidRollup,
+			"period_rollup targetPeriod is empty and cannot be derived from session periods",
+		)
+		return
 	}
 	sourcePeriods := normalizePeriodCodes(stringsToAnySlice(dependency.SourcePeriods))
+	if len(sourcePeriods) == 0 {
+		sourcePeriods = defaultRollupSources(periodCodes, targetPeriod)
+	}
 	if len(sourcePeriods) == 0 {
 		collector.add(
 			dependencySeverityError,
@@ -641,6 +670,59 @@ func normalizePeriodCodes(items []any) []string {
 		}
 		code := strings.ToUpper(strings.TrimSpace(value))
 		if code == "" {
+			continue
+		}
+		if _, exists := seen[code]; exists {
+			continue
+		}
+		seen[code] = struct{}{}
+		result = append(result, code)
+	}
+	return result
+}
+
+func collectOrderedPeriodCodes(periods []model.AssessmentSessionPeriod) []string {
+	result := make([]string, 0, len(periods))
+	seen := map[string]struct{}{}
+	for _, period := range periods {
+		code := strings.ToUpper(strings.TrimSpace(period.PeriodCode))
+		if code == "" {
+			continue
+		}
+		if _, exists := seen[code]; exists {
+			continue
+		}
+		seen[code] = struct{}{}
+		result = append(result, code)
+	}
+	return result
+}
+
+func resolveDefaultPeriodRollup(periodCodes []string) (string, []string, bool) {
+	if len(periodCodes) < 2 {
+		return "", nil, false
+	}
+	targetPeriod := strings.ToUpper(strings.TrimSpace(periodCodes[len(periodCodes)-1]))
+	if targetPeriod == "" {
+		return "", nil, false
+	}
+	sourcePeriods := defaultRollupSources(periodCodes, targetPeriod)
+	if len(sourcePeriods) == 0 {
+		return "", nil, false
+	}
+	return targetPeriod, sourcePeriods, true
+}
+
+func defaultRollupSources(periodCodes []string, targetPeriod string) []string {
+	target := strings.ToUpper(strings.TrimSpace(targetPeriod))
+	if target == "" {
+		return nil
+	}
+	result := make([]string, 0, len(periodCodes))
+	seen := map[string]struct{}{}
+	for _, codeRaw := range periodCodes {
+		code := strings.ToUpper(strings.TrimSpace(codeRaw))
+		if code == "" || code == target {
 			continue
 		}
 		if _, exists := seen[code]; exists {

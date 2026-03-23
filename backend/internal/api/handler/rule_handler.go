@@ -135,6 +135,9 @@ func (h *RuleHandler) handleRuleError(c *gin.Context, err error, fallback string
 		errors.Is(err, service.ErrInvalidRuleName),
 		errors.Is(err, service.ErrInvalidRuleObjectCategory):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+	case errors.Is(err, service.ErrInvalidExpression),
+		errors.Is(err, service.ErrCalcExpressionEval):
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrForbidden):
 		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrRuleNotFound),

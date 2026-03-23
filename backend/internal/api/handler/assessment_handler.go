@@ -404,7 +404,8 @@ func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fal
 		errors.Is(err, service.ErrInvalidRuleObjectType),
 		errors.Is(err, service.ErrInvalidRuleObjectCategory):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
-	case errors.Is(err, service.ErrCalcDependencyCycle):
+	case errors.Is(err, service.ErrCalcDependencyCycle),
+		errors.Is(err, service.ErrCalcExpressionEval):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrInvalidExpression):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())

@@ -3,8 +3,10 @@ package service
 import "sort"
 
 type RuleEngineScoreModule struct {
-	ModuleKey string
-	Weight    float64
+	ModuleKey         string
+	Weight            float64
+	CalculationMethod string
+	CustomScript      string
 }
 
 type RuleEngineGradeScoreNode struct {
@@ -26,8 +28,10 @@ type RuleEngineGradeRule struct {
 }
 
 type RuleEngineObject struct {
-	ObjectID uint
-	GroupKey string
+	ObjectID   uint
+	GroupKey   string
+	PeriodCode string
+	ObjectType string
 
 	ModuleScores map[string]float64
 	ExtraAdjust  float64
