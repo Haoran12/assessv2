@@ -1,5 +1,6 @@
 import { http } from "@/api/http";
 import type {
+  RuleExpressionContext,
   RuleDependencyCheckResult,
   RuleFileItem,
   UpdateRuleFilePayload,
@@ -23,4 +24,19 @@ export async function updateRuleFile(ruleId: number, payload: UpdateRuleFilePayl
 export async function checkRuleDependencies(ruleId: number): Promise<RuleDependencyCheckResult> {
   const response = await http.post(`/api/rules/files/${ruleId}/dependency-check`);
   return response.data?.data as RuleDependencyCheckResult;
+}
+
+export async function getRuleExpressionContext(
+  assessmentId: number,
+  periodCode?: string,
+  objectGroupCode?: string,
+): Promise<RuleExpressionContext> {
+  const response = await http.get("/api/rules/expression-context", {
+    params: {
+      assessmentId,
+      periodCode: String(periodCode || "").trim(),
+      objectGroupCode: String(objectGroupCode || "").trim(),
+    },
+  });
+  return response.data?.data as RuleExpressionContext;
 }

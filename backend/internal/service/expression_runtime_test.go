@@ -76,3 +76,13 @@ func TestExpressionRuntimeEvalErrorMapping(t *testing.T) {
 		t.Fatalf("expected ErrCalcExpressionEval for bool type mismatch, got=%v", err)
 	}
 }
+
+func TestExpressionRuntimeCompileSupportsLookupFunctions(t *testing.T) {
+	runtime := NewExpressionRuntime()
+	if _, err := runtime.CompileNumber(`score("Q1", objectId) + moduleScore("Q1", objectId, "base_performance")`); err != nil {
+		t.Fatalf("compile with lookup functions failed: %v", err)
+	}
+	if _, err := runtime.CompileBool(`hasScore("Q1", objectId) && targetScore("Q1", "department", targetId) >= 80`); err != nil {
+		t.Fatalf("compile bool with lookup functions failed: %v", err)
+	}
+}

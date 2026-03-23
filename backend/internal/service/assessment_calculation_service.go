@@ -141,6 +141,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		}
 		rawScoresByNode[key][strings.TrimSpace(row.ModuleKey)] = row.Score
 	}
+	lookup := newExpressionScoreLookup(periods, activeObjects, rawScoresByNode)
 
 	states := make(map[string]*calculationNodeState, len(nodes))
 	calculatedModuleScoresByNode := make(map[string]map[string]float64, len(nodes))
@@ -167,11 +168,19 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 				extraAdjust = value
 			}
 		}
-		moduleScoreMap, hasModuleInput, err := evaluateRuleModuleScores(period, object, scoreModules, rawModuleScores, extraAdjust)
+		moduleScoreMap, hasModuleInput, err := evaluateRuleModuleScores(
+			period,
+			object,
+			scoreModules,
+			rawModuleScores,
+			extraAdjust,
+			lookup,
+		)
 		if err != nil {
 			return nil, mapToCalculationEvalError(err)
 		}
 		calculatedModuleScoresByNode[node] = moduleScoreMap
+		lookup.setNodeModuleScores(period, object.ID, moduleScoreMap)
 		extraAdjustByNode[node] = extraAdjust
 		hasBaseInput := hasModuleInput
 		if rawModuleScores != nil {
@@ -186,6 +195,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 				Value:    value,
 				Source:   "base",
 			}
+			lookup.setNodeTotal(period, object.ID, value)
 			continue
 		}
 		states[node] = &calculationNodeState{}
@@ -206,6 +216,9 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 			state.HasValue = true
 			state.Value = periodRollupValue
 			state.Source = dependencyTypePeriodRollup
+			if periodCode, objectID, parseOK := parseCalculationNodeKey(node); parseOK {
+				lookup.setNodeTotal(periodCode, objectID, periodRollupValue)
+			}
 			continue
 		}
 		parentValue, hasParent := resolveParentValue(incoming[node], states)
@@ -213,6 +226,9 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 			state.HasValue = true
 			state.Value = parentValue
 			state.Source = dependencyTypeObjectParent
+			if periodCode, objectID, parseOK := parseCalculationNodeKey(node); parseOK {
+				lookup.setNodeTotal(periodCode, objectID, parentValue)
+			}
 		}
 	}
 
@@ -247,13 +263,16 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 			row.TotalScore = &value
 			row.ScoreSource = state.Source
 			scoringItems = append(scoringItems, RuleEngineObject{
-				ObjectID:     object.ID,
-				GroupKey:     targetGroup,
-				PeriodCode:   targetPeriod,
-				ObjectType:   object.ObjectType,
-				TotalScore:   value,
-				ExtraAdjust:  extraAdjustByNode[node],
-				ModuleScores: nodeModuleScores,
+				ObjectID:       object.ID,
+				GroupKey:       targetGroup,
+				PeriodCode:     targetPeriod,
+				ObjectType:     object.ObjectType,
+				TargetID:       object.TargetID,
+				TargetType:     object.TargetType,
+				ParentObjectID: object.ParentObjectID,
+				TotalScore:     value,
+				ExtraAdjust:    extraAdjustByNode[node],
+				ModuleScores:   nodeModuleScores,
 			})
 		}
 		rowIndexByObjectID[object.ID] = len(rows)
@@ -265,7 +284,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 	}
 	var gradeEvalErr error
 	graded := AssignGradesByGroup(scoringItems, toGradeRules(targetScoped.Grades), func(object RuleEngineObject, rule RuleEngineGradeRule) (bool, error) {
-		passed, err := EvalBool(rule.ExtraConditionScript, buildGradeScriptEnv(object))
+		passed, err := EvalBool(rule.ExtraConditionScript, buildGradeScriptEnv(object, lookup))
 		if err != nil && gradeEvalErr == nil {
 			gradeEvalErr = err
 		}
@@ -741,6 +760,7 @@ func evaluateRuleModuleScores(
 	scoreModules []RuleEngineScoreModule,
 	rawModuleScores map[string]float64,
 	extraAdjust float64,
+	lookup *expressionScoreLookup,
 ) (map[string]float64, bool, error) {
 	calculated := make(map[string]float64, len(scoreModules))
 	hasInput := false
@@ -769,7 +789,10 @@ func evaluateRuleModuleScores(
 		if script == "" {
 			return nil, false, fmt.Errorf("%w: custom script is required for module %s", ErrCalcExpressionEval, moduleKey)
 		}
-		score, err := EvalNumber(script, buildModuleScriptEnv(periodCode, object, calculated, rawModuleScores, extraAdjust))
+		score, err := EvalNumber(
+			script,
+			buildModuleScriptEnv(periodCode, object, calculated, rawModuleScores, extraAdjust, lookup),
+		)
 		if err != nil {
 			return nil, false, err
 		}
@@ -785,6 +808,7 @@ func buildModuleScriptEnv(
 	moduleScores map[string]float64,
 	rawModuleScores map[string]float64,
 	extraAdjust float64,
+	lookup *expressionScoreLookup,
 ) map[string]any {
 	env := map[string]any{
 		"periodCode":      strings.ToUpper(strings.TrimSpace(periodCode)),
@@ -793,6 +817,7 @@ func buildModuleScriptEnv(
 		"objectType":      object.ObjectType,
 		"targetId":        object.TargetID,
 		"targetType":      object.TargetType,
+		"parentObjectId":  parentObjectIDValue(object.ParentObjectID),
 		"extraAdjust":     extraAdjust,
 		"moduleScores":    cloneFloatMap(moduleScores),
 		"rawModuleScores": cloneFloatMap(rawModuleScores),
@@ -803,21 +828,30 @@ func buildModuleScriptEnv(
 	for key, value := range moduleScores {
 		env[key] = value
 	}
+	for key, value := range lookup.expressionFunctions() {
+		env[key] = value
+	}
 	return env
 }
 
-func buildGradeScriptEnv(item RuleEngineObject) map[string]any {
+func buildGradeScriptEnv(item RuleEngineObject, lookup *expressionScoreLookup) map[string]any {
 	env := map[string]any{
-		"objectId":     item.ObjectID,
-		"groupKey":     item.GroupKey,
-		"periodCode":   item.PeriodCode,
-		"objectType":   item.ObjectType,
-		"totalScore":   item.TotalScore,
-		"rank":         item.Rank,
-		"extraAdjust":  item.ExtraAdjust,
-		"moduleScores": cloneFloatMap(item.ModuleScores),
+		"objectId":       item.ObjectID,
+		"groupKey":       item.GroupKey,
+		"periodCode":     item.PeriodCode,
+		"objectType":     item.ObjectType,
+		"targetId":       item.TargetID,
+		"targetType":     item.TargetType,
+		"parentObjectId": parentObjectIDValue(item.ParentObjectID),
+		"totalScore":     item.TotalScore,
+		"rank":           item.Rank,
+		"extraAdjust":    item.ExtraAdjust,
+		"moduleScores":   cloneFloatMap(item.ModuleScores),
 	}
 	for key, value := range item.ModuleScores {
+		env[key] = value
+	}
+	for key, value := range lookup.expressionFunctions() {
 		env[key] = value
 	}
 	return env
@@ -842,6 +876,13 @@ func cloneFloatMap(source map[string]float64) map[string]float64 {
 		result[key] = value
 	}
 	return result
+}
+
+func parentObjectIDValue(parentObjectID *uint) uint {
+	if parentObjectID == nil {
+		return 0
+	}
+	return *parentObjectID
 }
 
 func buildOutputModuleScores(

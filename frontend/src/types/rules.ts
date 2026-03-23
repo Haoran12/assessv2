@@ -40,3 +40,40 @@ export interface RuleDependencyCheckResult {
   summary: RuleDependencyCheckSummary;
   issues: RuleDependencyIssue[];
 }
+
+export interface RuleExpressionVariable {
+  name: string;
+  type: string;
+  description: string;
+  insertText: string;
+}
+
+export interface RuleExpressionFunction {
+  name: string;
+  signature: string;
+  returnType: string;
+  description: string;
+  insertText: string;
+}
+
+export interface RuleExpressionObjectOption {
+  objectId: number;
+  objectName: string;
+  objectType: string;
+  groupCode: string;
+  targetType: string;
+  targetId: number;
+  parentObjectId?: number;
+  isPriority?: boolean;
+}
+
+export interface RuleExpressionContext {
+  assessmentId: number;
+  periodCode?: string;
+  objectGroupCode?: string;
+  moduleVariables: RuleExpressionVariable[];
+  gradeVariables: RuleExpressionVariable[];
+  functions: RuleExpressionFunction[];
+  periods: string[];
+  objects: RuleExpressionObjectOption[];
+}

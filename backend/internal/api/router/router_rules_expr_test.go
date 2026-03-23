@@ -68,6 +68,83 @@ func TestExprCalculatedObjectsEvalErrorReturns40003(t *testing.T) {
 	}
 }
 
+func TestExprContextEndpoint(t *testing.T) {
+	engine, db := setupTestServer(t)
+	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
+	sessionID := seedExprAssessmentFixture(t, db, buildExprRuleContentJSON(t, "custom_script", `score("Q1", objectId)`, ""))
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("/api/rules/expression-context?assessmentId=%d&periodCode=Q1&objectGroupCode=dept_main", sessionID),
+		nil,
+	)
+	req.Header.Set("Authorization", "Bearer "+rootToken)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status=200, got=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var envelope apiEnvelope
+	if err := json.Unmarshal(resp.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse response body: %v", err)
+	}
+	if envelope.Code != response.CodeSuccess {
+		t.Fatalf("expected code=%d, got=%d body=%s", response.CodeSuccess, envelope.Code, resp.Body.String())
+	}
+
+	var payload struct {
+		Functions []struct {
+			Name string `json:"name"`
+		} `json:"functions"`
+		ModuleVariables []struct {
+			Name string `json:"name"`
+		} `json:"moduleVariables"`
+		Periods []string `json:"periods"`
+		Objects []struct {
+			ObjectID       uint   `json:"objectId"`
+			GroupCode      string `json:"groupCode"`
+			ParentObjectID *uint  `json:"parentObjectId"`
+			IsPriority     bool   `json:"isPriority"`
+		} `json:"objects"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		t.Fatalf("failed to parse expression context payload: %v", err)
+	}
+	if len(payload.Functions) == 0 {
+		t.Fatalf("expected functions in expression context")
+	}
+	hasScoreFn := false
+	for _, item := range payload.Functions {
+		if item.Name == "score" {
+			hasScoreFn = true
+			break
+		}
+	}
+	if !hasScoreFn {
+		t.Fatalf("expected score function in expression context, got=%v", payload.Functions)
+	}
+	if len(payload.ModuleVariables) == 0 || len(payload.Periods) == 0 || len(payload.Objects) == 0 {
+		t.Fatalf("expected moduleVariables/periods/objects to be non-empty")
+	}
+	priorityCount := 0
+	hasParentLink := false
+	for _, object := range payload.Objects {
+		if object.IsPriority {
+			priorityCount++
+		}
+		if object.GroupCode == "dept_main" && object.ParentObjectID != nil && *object.ParentObjectID > 0 {
+			hasParentLink = true
+		}
+	}
+	if priorityCount == 0 {
+		t.Fatalf("expected at least one priority object in expression context")
+	}
+	if !hasParentLink {
+		t.Fatalf("expected dept_main object to expose parentObjectId in expression context")
+	}
+}
+
 func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) uint {
 	t.Helper()
 
@@ -99,15 +176,29 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 	if err := db.Create(&period).Error; err != nil {
 		t.Fatalf("create period failed: %v", err)
 	}
-	object := model.AssessmentSessionObject{
+	teamObject := model.AssessmentSessionObject{
 		AssessmentID: session.ID,
-		ObjectType:   "individual",
-		GroupCode:    "dept_main",
-		TargetID:     1,
-		TargetType:   "employee",
-		ObjectName:   "Expr User",
+		ObjectType:   "team",
+		GroupCode:    "dept_team",
+		TargetID:     11,
+		TargetType:   "department",
+		ObjectName:   "Expr Team",
 		SortOrder:    1,
 		IsActive:     true,
+	}
+	if err := db.Create(&teamObject).Error; err != nil {
+		t.Fatalf("create team object failed: %v", err)
+	}
+	object := model.AssessmentSessionObject{
+		AssessmentID:   session.ID,
+		ObjectType:     "individual",
+		GroupCode:      "dept_main",
+		TargetID:       1,
+		TargetType:     "employee",
+		ObjectName:     "Expr User",
+		ParentObjectID: &teamObject.ID,
+		SortOrder:      2,
+		IsActive:       true,
 	}
 	if err := db.Create(&object).Error; err != nil {
 		t.Fatalf("create object failed: %v", err)

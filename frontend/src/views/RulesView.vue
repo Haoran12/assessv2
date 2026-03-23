@@ -326,6 +326,103 @@
             :disabled="!canEditRule"
             placeholder="请输入该模块的脚本内容"
           />
+          <div class="script-helper-panel">
+            <div class="script-helper-header">
+              <span>变量与函数</span>
+              <span v-if="expressionContextLoading" class="script-helper-loading">加载中...</span>
+            </div>
+            <div class="script-helper-controls">
+              <el-select
+                v-model="expressionGroupFilter"
+                size="small"
+                class="script-helper-group-filter"
+              >
+                <el-option
+                  v-for="option in expressionObjectGroupOptions"
+                  :key="`module-group-filter-${option.value}`"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+              <el-input
+                v-model.trim="expressionSearchText"
+                size="small"
+                clearable
+                class="script-helper-search"
+                placeholder="搜索变量 / 函数 / 对象"
+              />
+            </div>
+            <div class="script-helper-section">
+              <div class="script-helper-title">优先模板（当前对象 / 所属团体）</div>
+              <div class="script-helper-items">
+                <el-button
+                  v-for="item in modulePrioritySnippets"
+                  :key="`module-priority-${item.key}`"
+                  size="small"
+                  text
+                  :disabled="!canEditRule"
+                  @click="insertModuleScriptSnippet(item.insertText)"
+                >
+                  {{ item.label }}
+                </el-button>
+              </div>
+            </div>
+            <div class="script-helper-section">
+              <div class="script-helper-title">变量</div>
+              <div class="script-helper-items">
+                <el-button
+                  v-for="item in filteredModuleExpressionVariables"
+                  :key="`module-var-${item.name}`"
+                  size="small"
+                  text
+                  :disabled="!canEditRule"
+                  @click="insertModuleScriptSnippet(item.insertText)"
+                >
+                  {{ item.name }}
+                </el-button>
+              </div>
+            </div>
+            <div class="script-helper-section">
+              <div class="script-helper-title">函数模板</div>
+              <div class="script-helper-items">
+                <el-button
+                  v-for="item in filteredExpressionFunctions"
+                  :key="`module-fn-${item.name}`"
+                  size="small"
+                  text
+                  :disabled="!canEditRule"
+                  @click="insertModuleScriptSnippet(item.insertText)"
+                >
+                  {{ item.signature }}
+                </el-button>
+              </div>
+            </div>
+            <div class="script-helper-section">
+              <div class="script-helper-title">周期/对象快捷插入</div>
+              <div class="script-helper-items">
+                <el-button
+                  v-for="period in filteredExpressionPeriods"
+                  :key="`period-${period}`"
+                  size="small"
+                  text
+                  :disabled="!canEditRule"
+                  @click="insertModuleScriptSnippet(`\"${period}\"`)"
+                >
+                  "{{ period }}"
+                </el-button>
+                <el-button
+                  v-for="objectItem in filteredExpressionObjects"
+                  :key="`object-${objectItem.objectId}`"
+                  size="small"
+                  text
+                  :disabled="!canEditRule"
+                  @click="insertModuleScriptSnippet(String(objectItem.objectId))"
+                >
+                  {{ objectItem.objectId }} ({{ objectItem.objectName }}){{ objectItem.isPriority ? " [优先]" : "" }}
+                </el-button>
+              </div>
+            </div>
+          </div>
         </template>
 
         <template v-else-if="moduleDetailTarget.calculationMethod === 'vote'">
@@ -368,6 +465,78 @@
           :disabled="!canEditRule"
           placeholder="可为空，复用自定义脚本"
         />
+        <div class="script-helper-panel">
+          <div class="script-helper-header">
+            <span>变量与函数</span>
+            <span v-if="expressionContextLoading" class="script-helper-loading">加载中...</span>
+          </div>
+          <div class="script-helper-controls">
+            <el-select
+              v-model="expressionGroupFilter"
+              size="small"
+              class="script-helper-group-filter"
+            >
+              <el-option
+                v-for="option in expressionObjectGroupOptions"
+                :key="`grade-group-filter-${option.value}`"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <el-input
+              v-model.trim="expressionSearchText"
+              size="small"
+              clearable
+              class="script-helper-search"
+              placeholder="搜索变量 / 函数 / 对象"
+            />
+          </div>
+          <div class="script-helper-section">
+            <div class="script-helper-title">优先模板（当前对象 / 所属团体）</div>
+            <div class="script-helper-items">
+              <el-button
+                v-for="item in gradePrioritySnippets"
+                :key="`grade-priority-${item.key}`"
+                size="small"
+                text
+                :disabled="!canEditRule"
+                @click="insertGradeScriptSnippet(item.insertText)"
+              >
+                {{ item.label }}
+              </el-button>
+            </div>
+          </div>
+          <div class="script-helper-section">
+            <div class="script-helper-title">变量</div>
+            <div class="script-helper-items">
+              <el-button
+                v-for="item in filteredGradeExpressionVariables"
+                :key="`grade-var-${item.name}`"
+                size="small"
+                text
+                :disabled="!canEditRule"
+                @click="insertGradeScriptSnippet(item.insertText)"
+              >
+                {{ item.name }}
+              </el-button>
+            </div>
+          </div>
+          <div class="script-helper-section">
+            <div class="script-helper-title">函数模板</div>
+            <div class="script-helper-items">
+              <el-button
+                v-for="item in filteredExpressionFunctions"
+                :key="`grade-fn-${item.name}`"
+                size="small"
+                text
+                :disabled="!canEditRule"
+                @click="insertGradeScriptSnippet(item.insertText)"
+              >
+                {{ item.signature }}
+              </el-button>
+            </div>
+          </div>
+        </div>
       </template>
       <template #footer>
         <el-button @click="closeGradeDetail">关闭</el-button>
@@ -392,6 +561,7 @@ import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
 import {
   checkRuleDependencies,
+  getRuleExpressionContext,
   listRuleFiles,
   updateRuleFile,
 } from "@/api/rules";
@@ -400,7 +570,14 @@ import type {
   AssessmentSessionItem,
   AssessmentSessionPeriodItem,
 } from "@/types/assessment";
-import type { RuleDependencyCheckResult, RuleFileItem } from "@/types/rules";
+import type {
+  RuleDependencyCheckResult,
+  RuleExpressionContext,
+  RuleExpressionFunction,
+  RuleExpressionObjectOption,
+  RuleExpressionVariable,
+  RuleFileItem,
+} from "@/types/rules";
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
 type ConditionLogic = "and" | "or";
@@ -448,6 +625,12 @@ interface StructuredRuleContent {
   scopedRules: ScopedRule[];
 }
 
+interface ExpressionSnippetOption {
+  key: string;
+  label: string;
+  insertText: string;
+}
+
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
 const dirtySourceId = "rules:editor";
@@ -484,6 +667,10 @@ const copySourceObjectGroupCode = ref("");
 const copySourcePeriods = ref<AssessmentSessionPeriodItem[]>([]);
 const copySourceObjectGroups = ref<AssessmentObjectGroupItem[]>([]);
 const ruleEditorBaseline = ref("");
+const expressionContextLoading = ref(false);
+const expressionContext = ref<RuleExpressionContext | null>(null);
+const expressionSearchText = ref("");
+const expressionGroupFilter = ref("current");
 
 const ruleContent = reactive<StructuredRuleContent>(defaultRuleContent(true));
 
@@ -499,6 +686,125 @@ const totalWeight = computed(() =>
 );
 
 const structuredJsonPreview = computed(() => JSON.stringify(normalizeRuleContent(cloneDeep(ruleContent)), null, 2));
+const moduleExpressionVariables = computed<RuleExpressionVariable[]>(() => expressionContext.value?.moduleVariables || []);
+const gradeExpressionVariables = computed<RuleExpressionVariable[]>(() => expressionContext.value?.gradeVariables || []);
+const expressionFunctions = computed<RuleExpressionFunction[]>(() => expressionContext.value?.functions || []);
+const expressionPeriods = computed<string[]>(() => expressionContext.value?.periods || []);
+const expressionObjects = computed<RuleExpressionObjectOption[]>(() => expressionContext.value?.objects || []);
+const expressionCurrentGroupCode = computed(() =>
+  String(contextStore.objectGroupCode || expressionContext.value?.objectGroupCode || "").trim(),
+);
+const expressionSearchKeyword = computed(() => normalizeExpressionKeyword(expressionSearchText.value));
+const expressionObjectGroupOptions = computed<{ value: string; label: string }[]>(() => {
+  const options: { value: string; label: string }[] = [];
+  const currentGroupCode = expressionCurrentGroupCode.value;
+  options.push({
+    value: "current",
+    label: currentGroupCode ? `当前对象分组 (${currentGroupCode})` : "当前对象分组",
+  });
+  options.push({
+    value: "all",
+    label: "全部对象分组",
+  });
+  const groupSet = new Set<string>();
+  for (const item of expressionObjects.value) {
+    const code = String(item.groupCode || "").trim();
+    if (!code) {
+      continue;
+    }
+    groupSet.add(code);
+  }
+  const sortedGroups = Array.from(groupSet).sort((left, right) => left.localeCompare(right));
+  for (const code of sortedGroups) {
+    options.push({
+      value: code,
+      label: `分组: ${code}`,
+    });
+  }
+  return options;
+});
+const filteredModuleExpressionVariables = computed<RuleExpressionVariable[]>(() =>
+  filterExpressionVariables(moduleExpressionVariables.value, expressionSearchKeyword.value),
+);
+const filteredGradeExpressionVariables = computed<RuleExpressionVariable[]>(() =>
+  filterExpressionVariables(gradeExpressionVariables.value, expressionSearchKeyword.value),
+);
+const filteredExpressionFunctions = computed<RuleExpressionFunction[]>(() =>
+  filterExpressionFunctions(expressionFunctions.value, expressionSearchKeyword.value),
+);
+const filteredExpressionPeriods = computed<string[]>(() => {
+  const keyword = expressionSearchKeyword.value;
+  if (!keyword) {
+    return expressionPeriods.value;
+  }
+  return expressionPeriods.value.filter((period) => matchesExpressionKeyword(keyword, period));
+});
+const filteredExpressionObjects = computed<RuleExpressionObjectOption[]>(() => {
+  const groupFilter = expressionGroupFilter.value;
+  const currentGroupCode = expressionCurrentGroupCode.value;
+  let items = expressionObjects.value;
+  if (groupFilter === "current") {
+    if (currentGroupCode) {
+      items = items.filter((item) => String(item.groupCode || "").trim() === currentGroupCode || !!item.isPriority);
+    } else {
+      items = items.filter((item) => !!item.isPriority);
+    }
+  } else if (groupFilter !== "all") {
+    items = items.filter((item) => String(item.groupCode || "").trim() === groupFilter);
+  }
+  const keyword = expressionSearchKeyword.value;
+  if (!keyword) {
+    return items;
+  }
+  return items.filter((item) =>
+    matchesExpressionKeyword(
+      keyword,
+      String(item.objectId),
+      item.objectName,
+      item.groupCode,
+      item.objectType,
+      item.targetType,
+      String(item.targetId),
+      item.parentObjectId ? String(item.parentObjectId) : "",
+    ),
+  );
+});
+const expressionModuleKeyHint = computed(() => {
+  for (const item of moduleExpressionVariables.value) {
+    const match = /^moduleScores\["(.+)"\]$/.exec(String(item.insertText || "").trim());
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  return "module_key";
+});
+const modulePrioritySnippets = computed<ExpressionSnippetOption[]>(() => [
+  { key: "self-score", label: "当前对象总分", insertText: "score(periodCode, objectId)" },
+  {
+    key: "self-module-score",
+    label: "当前对象模块分",
+    insertText: `moduleScore(periodCode, objectId, "${expressionModuleKeyHint.value}")`,
+  },
+  { key: "parent-score", label: "所属团体总分", insertText: "score(periodCode, parentObjectId)" },
+  {
+    key: "parent-module-score",
+    label: "所属团体模块分",
+    insertText: `moduleScore(periodCode, parentObjectId, "${expressionModuleKeyHint.value}")`,
+  },
+]);
+const gradePrioritySnippets = computed<ExpressionSnippetOption[]>(() => [
+  { key: "grade-self-score", label: "当前对象总分", insertText: "score(periodCode, objectId)" },
+  {
+    key: "grade-parent-score",
+    label: "所属团体总分",
+    insertText: "score(periodCode, parentObjectId)",
+  },
+  {
+    key: "grade-parent-has-score",
+    label: "所属团体已评分",
+    insertText: "hasScore(periodCode, parentObjectId)",
+  },
+]);
 
 const sourceSessionOptions = computed<AssessmentSessionItem[]>(() => contextStore.sessions);
 
@@ -629,6 +935,50 @@ function toNullableNumber(value: unknown): number | null {
     return null;
   }
   return parsed;
+}
+
+function normalizeExpressionKeyword(value: unknown): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function matchesExpressionKeyword(keyword: string, ...parts: Array<unknown>): boolean {
+  if (!keyword) {
+    return true;
+  }
+  for (const part of parts) {
+    const normalized = normalizeExpressionKeyword(part);
+    if (!normalized) {
+      continue;
+    }
+    if (normalized.includes(keyword)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function filterExpressionVariables(
+  variables: RuleExpressionVariable[],
+  keyword: string,
+): RuleExpressionVariable[] {
+  if (!keyword) {
+    return variables;
+  }
+  return variables.filter((item) =>
+    matchesExpressionKeyword(keyword, item.name, item.type, item.description, item.insertText),
+  );
+}
+
+function filterExpressionFunctions(
+  functions: RuleExpressionFunction[],
+  keyword: string,
+): RuleExpressionFunction[] {
+  if (!keyword) {
+    return functions;
+  }
+  return functions.filter((item) =>
+    matchesExpressionKeyword(keyword, item.name, item.signature, item.description, item.insertText),
+  );
 }
 
 function cloneDeep<T>(value: T): T {
@@ -974,12 +1324,63 @@ async function loadData(): Promise<void> {
     contextWarning.value = validateContextForLoad();
     await loadFilesOnly();
     syncActiveScopedRuleWithContext();
+    await loadExpressionContext();
   } catch (error) {
     const message = error instanceof Error ? error.message : "加载规则管理数据失败";
     ElMessage.error(message);
   } finally {
     loading.value = false;
   }
+}
+
+async function loadExpressionContext(): Promise<void> {
+  if (!contextStore.sessionId) {
+    expressionContext.value = null;
+    return;
+  }
+  expressionContextLoading.value = true;
+  try {
+    expressionContext.value = await getRuleExpressionContext(
+      contextStore.sessionId,
+      contextStore.periodCode || "",
+      contextStore.objectGroupCode || "",
+    );
+    if (!expressionObjectGroupOptions.value.some((item) => item.value === expressionGroupFilter.value)) {
+      expressionGroupFilter.value = "current";
+    }
+  } catch {
+    expressionContext.value = null;
+    expressionGroupFilter.value = "current";
+  } finally {
+    expressionContextLoading.value = false;
+  }
+}
+
+function appendScriptSnippet(currentText: string, snippet: string): string {
+  const normalizedSnippet = String(snippet || "").trim();
+  if (!normalizedSnippet) {
+    return currentText;
+  }
+  const existing = String(currentText || "");
+  if (!existing.trim()) {
+    return normalizedSnippet;
+  }
+  const divider = existing.endsWith("\n") ? "" : "\n";
+  return existing + divider + normalizedSnippet;
+}
+
+function insertModuleScriptSnippet(snippet: string): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  moduleDetailDraft.customScript = appendScriptSnippet(moduleDetailDraft.customScript, snippet);
+}
+
+function insertGradeScriptSnippet(snippet: string): void {
+  if (!canEditRule.value) {
+    return;
+  }
+  gradeDetailDraft.extraConditionScript = appendScriptSnippet(gradeDetailDraft.extraConditionScript, snippet);
 }
 
 function handleMethodChange(module: ScoreModule): void {
@@ -1598,6 +1999,7 @@ watch(
   () => {
     contextWarning.value = validateContextForLoad();
     syncActiveScopedRuleWithContext();
+    void loadExpressionContext();
     closeCopyDialog();
     closeModuleDetail();
     closeGradeDetail();
@@ -1702,6 +2104,64 @@ onBeforeUnmount(() => {
   margin-bottom: 6px;
   font-size: 13px;
   color: #606266;
+}
+
+.script-helper-panel {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.script-helper-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.script-helper-loading {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 400;
+}
+
+.script-helper-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.script-helper-group-filter {
+  width: 240px;
+  max-width: 100%;
+}
+
+.script-helper-search {
+  width: 260px;
+  max-width: 100%;
+}
+
+.script-helper-section + .script-helper-section {
+  margin-top: 8px;
+}
+
+.script-helper-title {
+  font-size: 12px;
+  color: #606266;
+  margin-bottom: 4px;
+}
+
+.script-helper-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .grade-node-cell {

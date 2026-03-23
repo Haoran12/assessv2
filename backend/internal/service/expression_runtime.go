@@ -17,6 +17,21 @@ type ExpressionRuntime struct {
 
 var defaultExpressionRuntime = NewExpressionRuntime()
 
+var expressionCompileEnv = map[string]any{
+	"score": func(periodCode string, objectID any) float64 {
+		return 0
+	},
+	"moduleScore": func(periodCode string, objectID any, moduleKey string) float64 {
+		return 0
+	},
+	"targetScore": func(periodCode string, targetType string, targetID any) float64 {
+		return 0
+	},
+	"hasScore": func(periodCode string, objectID any) bool {
+		return false
+	},
+}
+
 func NewExpressionRuntime() *ExpressionRuntime {
 	return &ExpressionRuntime{}
 }
@@ -48,7 +63,7 @@ func (r *ExpressionRuntime) CompileNumber(script string) (*vm.Program, error) {
 	}
 	program, err := expr.Compile(
 		cacheKey,
-		expr.Env(map[string]any{}),
+		expr.Env(expressionCompileEnv),
 		expr.AllowUndefinedVariables(),
 		expr.AsFloat64(),
 	)
@@ -70,7 +85,7 @@ func (r *ExpressionRuntime) CompileBool(script string) (*vm.Program, error) {
 	}
 	program, err := expr.Compile(
 		cacheKey,
-		expr.Env(map[string]any{}),
+		expr.Env(expressionCompileEnv),
 		expr.AllowUndefinedVariables(),
 		expr.AsBool(),
 	)

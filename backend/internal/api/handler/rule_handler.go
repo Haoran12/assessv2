@@ -26,6 +26,31 @@ type ruleFileRequest struct {
 	ContentJSON  string `json:"contentJson"`
 }
 
+func (h *RuleHandler) GetExpressionContext(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	assessmentID, err := parseOptionalUintQuery(c.Query("assessmentId"))
+	if err != nil || assessmentID == nil || *assessmentID == 0 {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessmentId")
+		return
+	}
+	result, err := h.service.GetRuleExpressionContext(
+		c.Request.Context(),
+		claims,
+		*assessmentID,
+		c.Query("periodCode"),
+		c.Query("objectGroupCode"),
+	)
+	if err != nil {
+		h.handleRuleError(c, err, "failed to query expression context")
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *RuleHandler) ListRuleFiles(c *gin.Context) {
 	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {

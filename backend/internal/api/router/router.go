@@ -107,6 +107,7 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		rules := api.Group("/rules")
 		rules.Use(middleware.RequireJWT(cfg.JWTSecret), middleware.RequireOrgScope())
 		rules.GET("/_ping", moduleHandler.ModulePing("rules"))
+		rules.GET("/expression-context", middleware.RequirePermission("rule:view"), ruleHandler.GetExpressionContext)
 		rules.GET("/files", middleware.RequirePermission("rule:view"), ruleHandler.ListRuleFiles)
 		rules.POST("/files", middleware.RequirePermission("rule:update"), ruleHandler.CreateRuleFile)
 		rules.PUT("/files/:id", middleware.RequirePermission("rule:update"), ruleHandler.UpdateRuleFile)

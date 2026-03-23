@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
 	"testing"
 
 	"assessv2/backend/internal/auth"
@@ -199,6 +200,84 @@ func TestListCalculatedObjects_CustomScriptRuntimeError(t *testing.T) {
 	)
 	if !errors.Is(err, ErrCalcExpressionEval) {
 		t.Fatalf("expected ErrCalcExpressionEval, got=%v", err)
+	}
+}
+
+func TestListCalculatedObjects_CustomScriptLookupFunctions(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+	replaceCalculationFixtureRuleContent(
+		t,
+		fixture,
+		buildRuleContentJSONWithLookupModuleScript(
+			t,
+			`score("Q1", `+strconv.FormatUint(uint64(fixture.teamObjectID), 10)+`) + moduleScore("Q1", `+strconv.FormatUint(uint64(fixture.teamObjectID), 10)+`, "base_performance") - 88`,
+		),
+	)
+
+	moduleScores := []model.AssessmentObjectModuleScore{
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q1", ObjectID: fixture.teamObjectID, ModuleKey: "base_performance", Score: 88},
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q1", ObjectID: fixture.individualObjectID, ModuleKey: "base_performance", Score: 80},
+	}
+	if err := fixture.db.Create(&moduleScores).Error; err != nil {
+		t.Fatalf("create module scores failed: %v", err)
+	}
+
+	rows, err := fixture.service.ListCalculatedObjects(
+		context.Background(),
+		fixture.claims,
+		fixture.sessionID,
+		"Q1",
+		"dept_main",
+	)
+	if err != nil {
+		t.Fatalf("list calculated objects failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got=%d", len(rows))
+	}
+	row := rows[0]
+	if row.ModuleScores["derived_score"] == nil || !almostEqual(*row.ModuleScores["derived_score"], 88) {
+		t.Fatalf("expected derived_score=88, got=%v", row.ModuleScores["derived_score"])
+	}
+	if row.TotalScore == nil || !almostEqual(*row.TotalScore, 84) {
+		t.Fatalf("expected totalScore=84, got=%v", row.TotalScore)
+	}
+}
+
+func TestListCalculatedObjects_ExtraConditionLookupFunctions(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+	replaceCalculationFixtureRuleContent(
+		t,
+		fixture,
+		buildRuleContentJSONWithLookupGradeScript(
+			t,
+			`hasScore("Q1", `+strconv.FormatUint(uint64(fixture.teamObjectID), 10)+`) && targetScore("Q1", "department", 1) >= 85`,
+		),
+	)
+
+	moduleScores := []model.AssessmentObjectModuleScore{
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q1", ObjectID: fixture.teamObjectID, ModuleKey: "base_performance", Score: 88},
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q1", ObjectID: fixture.individualObjectID, ModuleKey: "base_performance", Score: 80},
+	}
+	if err := fixture.db.Create(&moduleScores).Error; err != nil {
+		t.Fatalf("create module scores failed: %v", err)
+	}
+
+	rows, err := fixture.service.ListCalculatedObjects(
+		context.Background(),
+		fixture.claims,
+		fixture.sessionID,
+		"Q1",
+		"dept_main",
+	)
+	if err != nil {
+		t.Fatalf("list calculated objects failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got=%d", len(rows))
+	}
+	if rows[0].Grade != "A" {
+		t.Fatalf("expected grade A by lookup functions, got=%s", rows[0].Grade)
 	}
 }
 
@@ -465,6 +544,131 @@ func buildRuleContentJSONWithExtraConditionScript(t *testing.T, gradeScript stri
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal extra-condition rule file payload failed: %v", err)
+	}
+	return string(raw)
+}
+
+func buildRuleContentJSONWithLookupModuleScript(t *testing.T, moduleScript string) string {
+	t.Helper()
+	payload := map[string]any{
+		"version": 3,
+		"scopedRules": []map[string]any{
+			{
+				"id":                     "team_rule",
+				"applicablePeriods":      []string{"Q1", "Q2", "Q3", "Q4", "YEAR_END"},
+				"applicableObjectGroups": []string{"dept"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "base_performance",
+						"moduleKey":         "base_performance",
+						"moduleName":        "Base",
+						"weight":            100,
+						"calculationMethod": "direct_input",
+					},
+				},
+				"grades": defaultGradeRules(),
+			},
+			{
+				"id":                     "individual_rule",
+				"applicablePeriods":      []string{"Q1", "Q2", "Q3", "Q4", "YEAR_END"},
+				"applicableObjectGroups": []string{"dept_main"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "base_performance",
+						"moduleKey":         "base_performance",
+						"moduleName":        "Base",
+						"weight":            50,
+						"calculationMethod": "direct_input",
+					},
+					{
+						"id":                "derived_score",
+						"moduleKey":         "derived_score",
+						"moduleName":        "Derived",
+						"weight":            50,
+						"calculationMethod": "custom_script",
+						"customScript":      moduleScript,
+					},
+				},
+				"grades": defaultGradeRules(),
+			},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal lookup module rule file payload failed: %v", err)
+	}
+	return string(raw)
+}
+
+func buildRuleContentJSONWithLookupGradeScript(t *testing.T, gradeScript string) string {
+	t.Helper()
+	payload := map[string]any{
+		"version": 3,
+		"scopedRules": []map[string]any{
+			{
+				"id":                     "team_rule",
+				"applicablePeriods":      []string{"Q1", "Q2", "Q3", "Q4", "YEAR_END"},
+				"applicableObjectGroups": []string{"dept"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "base_performance",
+						"moduleKey":         "base_performance",
+						"moduleName":        "Base",
+						"weight":            100,
+						"calculationMethod": "direct_input",
+					},
+				},
+				"grades": defaultGradeRules(),
+			},
+			{
+				"id":                     "individual_rule",
+				"applicablePeriods":      []string{"Q1", "Q2", "Q3", "Q4", "YEAR_END"},
+				"applicableObjectGroups": []string{"dept_main"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "base_performance",
+						"moduleKey":         "base_performance",
+						"moduleName":        "Base",
+						"weight":            100,
+						"calculationMethod": "direct_input",
+					},
+				},
+				"grades": []map[string]any{
+					{
+						"id":    "grade_a",
+						"title": "A",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    100,
+							"upperOperator": "<=",
+							"hasLowerLimit": true,
+							"lowerScore":    90,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript": gradeScript,
+						"conditionLogic":       "or",
+					},
+					{
+						"id":    "grade_b",
+						"title": "B",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    89.99,
+							"upperOperator": "<=",
+							"hasLowerLimit": true,
+							"lowerScore":    80,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript": "",
+						"conditionLogic":       "and",
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal lookup grade rule file payload failed: %v", err)
 	}
 	return string(raw)
 }

@@ -73,6 +73,32 @@ func TestRuleManagementUpdateRuleFileValidateExpressions(t *testing.T) {
 	}
 }
 
+func TestRuleManagementCreateRuleFileAllowsLookupFunctions(t *testing.T) {
+	fixture := setupRuleManagementFixture(t)
+	contentJSON := buildRuleManagementRuleContentJSON(
+		t,
+		"custom_script",
+		`score("Q1", objectId) + moduleScore("Q1", objectId, "base")`,
+		`hasScore("Q1", objectId) && targetScore("Q1", "department", 1) >= 80`,
+	)
+
+	_, err := fixture.service.CreateRuleFile(
+		context.Background(),
+		fixture.claims,
+		1,
+		RuleFileInput{
+			AssessmentID: fixture.sessionID,
+			RuleName:     "Rule With Lookup Functions",
+			ContentJSON:  contentJSON,
+		},
+		"127.0.0.1",
+		"unit-test",
+	)
+	if err != nil {
+		t.Fatalf("create rule file with lookup functions failed: %v", err)
+	}
+}
+
 type ruleManagementFixture struct {
 	db        *gorm.DB
 	service   *RuleManagementService

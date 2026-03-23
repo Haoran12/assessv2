@@ -28,10 +28,13 @@ type RuleEngineGradeRule struct {
 }
 
 type RuleEngineObject struct {
-	ObjectID   uint
-	GroupKey   string
-	PeriodCode string
-	ObjectType string
+	ObjectID       uint
+	GroupKey       string
+	PeriodCode     string
+	ObjectType     string
+	TargetID       uint
+	TargetType     string
+	ParentObjectID *uint
 
 	ModuleScores map[string]float64
 	ExtraAdjust  float64
