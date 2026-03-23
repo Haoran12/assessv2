@@ -215,6 +215,9 @@
                 </el-table>
                 <div v-if="canEditRule" class="table-footer-actions">
                   <el-button type="primary" @click="addGrade">新增等第</el-button>
+                  <el-button type="warning" plain :disabled="!activeScopedRule" @click="openCopyDialog">
+                    从其他范围复制规则
+                  </el-button>
                 </div>
               </div>
               <el-alert
