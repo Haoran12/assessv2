@@ -369,33 +369,59 @@
             </div>
             <div class="script-helper-section">
               <div class="script-helper-title">变量</div>
-              <div class="script-helper-items">
-                <el-button
+              <div v-if="filteredModuleExpressionVariables.length > 0" class="script-helper-rich-list">
+                <div
                   v-for="item in filteredModuleExpressionVariables"
                   :key="`module-var-${item.name}`"
-                  size="small"
-                  text
-                  :disabled="!canEditRule"
-                  @click="insertModuleScriptSnippet(item.insertText)"
+                  class="script-helper-rich-item"
                 >
-                  {{ item.name }}
-                </el-button>
+                  <div class="script-helper-rich-head">
+                    <span class="script-helper-rich-name">{{ formatExpressionVariableTitle(item) }}</span>
+                    <span class="script-helper-rich-type">{{ item.type }}</span>
+                  </div>
+                  <div class="script-helper-rich-desc">{{ formatExpressionVariableDescription(item) }}</div>
+                  <div class="script-helper-rich-footer">
+                    <code class="script-helper-code">{{ item.insertText }}</code>
+                    <el-button
+                      size="small"
+                      text
+                      :disabled="!canEditRule"
+                      @click="insertModuleScriptSnippet(item.insertText)"
+                    >
+                      插入
+                    </el-button>
+                  </div>
+                </div>
               </div>
+              <div v-else class="script-helper-empty">没有匹配的变量</div>
             </div>
             <div class="script-helper-section">
               <div class="script-helper-title">函数模板</div>
-              <div class="script-helper-items">
-                <el-button
+              <div v-if="filteredExpressionFunctions.length > 0" class="script-helper-rich-list">
+                <div
                   v-for="item in filteredExpressionFunctions"
                   :key="`module-fn-${item.name}`"
-                  size="small"
-                  text
-                  :disabled="!canEditRule"
-                  @click="insertModuleScriptSnippet(item.insertText)"
+                  class="script-helper-rich-item"
                 >
-                  {{ item.signature }}
-                </el-button>
+                  <div class="script-helper-rich-head">
+                    <span class="script-helper-rich-name">{{ item.signature }}</span>
+                    <span class="script-helper-rich-type">{{ item.returnType }}</span>
+                  </div>
+                  <div class="script-helper-rich-desc">{{ formatExpressionFunctionDescription(item) }}</div>
+                  <div class="script-helper-rich-footer">
+                    <code class="script-helper-code">{{ item.insertText }}</code>
+                    <el-button
+                      size="small"
+                      text
+                      :disabled="!canEditRule"
+                      @click="insertModuleScriptSnippet(item.insertText)"
+                    >
+                      插入
+                    </el-button>
+                  </div>
+                </div>
               </div>
+              <div v-else class="script-helper-empty">没有匹配的函数</div>
             </div>
             <div class="script-helper-section">
               <div class="script-helper-title">周期/对象快捷插入</div>
@@ -418,7 +444,7 @@
                   :disabled="!canEditRule"
                   @click="insertModuleScriptSnippet(String(objectItem.objectId))"
                 >
-                  {{ objectItem.objectId }} ({{ objectItem.objectName }}){{ objectItem.isPriority ? " [优先]" : "" }}
+                  {{ objectItem.objectId }} · {{ formatExpressionObjectLabel(objectItem) }}{{ objectItem.isPriority ? " [优先]" : "" }}
                 </el-button>
               </div>
             </div>
@@ -512,33 +538,59 @@
           </div>
           <div class="script-helper-section">
             <div class="script-helper-title">变量</div>
-            <div class="script-helper-items">
-              <el-button
+            <div v-if="filteredGradeExpressionVariables.length > 0" class="script-helper-rich-list">
+              <div
                 v-for="item in filteredGradeExpressionVariables"
                 :key="`grade-var-${item.name}`"
-                size="small"
-                text
-                :disabled="!canEditRule"
-                @click="insertGradeScriptSnippet(item.insertText)"
+                class="script-helper-rich-item"
               >
-                {{ item.name }}
-              </el-button>
+                <div class="script-helper-rich-head">
+                  <span class="script-helper-rich-name">{{ formatExpressionVariableTitle(item) }}</span>
+                  <span class="script-helper-rich-type">{{ item.type }}</span>
+                </div>
+                <div class="script-helper-rich-desc">{{ formatExpressionVariableDescription(item) }}</div>
+                <div class="script-helper-rich-footer">
+                  <code class="script-helper-code">{{ item.insertText }}</code>
+                  <el-button
+                    size="small"
+                    text
+                    :disabled="!canEditRule"
+                    @click="insertGradeScriptSnippet(item.insertText)"
+                  >
+                    插入
+                  </el-button>
+                </div>
+              </div>
             </div>
+            <div v-else class="script-helper-empty">没有匹配的变量</div>
           </div>
           <div class="script-helper-section">
             <div class="script-helper-title">函数模板</div>
-            <div class="script-helper-items">
-              <el-button
+            <div v-if="filteredExpressionFunctions.length > 0" class="script-helper-rich-list">
+              <div
                 v-for="item in filteredExpressionFunctions"
                 :key="`grade-fn-${item.name}`"
-                size="small"
-                text
-                :disabled="!canEditRule"
-                @click="insertGradeScriptSnippet(item.insertText)"
+                class="script-helper-rich-item"
               >
-                {{ item.signature }}
-              </el-button>
+                <div class="script-helper-rich-head">
+                  <span class="script-helper-rich-name">{{ item.signature }}</span>
+                  <span class="script-helper-rich-type">{{ item.returnType }}</span>
+                </div>
+                <div class="script-helper-rich-desc">{{ formatExpressionFunctionDescription(item) }}</div>
+                <div class="script-helper-rich-footer">
+                  <code class="script-helper-code">{{ item.insertText }}</code>
+                  <el-button
+                    size="small"
+                    text
+                    :disabled="!canEditRule"
+                    @click="insertGradeScriptSnippet(item.insertText)"
+                  >
+                    插入
+                  </el-button>
+                </div>
+              </div>
             </div>
+            <div v-else class="script-helper-empty">没有匹配的函数</div>
           </div>
         </div>
       </template>
@@ -812,6 +864,45 @@ const gradePrioritySnippets = computed<ExpressionSnippetOption[]>(() => [
   },
 ]);
 
+const expressionVariableTitleMap: Record<string, string> = {
+  periodCode: "当前周期编码",
+  objectId: "当前考核对象ID",
+  groupCode: "当前对象分组编码",
+  groupKey: "当前对象分组编码",
+  objectType: "当前对象类型",
+  targetId: "关联业务对象ID",
+  targetType: "关联业务对象类型",
+  parentObjectId: "所属团体对象ID",
+  extraAdjust: "额外加减分",
+  totalScore: "当前对象总分",
+  rank: "当前对象组内排名",
+  moduleScores: "模块分数映射",
+  rawModuleScores: "原始录入分数映射",
+};
+
+const expressionVariableDescriptionMap: Record<string, string> = {
+  periodCode: "当前计算周期（例如 Q1、Q2、Y）。",
+  objectId: "当前正在计算的考核对象ID。",
+  groupCode: "当前对象所在分组编码（分数模块脚本常用）。",
+  groupKey: "当前对象所在分组编码（等第脚本常用）。",
+  objectType: "对象类型，通常是 team 或 individual。",
+  targetId: "对象关联的业务目标ID（例如员工ID、部门ID）。",
+  targetType: "对象关联的业务目标类型（employee / department 等）。",
+  parentObjectId: "当前对象所属团体对象ID；没有上级时为 0。",
+  extraAdjust: "额外加减分模块的分数。",
+  totalScore: "当前对象总分（等第脚本常用）。",
+  rank: "当前对象在分组内排名（从 1 开始）。",
+  moduleScores: "已计算模块分数字典，可通过 moduleScores[\"模块Key\"] 读取。",
+  rawModuleScores: "原始录入分数字典，可通过 rawModuleScores[\"模块Key\"] 读取。",
+};
+
+const expressionFunctionDescriptionMap: Record<string, string> = {
+  score: "按周期+对象读取总分，不存在时返回 0。",
+  moduleScore: "按周期+对象+模块Key读取模块分，不存在时返回 0。",
+  targetScore: "按周期+业务目标读取总分，不存在时返回 0。",
+  hasScore: "判断周期内该对象是否已产生总分。",
+};
+
 const sourceSessionOptions = computed<AssessmentSessionItem[]>(() => contextStore.sessions);
 
 const sourceObjectGroupOptions = computed(() =>
@@ -985,6 +1076,58 @@ function filterExpressionFunctions(
   return functions.filter((item) =>
     matchesExpressionKeyword(keyword, item.name, item.signature, item.description, item.insertText),
   );
+}
+
+function formatExpressionVariableTitle(item: RuleExpressionVariable): string {
+  const name = String(item.name || "").trim();
+  if (!name) {
+    return "未命名变量";
+  }
+  const mapped = expressionVariableTitleMap[name];
+  if (mapped) {
+    return `${mapped} (${name})`;
+  }
+  const moduleScoreMatch = /^moduleScores\["(.+)"\]$/.exec(name);
+  if (moduleScoreMatch && moduleScoreMatch[1]) {
+    return `模块分数（${moduleScoreMatch[1]}）`;
+  }
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && /modulekey=/i.test(String(item.description || ""))) {
+    return `模块别名变量（${name}）`;
+  }
+  return name;
+}
+
+function formatExpressionVariableDescription(item: RuleExpressionVariable): string {
+  const name = String(item.name || "").trim();
+  const mapped = expressionVariableDescriptionMap[name];
+  if (mapped) {
+    return mapped;
+  }
+  const moduleScoreMatch = /^moduleScores\["(.+)"\]$/.exec(name);
+  if (moduleScoreMatch && moduleScoreMatch[1]) {
+    return `读取模块「${moduleScoreMatch[1]}」分数。`;
+  }
+  const description = String(item.description || "").trim();
+  return description || "点击“插入”后会追加到脚本末尾。";
+}
+
+function formatExpressionFunctionDescription(item: RuleExpressionFunction): string {
+  const mapped = expressionFunctionDescriptionMap[String(item.name || "").trim()];
+  if (mapped) {
+    return mapped;
+  }
+  const description = String(item.description || "").trim();
+  return description || "点击“插入”后会追加到脚本末尾。";
+}
+
+function formatExpressionObjectLabel(item: RuleExpressionObjectOption): string {
+  const objectName = String(item.objectName || "").trim() || `对象${item.objectId}`;
+  const groupCode = String(item.groupCode || "").trim();
+  const typeLabel = String(item.objectType || "").trim() === "team" ? "团体" : "个人";
+  if (!groupCode) {
+    return `${objectName}（${typeLabel}）`;
+  }
+  return `${objectName}（${typeLabel}/${groupCode}）`;
 }
 
 function cloneDeep<T>(value: T): T {
@@ -2189,6 +2332,72 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.script-helper-rich-list {
+  display: grid;
+  gap: 8px;
+}
+
+.script-helper-rich-item {
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fff;
+}
+
+.script-helper-rich-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.script-helper-rich-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  line-height: 1.4;
+}
+
+.script-helper-rich-type {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.2;
+}
+
+.script-helper-rich-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.5;
+}
+
+.script-helper-rich-footer {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.script-helper-code {
+  flex: 1;
+  min-width: 0;
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f5f7fa;
+  color: #303133;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.script-helper-empty {
+  font-size: 12px;
+  color: #909399;
 }
 
 .grade-node-cell {
