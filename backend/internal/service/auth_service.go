@@ -248,27 +248,6 @@ func extractIdentity(user *model.User) (string, []string, []string, []auth.Organ
 	return primaryRole, roleCodes, permissions, orgScopes, bindings, nil
 }
 
-func buildAuditRecord(
-	userID *uint,
-	actionType string,
-	targetType string,
-	targetID *uint,
-	detail map[string]any,
-	ipAddress string,
-	userAgent string,
-) model.AuditLog {
-	detailBytes, _ := json.Marshal(detail)
-	return model.AuditLog{
-		UserID:       userID,
-		ActionType:   actionType,
-		TargetType:   targetType,
-		TargetID:     targetID,
-		ActionDetail: string(detailBytes),
-		IPAddress:    normalizeIPAddress(ipAddress),
-		UserAgent:    userAgent,
-	}
-}
-
 func jwtRegisteredClaims(userID uint, issuedAt, expiresAt time.Time) jwt.RegisteredClaims {
 	return jwt.RegisteredClaims{
 		Subject:   strconv.FormatUint(uint64(userID), 10),

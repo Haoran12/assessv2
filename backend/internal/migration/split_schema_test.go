@@ -23,8 +23,8 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply business migrations failed: %v", err)
 	}
-	if applied != 7 {
-		t.Fatalf("expected business applied migrations=7, got=%d", applied)
+	if applied != 8 {
+		t.Fatalf("expected business applied migrations=8, got=%d", applied)
 	}
 
 	accountsManager, err := NewManager(accountsDB, migrationsDirFromRepo(t, "accounts"))
@@ -35,8 +35,8 @@ func TestSplitMigrationsApplyFromEmptyDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply accounts migrations failed: %v", err)
 	}
-	if applied != 2 {
-		t.Fatalf("expected accounts applied migrations=2, got=%d", applied)
+	if applied != 3 {
+		t.Fatalf("expected accounts applied migrations=3, got=%d", applied)
 	}
 
 	assertTableExists(t, businessDB, "assessment_sessions", true)

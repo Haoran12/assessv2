@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +39,10 @@ type AuditLogListItem struct {
 	ActionType   string `json:"actionType"`
 	TargetType   string `json:"targetType"`
 	TargetID     *uint  `json:"targetId,omitempty"`
+	EventCode    string `json:"eventCode"`
+	Summary      string `json:"summary"`
+	ChangeCount  int    `json:"changeCount"`
+	HasDiff      bool   `json:"hasDiff"`
 	ActionDetail string `json:"actionDetail"`
 	IPAddress    string `json:"ipAddress"`
 	UserAgent    string `json:"userAgent"`
@@ -54,9 +57,11 @@ type AuditLogListResult struct {
 }
 
 type AuditDiffItem struct {
-	Field  string `json:"field"`
-	Before any    `json:"before"`
-	After  any    `json:"after"`
+	Field      string `json:"field"`
+	Label      string `json:"label,omitempty"`
+	Before     any    `json:"before"`
+	After      any    `json:"after"`
+	ChangeType string `json:"changeType,omitempty"`
 }
 
 type AuditLogDetail struct {
@@ -109,9 +114,9 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 		like := "%" + text + "%"
 		userIDs, err := s.lookupUserIDsByKeyword(ctx, text)
 		if err == nil && len(userIDs) > 0 {
-			query = query.Where("(a.action_detail LIKE ? OR a.user_id IN ?)", like, userIDs)
+			query = query.Where("(a.action_detail LIKE ? OR a.summary LIKE ? OR a.event_code LIKE ? OR a.user_id IN ?)", like, like, like, userIDs)
 		} else {
-			query = query.Where("a.action_detail LIKE ?", like)
+			query = query.Where("(a.action_detail LIKE ? OR a.summary LIKE ? OR a.event_code LIKE ?)", like, like, like)
 		}
 	}
 
@@ -126,6 +131,10 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 		ActionType   string `gorm:"column:action_type"`
 		TargetType   string `gorm:"column:target_type"`
 		TargetID     *uint  `gorm:"column:target_id"`
+		EventCode    string `gorm:"column:event_code"`
+		Summary      string `gorm:"column:summary"`
+		ChangeCount  int    `gorm:"column:change_count"`
+		HasDiff      bool   `gorm:"column:has_diff"`
 		ActionDetail string `gorm:"column:action_detail"`
 		IPAddress    string `gorm:"column:ip_address"`
 		UserAgent    string `gorm:"column:user_agent"`
@@ -134,7 +143,9 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 	rows := make([]row, 0, pageSize)
 	if err := query.
 		Select(
-			"a.id, a.user_id, a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, COALESCE(a.action_detail, '') AS action_detail, " +
+			"a.id, a.user_id, a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, " +
+				"COALESCE(a.event_code, '') AS event_code, COALESCE(a.summary, '') AS summary, COALESCE(a.change_count, 0) AS change_count, " +
+				"COALESCE(a.has_diff, 0) AS has_diff, COALESCE(a.action_detail, '') AS action_detail, " +
 				"COALESCE(a.ip_address, '') AS ip_address, COALESCE(a.user_agent, '') AS user_agent, a.created_at",
 		).
 		Order("a.created_at DESC, a.id DESC").
@@ -170,6 +181,21 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 				realName = profile.Username
 			}
 		}
+		detail := decodeActionDetail(item.ActionDetail, item.ActionType, item.TargetType, item.TargetID)
+		diffs := diffActionDetail(detail)
+		eventCode := strings.TrimSpace(item.EventCode)
+		if eventCode == "" {
+			eventCode = extractString(detail, "eventCode")
+		}
+		summary := strings.TrimSpace(item.Summary)
+		if summary == "" {
+			summary = extractString(detail, "summary")
+		}
+		changeCount := item.ChangeCount
+		if changeCount <= 0 && len(diffs) > 0 {
+			changeCount = len(diffs)
+		}
+		hasDiff := item.HasDiff || changeCount > 0
 
 		items = append(items, AuditLogListItem{
 			ID:           item.ID,
@@ -179,6 +205,10 @@ func (s *AuditService) List(ctx context.Context, input AuditLogListInput) (*Audi
 			ActionType:   item.ActionType,
 			TargetType:   item.TargetType,
 			TargetID:     item.TargetID,
+			EventCode:    eventCode,
+			Summary:      summary,
+			ChangeCount:  changeCount,
+			HasDiff:      hasDiff,
 			ActionDetail: item.ActionDetail,
 			IPAddress:    item.IPAddress,
 			UserAgent:    item.UserAgent,
@@ -201,6 +231,10 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 		ActionType   string `gorm:"column:action_type"`
 		TargetType   string `gorm:"column:target_type"`
 		TargetID     *uint  `gorm:"column:target_id"`
+		EventCode    string `gorm:"column:event_code"`
+		Summary      string `gorm:"column:summary"`
+		ChangeCount  int    `gorm:"column:change_count"`
+		HasDiff      bool   `gorm:"column:has_diff"`
 		ActionDetail string `gorm:"column:action_detail"`
 		IPAddress    string `gorm:"column:ip_address"`
 		UserAgent    string `gorm:"column:user_agent"`
@@ -211,7 +245,9 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 	if err := s.db.WithContext(ctx).
 		Table("audit_logs AS a").
 		Select(
-			"a.id, a.user_id, a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, COALESCE(a.action_detail, '') AS action_detail, "+
+			"a.id, a.user_id, a.action_type, COALESCE(a.target_type, '') AS target_type, a.target_id, "+
+				"COALESCE(a.event_code, '') AS event_code, COALESCE(a.summary, '') AS summary, COALESCE(a.change_count, 0) AS change_count, "+
+				"COALESCE(a.has_diff, 0) AS has_diff, COALESCE(a.action_detail, '') AS action_detail, "+
 				"COALESCE(a.ip_address, '') AS ip_address, COALESCE(a.user_agent, '') AS user_agent, a.created_at",
 		).
 		Where("a.id = ?", auditLogID).
@@ -235,8 +271,21 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 		}
 	}
 
-	detail := decodeActionDetail(item.ActionDetail)
+	detail := decodeActionDetail(item.ActionDetail, item.ActionType, item.TargetType, item.TargetID)
 	diffs := diffActionDetail(detail)
+	eventCode := strings.TrimSpace(item.EventCode)
+	if eventCode == "" {
+		eventCode = extractString(detail, "eventCode")
+	}
+	summary := strings.TrimSpace(item.Summary)
+	if summary == "" {
+		summary = extractString(detail, "summary")
+	}
+	changeCount := item.ChangeCount
+	if changeCount <= 0 && len(diffs) > 0 {
+		changeCount = len(diffs)
+	}
+	hasDiff := item.HasDiff || changeCount > 0
 	canRollback := s.isRollbackSupported(item.TargetType, item.ActionType, detail)
 
 	return &AuditLogDetail{
@@ -248,6 +297,10 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 			ActionType:   item.ActionType,
 			TargetType:   item.TargetType,
 			TargetID:     item.TargetID,
+			EventCode:    eventCode,
+			Summary:      summary,
+			ChangeCount:  changeCount,
+			HasDiff:      hasDiff,
 			ActionDetail: item.ActionDetail,
 			IPAddress:    item.IPAddress,
 			UserAgent:    item.UserAgent,
@@ -334,7 +387,7 @@ func (s *AuditService) Rollback(
 		return fmt.Errorf("failed to query audit log: %w", err)
 	}
 
-	detail := decodeActionDetail(logRecord.ActionDetail)
+	detail := decodeActionDetail(logRecord.ActionDetail, logRecord.ActionType, logRecord.TargetType, logRecord.TargetID)
 	if !s.isRollbackSupported(logRecord.TargetType, logRecord.ActionType, detail) {
 		return ErrAuditRollbackUnsupported
 	}
@@ -460,59 +513,6 @@ func restoreSystemSetting(tx *gorm.DB, payload map[string]any, operatorID uint) 
 	default:
 		return err
 	}
-}
-
-func decodeActionDetail(raw string) map[string]any {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return map[string]any{}
-	}
-	result := map[string]any{}
-	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return map[string]any{
-			"_raw": raw,
-		}
-	}
-	return result
-}
-
-func diffActionDetail(detail map[string]any) []AuditDiffItem {
-	before := pickMap(detail, "before")
-	after := pickMap(detail, "after")
-	if len(before) == 0 && len(after) == 0 {
-		return []AuditDiffItem{}
-	}
-
-	fieldSet := map[string]struct{}{}
-	for key := range before {
-		fieldSet[key] = struct{}{}
-	}
-	for key := range after {
-		fieldSet[key] = struct{}{}
-	}
-	fields := make([]string, 0, len(fieldSet))
-	for key := range fieldSet {
-		fields = append(fields, key)
-	}
-	sort.Strings(fields)
-
-	items := make([]AuditDiffItem, 0, len(fields))
-	for _, key := range fields {
-		beforeValue, beforeExists := before[key]
-		afterValue, afterExists := after[key]
-		if !beforeExists && !afterExists {
-			continue
-		}
-		if fmt.Sprintf("%v", beforeValue) == fmt.Sprintf("%v", afterValue) {
-			continue
-		}
-		items = append(items, AuditDiffItem{
-			Field:  key,
-			Before: beforeValue,
-			After:  afterValue,
-		})
-	}
-	return items
 }
 
 func pickMap(data map[string]any, key string) map[string]any {
