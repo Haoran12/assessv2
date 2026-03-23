@@ -30,7 +30,7 @@
       <el-skeleton v-if="loadingFiles" :rows="8" animated />
       <el-empty v-else-if="!currentRule" description="当前场次暂无规则文件" />
       <template v-else>
-        <el-tabs v-model="activeEditTab" class="editor-tabs">
+        <el-tabs v-model="activeEditTab" class="editor-tabs" :class="{ 'is-locked-tab': lockEditTab }">
           <el-tab-pane label="分数模块" name="modules">
             <div class="section-block">
               <el-empty
@@ -605,6 +605,18 @@ interface ExpressionInsertPicker {
   dataKey: string;
 }
 
+interface RulesViewProps {
+  initialEditTab?: "modules" | "grades";
+  lockEditTab?: boolean;
+}
+
+const props = withDefaults(defineProps<RulesViewProps>(), {
+  initialEditTab: "modules",
+  lockEditTab: false,
+});
+
+const lockEditTab = computed(() => props.lockEditTab);
+
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
 const dirtySourceId = "rules:editor";
@@ -619,7 +631,7 @@ const moduleDropTargetIndex = ref<number | null>(null);
 
 const currentRule = ref<RuleFileItem | null>(null);
 const activeScopedRuleId = ref("");
-const activeEditTab = ref<"modules" | "grades">("modules");
+const activeEditTab = ref<"modules" | "grades">(props.initialEditTab);
 
 const moduleDetailVisible = ref(false);
 const moduleDetailTargetId = ref("");
@@ -2065,6 +2077,25 @@ watch(
   },
 );
 
+watch(
+  () => props.initialEditTab,
+  (value) => {
+    if (value) {
+      activeEditTab.value = value;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => activeEditTab.value,
+  (value) => {
+    if (lockEditTab.value && value !== props.initialEditTab) {
+      activeEditTab.value = props.initialEditTab;
+    }
+  },
+);
+
 onMounted(async () => {
   window.addEventListener("keydown", handleGlobalEditorKeydown);
   unsavedStore.setSourceMeta(dirtySourceId, {
@@ -2115,6 +2146,10 @@ onBeforeUnmount(() => {
 
 .editor-tabs :deep(.el-tabs__header) {
   margin-bottom: 8px;
+}
+
+.editor-tabs.is-locked-tab :deep(.el-tabs__header) {
+  display: none;
 }
 
 .section-block {

@@ -6,7 +6,7 @@
           <template #header>
             <div class="card-header">
               <div class="header-left">
-                <strong>当前考核数据</strong>
+                <strong>考核结果</strong>
                 <span class="context-text">{{ contextSummaryText }}</span>
               </div>
               <el-button size="small" :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
@@ -132,6 +132,22 @@
           </template>
         </el-card>
       </el-tab-pane>
+
+      <el-tab-pane label="分数模块" name="rule-modules">
+        <RulesView
+          v-if="activeTab === 'rule-modules'"
+          :initial-edit-tab="'modules'"
+          :lock-edit-tab="true"
+        />
+      </el-tab-pane>
+
+      <el-tab-pane label="等第划分" name="rule-grades">
+        <RulesView
+          v-if="activeTab === 'rule-grades'"
+          :initial-edit-tab="'grades'"
+          :lock-edit-tab="true"
+        />
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="voteDialogVisible" title="投票分录入" width="560px" destroy-on-close>
@@ -175,6 +191,7 @@ import { listCalculatedAssessmentSessionObjects, upsertAssessmentModuleScores } 
 import { listRuleFiles } from "@/api/rules";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
+import RulesView from "@/views/RulesView.vue";
 import type { AssessmentSessionObjectItem } from "@/types/assessment";
 import type { RuleFileItem } from "@/types/rules";
 
@@ -205,7 +222,7 @@ interface PendingScoreItem {
 const contextStore = useContextStore();
 const appStore = useAppStore();
 const overviewViewRef = ref<HTMLElement>();
-const activeTab = ref<"summary" | "entry">("summary");
+const activeTab = ref<"summary" | "entry" | "rule-modules" | "rule-grades">("summary");
 const moduleColumns = ref<TableModuleColumn[]>([]);
 const assessmentRows = ref<TableRow[]>([]);
 const loadingTable = ref(false);
