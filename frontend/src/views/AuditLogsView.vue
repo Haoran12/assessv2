@@ -46,6 +46,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="actionType" label="操作类型" width="120" />
+        <el-table-column label="事件编码" min-width="180">
+          <template #default="{ row }">
+            {{ row.eventCode || "-" }}
+          </template>
+        </el-table-column>
         <el-table-column prop="targetType" label="目标类型" width="180" />
         <el-table-column label="目标ID" width="100">
           <template #default="{ row }">
@@ -55,9 +60,10 @@
         <el-table-column prop="ipAddress" label="IP" width="140" />
         <el-table-column label="操作摘要" min-width="300">
           <template #default="{ row }">
-            <el-tooltip :content="row.actionDetail" placement="top" :show-after="300">
-              <span class="summary">{{ row.actionDetail || "-" }}</span>
+            <el-tooltip :content="row.summary || row.actionDetail" placement="top" :show-after="300">
+              <span class="summary">{{ row.summary || row.actionDetail || "-" }}</span>
             </el-tooltip>
+            <el-tag v-if="row.changeCount > 0" size="small" class="change-tag">变更 {{ row.changeCount }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
@@ -98,14 +104,21 @@
         <el-descriptions-item label="操作时间">{{ formatTimestamp(detail.createdAt) }}</el-descriptions-item>
         <el-descriptions-item label="操作人">{{ detail.realName || detail.username || "-" }}</el-descriptions-item>
         <el-descriptions-item label="操作类型">{{ detail.actionType }}</el-descriptions-item>
+        <el-descriptions-item label="事件编码">{{ detail.eventCode || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="操作摘要">{{ detail.summary || "-" }}</el-descriptions-item>
         <el-descriptions-item label="目标类型">{{ detail.targetType || "-" }}</el-descriptions-item>
         <el-descriptions-item label="目标ID">{{ detail.targetId ?? "-" }}</el-descriptions-item>
       </el-descriptions>
 
       <el-divider content-position="left">字段差异</el-divider>
-      <el-empty v-if="!detail || detail.diffs.length === 0" description="该记录未提供 before/after 差异数据" />
+      <el-empty v-if="!detail || detail.diffs.length === 0" description="该记录未提供可展示的字段差异" />
       <el-table v-else :data="detail.diffs" border>
-        <el-table-column prop="field" label="字段" width="220" />
+        <el-table-column label="字段" min-width="220">
+          <template #default="{ row }">
+            {{ row.label || row.field }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="changeType" label="变更类型" width="120" />
         <el-table-column label="回滚前">
           <template #default="{ row }">
             <pre class="json-block">{{ stringifyValue(row.before) }}</pre>
@@ -295,6 +308,11 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-right: 8px;
+}
+
+.change-tag {
+  vertical-align: middle;
 }
 
 .pager {

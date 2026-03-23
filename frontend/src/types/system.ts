@@ -88,8 +88,10 @@ export interface OrgPackageListResponse {
 
 export interface AuditDiffItem {
   field: string;
+  label?: string;
   before: unknown;
   after: unknown;
+  changeType?: "added" | "removed" | "updated" | string;
 }
 
 export interface AuditLogItem {
@@ -100,6 +102,10 @@ export interface AuditLogItem {
   actionType: string;
   targetType: string;
   targetId?: number;
+  eventCode: string;
+  summary: string;
+  changeCount: number;
+  hasDiff: boolean;
   actionDetail: string;
   ipAddress: string;
   userAgent: string;
