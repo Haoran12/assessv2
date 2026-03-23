@@ -855,11 +855,11 @@ function toNullableNumber(value: unknown): number | null {
 
 function formatExpressionObjectOption(item: RuleExpressionObjectOption): string {
   const objectName = String(item.objectName || "").trim() || `对象${item.objectId}`;
-  const typeLabel = String(item.objectType || "").trim() === "team" ? "团体" : "个人";
-  const groupCode = String(item.groupCode || "").trim();
-  const groupText = groupCode ? ` / ${groupCode}` : "";
-  const priorityText = item.isPriority ? " [优先]" : "";
-  return `${item.objectId} · ${objectName}（${typeLabel}${groupText}）${priorityText}`;
+  const organizationName = String(contextStore.currentSession?.organizationName || "").trim();
+  if (organizationName) {
+    return `${organizationName}-${objectName}`;
+  }
+  return objectName;
 }
 
 function resolveExpressionObject(objectId: number | undefined): RuleExpressionObjectOption | null {
