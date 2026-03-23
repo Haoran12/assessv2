@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -248,14 +247,19 @@ func (s *UserService) CreateUser(
 
 	operator := operatorID
 	targetID := createdUserID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "users", &targetID, map[string]any{
-		"event":              "create_user",
-		"username":           username,
-		"status":             status,
-		"mustChangePassword": mustChangePassword,
-		"roleIDs":            roleIDs,
-		"primaryRoleID":      primaryRoleID,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"create",
+		"users",
+		&targetID,
+		buildAuditDetail("system.user.create", map[string]any{}, serializeUserForAudit(createdUser), map[string]any{
+			"input_role_ids":       roleIDs,
+			"input_primary_role":   primaryRoleID,
+			"must_change_password": mustChangePassword,
+		}),
+		ipAddress,
+		userAgent,
+	))
 
 	return &item, nil
 }
@@ -272,6 +276,7 @@ func (s *UserService) UpdateUser(
 	if err != nil {
 		return nil, err
 	}
+	beforeAudit := serializeUserForAudit(existing)
 
 	username := strings.TrimSpace(input.Username)
 	if username == "" {
@@ -373,15 +378,17 @@ func (s *UserService) UpdateUser(
 
 	operator := operatorID
 	targetID := targetUserID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "users", &targetID, map[string]any{
-		"event":              "update_user",
-		"username":           username,
-		"status":             status,
-		"mustChangePassword": mustChangePassword,
-		"roleIDs":            roleIDs,
-		"primaryRoleID":      primaryRoleID,
-		"passwordUpdated":    password != "",
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"update",
+		"users",
+		&targetID,
+		buildAuditDetail("system.user.update", beforeAudit, serializeUserForAudit(updatedUser), map[string]any{
+			"password_updated": password != "",
+		}),
+		ipAddress,
+		userAgent,
+	))
 
 	return &item, nil
 }
@@ -413,10 +420,15 @@ func (s *UserService) DeleteUser(ctx context.Context, operatorID, targetUserID u
 
 	operator := operatorID
 	targetID := targetUserID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "users", &targetID, map[string]any{
-		"event":    "delete_user",
-		"username": targetUser.Username,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"delete",
+		"users",
+		&targetID,
+		buildAuditDetail("system.user.delete", serializeUserForAudit(targetUser), map[string]any{}, nil),
+		ipAddress,
+		userAgent,
+	))
 
 	return nil
 }
@@ -469,12 +481,15 @@ func (s *UserService) CreateUserGroup(
 
 	operator := operatorID
 	targetID := role.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "create", "roles", &targetID, map[string]any{
-		"event":       "create_user_group",
-		"roleCode":    role.RoleCode,
-		"roleName":    role.RoleName,
-		"description": role.Description,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"create",
+		"roles",
+		&targetID,
+		buildAuditDetail("system.role.create", map[string]any{}, serializeRoleForAudit(&role), nil),
+		ipAddress,
+		userAgent,
+	))
 
 	item := mapRoleToGroupItem(role)
 	return &item, nil
@@ -498,6 +513,7 @@ func (s *UserService) UpdateUserGroup(
 	if role.IsSystem {
 		return nil, ErrSystemRoleLocked
 	}
+	beforeAudit := serializeRoleForAudit(role)
 
 	roleName := strings.TrimSpace(input.RoleName)
 	if roleName == "" {
@@ -531,12 +547,15 @@ func (s *UserService) UpdateUserGroup(
 
 	operator := operatorID
 	targetID := role.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "roles", &targetID, map[string]any{
-		"event":       "update_user_group",
-		"roleCode":    role.RoleCode,
-		"roleName":    role.RoleName,
-		"description": role.Description,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"update",
+		"roles",
+		&targetID,
+		buildAuditDetail("system.role.update", beforeAudit, serializeRoleForAudit(role), nil),
+		ipAddress,
+		userAgent,
+	))
 
 	item := mapRoleToGroupItem(*role)
 	return &item, nil
@@ -571,11 +590,15 @@ func (s *UserService) DeleteUserGroup(ctx context.Context, operatorID, roleID ui
 
 	operator := operatorID
 	targetID := roleID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "delete", "roles", &targetID, map[string]any{
-		"event":    "delete_user_group",
-		"roleCode": role.RoleCode,
-		"roleName": role.RoleName,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"delete",
+		"roles",
+		&targetID,
+		buildAuditDetail("system.role.delete", serializeRoleForAudit(role), map[string]any{}, nil),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -604,6 +627,7 @@ func (s *UserService) UpdateUserGroups(
 	if err != nil {
 		return err
 	}
+	beforeAudit := serializeUserForAudit(targetUser)
 
 	rootRole, err := s.roleRepo.GetByCode(ctx, "root")
 	if err != nil && !repository.IsRecordNotFound(err) {
@@ -622,18 +646,34 @@ func (s *UserService) UpdateUserGroups(
 	if err := s.userRoleRepo.ReplaceForUser(ctx, targetUserID, roleIDs, primaryRoleID, &operator); err != nil {
 		return err
 	}
+	updatedUser, err := s.userRepo.GetByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
 
 	targetID := targetUserID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "users", &targetID, map[string]any{
-		"event":         "update_user_groups",
-		"userID":        targetUserID,
-		"roleIDs":       roleIDs,
-		"primaryRoleID": primaryRoleID,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"update",
+		"users",
+		&targetID,
+		buildAuditDetail("system.user.groups.update", beforeAudit, serializeUserForAudit(updatedUser), map[string]any{
+			"input_role_ids":     roleIDs,
+			"input_primary_role": primaryRoleID,
+		}),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
 func (s *UserService) ResetPassword(ctx context.Context, operatorID, targetUserID uint, newPassword, ipAddress, userAgent string) error {
+	targetUser, err := s.userRepo.GetByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	beforeAudit := serializeUserForAudit(targetUser)
+
 	if strings.TrimSpace(newPassword) == "" {
 		newPassword = s.defaultPassword
 	}
@@ -644,13 +684,24 @@ func (s *UserService) ResetPassword(ctx context.Context, operatorID, targetUserI
 	if err := s.userRepo.UpdatePassword(ctx, targetUserID, string(hashBytes), true); err != nil {
 		return err
 	}
+	updatedUser, err := s.userRepo.GetByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
 
 	targetID := targetUserID
 	operator := operatorID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "users", &targetID, map[string]any{
-		"event":  "reset_password",
-		"target": strconv.FormatUint(uint64(targetUserID), 10),
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"update",
+		"users",
+		&targetID,
+		buildAuditDetail("system.user.password.reset", beforeAudit, serializeUserForAudit(updatedUser), map[string]any{
+			"password_reset": true,
+		}),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -663,17 +714,33 @@ func (s *UserService) UpdateStatus(ctx context.Context, operatorID, targetUserID
 	if operatorID == targetUserID && status != "active" {
 		return ErrCannotDisableSelf
 	}
+	beforeUser, err := s.userRepo.GetByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	beforeAudit := serializeUserForAudit(beforeUser)
 
 	if err := s.userRepo.UpdateStatus(ctx, targetUserID, status); err != nil {
+		return err
+	}
+	updatedUser, err := s.userRepo.GetByID(ctx, targetUserID)
+	if err != nil {
 		return err
 	}
 
 	targetID := targetUserID
 	operator := operatorID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&operator, "update", "users", &targetID, map[string]any{
-		"event":  "update_status",
-		"status": status,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&operator,
+		"update",
+		"users",
+		&targetID,
+		buildAuditDetail("system.user.status.update", beforeAudit, serializeUserForAudit(updatedUser), map[string]any{
+			"requested_status": status,
+		}),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 

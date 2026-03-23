@@ -249,7 +249,15 @@ func (s *OrgService) CreateOrganization(ctx context.Context, claims *auth.Claims
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "organizations", &targetID, map[string]any{"event": "create_organization"}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"create",
+		"organizations",
+		&targetID,
+		buildAuditDetail("org.organization.create", map[string]any{}, serializeOrganizationForAudit(&record), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &record, nil
 }
 
@@ -293,6 +301,7 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, claims *auth.Claims
 		}
 		return nil, fmt.Errorf("failed to query organization: %w", err)
 	}
+	beforeAudit := serializeOrganizationForAudit(&existing)
 
 	operator := operatorID
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
@@ -304,7 +313,15 @@ func (s *OrgService) UpdateOrganization(ctx context.Context, claims *auth.Claims
 		return nil, fmt.Errorf("failed to reload organization: %w", err)
 	}
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "organizations", &targetID, map[string]any{"event": "update_organization", "status": existing.Status}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"update",
+		"organizations",
+		&targetID,
+		buildAuditDetail("org.organization.update", beforeAudit, serializeOrganizationForAudit(&existing), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &existing, nil
 }
 
@@ -327,6 +344,7 @@ func (s *OrgService) DeleteOrganization(ctx context.Context, claims *auth.Claims
 		}
 		return fmt.Errorf("failed to query organization: %w", err)
 	}
+	beforeAudit := serializeOrganizationForAudit(&existing)
 	if err := s.ensureOrganizationNotInUse(ctx, organizationID); err != nil {
 		return err
 	}
@@ -344,10 +362,15 @@ func (s *OrgService) DeleteOrganization(ctx context.Context, claims *auth.Claims
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "organizations", &targetID, map[string]any{
-		"event":   "delete_organization",
-		"orgName": existing.OrgName,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"delete",
+		"organizations",
+		&targetID,
+		buildAuditDetail("org.organization.delete", beforeAudit, map[string]any{}, nil),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -412,7 +435,15 @@ func (s *OrgService) CreateDepartment(ctx context.Context, claims *auth.Claims, 
 		return nil, fmt.Errorf("failed to create department: %w", err)
 	}
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "departments", &targetID, map[string]any{"event": "create_department"}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"create",
+		"departments",
+		&targetID,
+		buildAuditDetail("org.department.create", map[string]any{}, serializeDepartmentForAudit(&record), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &record, nil
 }
 
@@ -460,6 +491,7 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, claims *auth.Claims, 
 		}
 		return nil, fmt.Errorf("failed to query department: %w", err)
 	}
+	beforeAudit := serializeDepartmentForAudit(&existing)
 	if !writeScope.allowsOrganization(existing.OrganizationID) {
 		return nil, ErrForbidden
 	}
@@ -474,7 +506,15 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, claims *auth.Claims, 
 		return nil, fmt.Errorf("failed to reload department: %w", err)
 	}
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "departments", &targetID, map[string]any{"event": "update_department", "status": existing.Status}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"update",
+		"departments",
+		&targetID,
+		buildAuditDetail("org.department.update", beforeAudit, serializeDepartmentForAudit(&existing), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &existing, nil
 }
 
@@ -493,6 +533,7 @@ func (s *OrgService) DeleteDepartment(ctx context.Context, claims *auth.Claims, 
 		}
 		return fmt.Errorf("failed to query department: %w", err)
 	}
+	beforeAudit := serializeDepartmentForAudit(&existing)
 	if !writeScope.allowsOrganization(existing.OrganizationID) {
 		return ErrForbidden
 	}
@@ -513,10 +554,15 @@ func (s *OrgService) DeleteDepartment(ctx context.Context, claims *auth.Claims, 
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "departments", &targetID, map[string]any{
-		"event":    "delete_department",
-		"deptName": existing.DeptName,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"delete",
+		"departments",
+		&targetID,
+		buildAuditDetail("org.department.delete", beforeAudit, map[string]any{}, nil),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -626,11 +672,15 @@ func (s *OrgService) CreatePositionLevel(ctx context.Context, operatorID uint, i
 	}
 
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "position_levels", &targetID, map[string]any{
-		"event":           "create_position_level",
-		"levelCode":       record.LevelCode,
-		"isForAssessment": record.IsForAssessment,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"create",
+		"position_levels",
+		&targetID,
+		buildAuditDetail("org.position_level.create", map[string]any{}, serializePositionLevelForAudit(&record), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &record, nil
 }
 
@@ -658,6 +708,7 @@ func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positi
 		}
 		return nil, fmt.Errorf("failed to query position level: %w", err)
 	}
+	beforeAudit := serializePositionLevelForAudit(&existing)
 	if existing.IsSystem && levelCode != existing.LevelCode {
 		return nil, ErrSystemPositionLevelLocked
 	}
@@ -699,12 +750,15 @@ func (s *OrgService) UpdatePositionLevel(ctx context.Context, operatorID, positi
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "position_levels", &targetID, map[string]any{
-		"event":           "update_position_level",
-		"levelCode":       existing.LevelCode,
-		"isForAssessment": existing.IsForAssessment,
-		"status":          existing.Status,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"update",
+		"position_levels",
+		&targetID,
+		buildAuditDetail("org.position_level.update", beforeAudit, serializePositionLevelForAudit(&existing), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &existing, nil
 }
 
@@ -719,6 +773,7 @@ func (s *OrgService) DeletePositionLevel(ctx context.Context, operatorID, positi
 		}
 		return fmt.Errorf("failed to query position level: %w", err)
 	}
+	beforeAudit := serializePositionLevelForAudit(&existing)
 	if err := s.ensurePositionLevelNotInUse(ctx, positionLevelID); err != nil {
 		return err
 	}
@@ -733,10 +788,15 @@ func (s *OrgService) DeletePositionLevel(ctx context.Context, operatorID, positi
 	operator := operatorID
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operator)
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "position_levels", &targetID, map[string]any{
-		"event":     "delete_position_level",
-		"levelCode": existing.LevelCode,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"delete",
+		"position_levels",
+		&targetID,
+		buildAuditDetail("org.position_level.delete", beforeAudit, map[string]any{}, nil),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -800,7 +860,15 @@ func (s *OrgService) CreateEmployee(ctx context.Context, claims *auth.Claims, op
 		return nil, fmt.Errorf("failed to create employee: %w", err)
 	}
 	targetID := record.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "employees", &targetID, map[string]any{"event": "create_employee"}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"create",
+		"employees",
+		&targetID,
+		buildAuditDetail("org.employee.create", map[string]any{}, serializeEmployeeForAudit(&record), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &record, nil
 }
 
@@ -841,6 +909,7 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, claims *auth.Claims, op
 		}
 		return nil, fmt.Errorf("failed to query employee: %w", err)
 	}
+	beforeAudit := serializeEmployeeForAudit(&existing)
 	if !writeScope.allowsOrganization(existing.OrganizationID) {
 		return nil, ErrForbidden
 	}
@@ -855,7 +924,15 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, claims *auth.Claims, op
 		return nil, fmt.Errorf("failed to reload employee: %w", err)
 	}
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "employees", &targetID, map[string]any{"event": "update_employee", "status": existing.Status}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"update",
+		"employees",
+		&targetID,
+		buildAuditDetail("org.employee.update", beforeAudit, serializeEmployeeForAudit(&existing), nil),
+		ipAddress,
+		userAgent,
+	))
 	return &existing, nil
 }
 
@@ -874,6 +951,7 @@ func (s *OrgService) DeleteEmployee(ctx context.Context, claims *auth.Claims, op
 		}
 		return fmt.Errorf("failed to query employee: %w", err)
 	}
+	beforeAudit := serializeEmployeeForAudit(&existing)
 	if !writeScope.allowsOrganization(existing.OrganizationID) {
 		return ErrForbidden
 	}
@@ -891,10 +969,15 @@ func (s *OrgService) DeleteEmployee(ctx context.Context, claims *auth.Claims, op
 	}
 
 	targetID := existing.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "delete", "employees", &targetID, map[string]any{
-		"event":   "delete_employee",
-		"empName": existing.EmpName,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"delete",
+		"employees",
+		&targetID,
+		buildAuditDetail("org.employee.delete", beforeAudit, map[string]any{}, nil),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -920,6 +1003,7 @@ func (s *OrgService) TransferEmployee(ctx context.Context, claims *auth.Claims, 
 		}
 		return nil, fmt.Errorf("failed to query employee: %w", err)
 	}
+	beforeAudit := serializeEmployeeForAudit(&employee)
 	if !writeScope.allowsOrganization(employee.OrganizationID) {
 		return nil, ErrForbidden
 	}
@@ -991,7 +1075,20 @@ func (s *OrgService) TransferEmployee(ctx context.Context, claims *auth.Claims, 
 	}
 
 	targetID := employee.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "employees", &targetID, map[string]any{"event": "transfer_employee", "changeType": strings.TrimSpace(input.ChangeType), "newOrganizationId": newOrgID, "effectiveDate": input.EffectiveDate.Format("2006-01-02")}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		operatorRef,
+		"update",
+		"employees",
+		&targetID,
+		buildAuditDetail("org.employee.transfer", beforeAudit, serializeEmployeeForAudit(&employee), map[string]any{
+			"change_type":      strings.TrimSpace(input.ChangeType),
+			"change_reason":    strings.TrimSpace(input.ChangeReason),
+			"new_organization": newOrgID,
+			"effective_date":   input.EffectiveDate.Format("2006-01-02"),
+		}),
+		ipAddress,
+		userAgent,
+	))
 	return &employee, nil
 }
 

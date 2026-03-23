@@ -183,16 +183,18 @@ func (s *SystemSettingService) Update(
 				actionType = "create"
 			}
 			after := serializeSettingForAudit(&record)
+			eventCode := "system.setting.update"
+			if isCreate {
+				eventCode = "system.setting.create"
+			}
 			auditRecord := buildAuditRecord(
 				operatorRef,
 				actionType,
 				"system_settings",
 				&targetID,
-				map[string]any{
-					"event":  "update_system_setting",
-					"before": before,
-					"after":  after,
-				},
+				buildAuditDetail(eventCode, before, after, map[string]any{
+					"setting_key": record.SettingKey,
+				}),
 				ipAddress,
 				userAgent,
 			)

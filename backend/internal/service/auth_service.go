@@ -101,10 +101,20 @@ func (s *AuthService) Login(ctx context.Context, username, password, ipAddress, 
 	if err := s.userRepo.UpdateLastLogin(ctx, user.ID, normalizeIPAddress(ipAddress)); err != nil {
 		return nil, err
 	}
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&user.ID, "login", "users", &user.ID, map[string]any{
-		"username": user.Username,
-		"roles":    roles,
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&user.ID,
+		"login",
+		"users",
+		&user.ID,
+		buildAuditDetail("auth.login", map[string]any{}, map[string]any{
+			"user_id":  user.ID,
+			"username": user.Username,
+			"roles":    roles,
+			"login_ip": normalizeIPAddress(ipAddress),
+		}, nil),
+		ipAddress,
+		userAgent,
+	))
 
 	return &LoginResult{
 		Token:              token,
@@ -143,10 +153,22 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, oldPasswo
 	if err := s.userRepo.UpdatePassword(ctx, user.ID, string(hashBytes), false); err != nil {
 		return err
 	}
+	updatedUser, err := s.userRepo.GetByID(ctx, user.ID)
+	if err != nil {
+		return err
+	}
 
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&userID, "update", "users", &userID, map[string]any{
-		"event": "change_password",
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&userID,
+		"update",
+		"users",
+		&userID,
+		buildAuditDetail("auth.password.change", serializeUserForAudit(user), serializeUserForAudit(updatedUser), map[string]any{
+			"password_changed": true,
+		}),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
@@ -154,9 +176,17 @@ func (s *AuthService) Logout(ctx context.Context, userID uint, ipAddress, userAg
 	if err := s.userRepo.EnsureExists(ctx, userID); err != nil {
 		return err
 	}
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(&userID, "logout", "users", &userID, map[string]any{
-		"event": "logout",
-	}, ipAddress, userAgent))
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(
+		&userID,
+		"logout",
+		"users",
+		&userID,
+		buildAuditDetail("auth.logout", map[string]any{}, map[string]any{
+			"user_id": userID,
+		}, nil),
+		ipAddress,
+		userAgent,
+	))
 	return nil
 }
 
