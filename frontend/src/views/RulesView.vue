@@ -406,7 +406,7 @@
                   size="small"
                   text
                   :disabled="!canEditRule"
-                  @click="insertModuleScriptSnippet(`\"${period}\"`)"
+                  @click="insertModuleScriptSnippet(JSON.stringify(period))"
                 >
                   "{{ period }}"
                 </el-button>
