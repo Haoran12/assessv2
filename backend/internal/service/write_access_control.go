@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 
 	"assessv2/backend/internal/auth"
@@ -67,6 +65,54 @@ func collectBindingsForRole(claims *auth.Claims, roleCode string) []auth.Permiss
 	return result
 }
 
+func isSupportedOrgScopeType(scopeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(scopeType)) {
+	case "organization", "org", "group", "company":
+		return true
+	default:
+		return false
+	}
+}
+
+func collectScopedOrganizationRoots(claims *auth.Claims) []uint {
+	if claims == nil {
+		return []uint{}
+	}
+
+	roots := make([]uint, 0, len(claims.PermissionBindings)+len(claims.OrgScopes))
+	seen := make(map[uint]struct{}, len(claims.PermissionBindings)+len(claims.OrgScopes))
+	appendScope := func(id uint) {
+		if id == 0 {
+			return
+		}
+		if _, exists := seen[id]; exists {
+			return
+		}
+		seen[id] = struct{}{}
+		roots = append(roots, id)
+	}
+
+	for _, binding := range collectBindingsForRole(claims, auth.RoleAssessmentAdmin) {
+		if binding.ScopeOrgID == nil || *binding.ScopeOrgID == 0 {
+			continue
+		}
+		if !isSupportedOrgScopeType(binding.ScopeOrgType) {
+			continue
+		}
+		appendScope(*binding.ScopeOrgID)
+	}
+	for _, scope := range claims.OrgScopes {
+		if scope.OrganizationID == 0 {
+			continue
+		}
+		if !isSupportedOrgScopeType(scope.OrganizationType) {
+			continue
+		}
+		appendScope(scope.OrganizationID)
+	}
+	return roots
+}
+
 func resolveGroupScopedOrganizationIDs(ctx context.Context, db *gorm.DB, claims *auth.Claims) (map[uint]struct{}, error) {
 	if isRootClaims(claims) {
 		return map[uint]struct{}{}, nil
@@ -75,45 +121,14 @@ func resolveGroupScopedOrganizationIDs(ctx context.Context, db *gorm.DB, claims 
 		return nil, err
 	}
 
-	bindings := collectBindingsForRole(claims, auth.RoleAssessmentAdmin)
-	if len(bindings) == 0 {
-		return nil, ErrForbidden
-	}
-
-	groupScopeIDs := make(map[uint]struct{}, len(bindings))
-	for _, binding := range bindings {
-		if binding.ScopeOrgID == nil || *binding.ScopeOrgID == 0 {
-			continue
-		}
-		scopeType := strings.ToLower(strings.TrimSpace(binding.ScopeOrgType))
-		if scopeType != "organization" && scopeType != "org" && scopeType != "group" && scopeType != "company" {
-			continue
-		}
-
-		var organization struct {
-			ID      uint
-			OrgType string
-		}
-		if err := db.WithContext(ctx).Table("organizations").
-			Select("id, org_type").
-			Where("id = ? AND deleted_at IS NULL", *binding.ScopeOrgID).
-			First(&organization).Error; err != nil {
-			if isRecordNotFound(err) {
-				continue
-			}
-			return nil, fmt.Errorf("failed to resolve organization scope for permission binding: %w", err)
-		}
-		if organization.OrgType == "group" {
-			groupScopeIDs[organization.ID] = struct{}{}
-		}
-	}
-	if len(groupScopeIDs) == 0 {
+	scopeRoots := collectScopedOrganizationRoots(claims)
+	if len(scopeRoots) == 0 {
 		return nil, ErrForbidden
 	}
 
 	allowed := make(map[uint]struct{}, 32)
-	for groupID := range groupScopeIDs {
-		orgIDs, err := resolveOrganizationIDs(ctx, db, groupID, true)
+	for _, scopeRootID := range scopeRoots {
+		orgIDs, err := resolveOrganizationIDs(ctx, db, scopeRootID, true)
 		if err != nil {
 			return nil, err
 		}
@@ -123,6 +138,9 @@ func resolveGroupScopedOrganizationIDs(ctx context.Context, db *gorm.DB, claims 
 			}
 			allowed[orgID] = struct{}{}
 		}
+	}
+	if len(allowed) == 0 {
+		return nil, ErrForbidden
 	}
 	return allowed, nil
 }
@@ -140,8 +158,4 @@ func requireOrgWriteScope(ctx context.Context, db *gorm.DB, claims *auth.Claims)
 		unrestricted: false,
 		allowedOrgID: allowedOrgID,
 	}, nil
-}
-
-func isRecordNotFound(err error) bool {
-	return errors.Is(err, gorm.ErrRecordNotFound)
 }
