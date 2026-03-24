@@ -1038,6 +1038,13 @@ async function loadOrganizations(): Promise<void> {
   organizations.value = await listOrganizations({ status: "active" });
 }
 
+function hasSessionInCurrentList(sessionId: number | undefined): boolean {
+  if (!sessionId) {
+    return false;
+  }
+  return sessions.value.some((item) => item.id === sessionId);
+}
+
 async function loadSessions(): Promise<void> {
   loadingSessions.value = true;
   try {
@@ -1055,7 +1062,10 @@ async function loadSessions(): Promise<void> {
       resetObjectBaseline();
       return;
     }
-    if (!selectedSessionId.value && sessions.value.length > 0) {
+    if (!hasSessionInCurrentList(selectedSessionId.value)) {
+      selectedSessionId.value = undefined;
+    }
+    if (!selectedSessionId.value) {
       await selectSession(sessions.value[0].id);
     }
   } catch (_error) {
@@ -1076,6 +1086,9 @@ async function loadObjects(sessionId: number): Promise<void> {
 }
 
 async function selectSession(sessionId: number): Promise<void> {
+  if (!hasSessionInCurrentList(sessionId)) {
+    return;
+  }
   selectedSessionId.value = sessionId;
   loadingDetail.value = true;
   try {
@@ -1431,8 +1444,13 @@ onMounted(async () => {
   });
 
   await Promise.all([loadOrganizations(), loadSessions()]);
-  if (contextStore.sessionId) {
-    await selectSession(contextStore.sessionId);
+  const preferredSessionId = contextStore.sessionId;
+  if (
+    preferredSessionId
+    && preferredSessionId !== selectedSessionId.value
+    && hasSessionInCurrentList(preferredSessionId)
+  ) {
+    await selectSession(preferredSessionId);
   }
 });
 

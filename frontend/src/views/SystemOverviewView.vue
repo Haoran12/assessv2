@@ -315,8 +315,21 @@ const voteDialog = ref<{
 });
 let fetchSequence = 0;
 
+const hasAccessibleSession = computed(() => {
+  const sessionID = contextStore.sessionId;
+  if (!sessionID) {
+    return false;
+  }
+  return contextStore.sessions.some((item) => item.id === sessionID);
+});
+
 const isContextReady = computed(() =>
-  Boolean(contextStore.sessionId && contextStore.periodCode && contextStore.objectGroupCode),
+  Boolean(
+    contextStore.initialized
+    && hasAccessibleSession.value
+    && contextStore.periodCode
+    && contextStore.objectGroupCode,
+  ),
 );
 const canEditScores = computed(() => appStore.hasPermission("assessment:update"));
 const pendingScoreCount = computed(() => Object.keys(pendingScoreMap.value).length);
@@ -907,7 +920,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => [contextStore.sessionId, contextStore.periodCode, contextStore.objectGroupCode],
+  () => [contextStore.initialized, contextStore.sessionId, contextStore.periodCode, contextStore.objectGroupCode],
   () => {
     void loadAssessmentTableData();
   },
