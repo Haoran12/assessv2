@@ -274,6 +274,15 @@ interface PendingScoreItem {
   objectId: number;
   moduleKey: string;
   score: number;
+  voteInput?: {
+    subjectVotes: Array<{
+      subjectLabel: string;
+      gradeVotes: Array<{
+        gradeLabel: string;
+        count: number;
+      }>;
+    }>;
+  };
 }
 
 const contextStore = useContextStore();
@@ -642,7 +651,12 @@ function clearPendingScores(): void {
   pendingScoreMap.value = {};
 }
 
-function setPendingScore(objectId: number, moduleKey: string, score: number | null): void {
+function setPendingScore(
+  objectId: number,
+  moduleKey: string,
+  score: number | null,
+  voteInput?: PendingScoreItem["voteInput"],
+): void {
   if (!contextStore.periodCode) {
     return;
   }
@@ -656,13 +670,14 @@ function setPendingScore(objectId: number, moduleKey: string, score: number | nu
     objectId,
     moduleKey,
     score,
+    voteInput,
   };
 }
 
 function onDirectScoreChange(row: TableRow, module: TableModuleColumn, value: number | string | undefined): void {
   const score = toNumberOrNull(value);
   row.moduleScores[module.moduleKey] = score;
-  setPendingScore(row.objectId, module.moduleKey, score);
+  setPendingScore(row.objectId, module.moduleKey, score, undefined);
 }
 
 function openVoteDialog(row: TableRow, module: TableModuleColumn): void {
@@ -706,8 +721,17 @@ function applyVoteDialogScore(): void {
     return;
   }
   const score = roundScoreWithDecimalPlaces(converted, scoreDecimalPlaces.value);
+  const voteInput: PendingScoreItem["voteInput"] = {
+    subjectVotes: voteDialog.value.voterSubjects.map((subject) => ({
+      subjectLabel: subject.label,
+      gradeVotes: voteDialog.value.gradeScores.map((grade) => ({
+        gradeLabel: grade.label,
+        count: toVoteCount(voteDialog.value.countByCellKey[voteCellKey(subject.id, grade.id)]),
+      })),
+    })),
+  };
   row.moduleScores[moduleKey] = score;
-  setPendingScore(objectId, moduleKey, score);
+  setPendingScore(objectId, moduleKey, score, voteInput);
   voteDialogVisible.value = false;
 }
 
@@ -734,6 +758,7 @@ async function saveModuleScores(): Promise<void> {
         objectId: item.objectId,
         moduleKey: item.moduleKey,
         score: item.score,
+        voteInput: item.voteInput,
       })),
     });
     ElMessage.success(`已保存 ${items.length} 项分数录入`);

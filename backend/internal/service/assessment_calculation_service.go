@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,10 +30,40 @@ type CalculatedAssessmentObject struct {
 }
 
 type SessionObjectModuleScoreUpsertItem struct {
-	PeriodCode string  `json:"periodCode"`
-	ObjectID   uint    `json:"objectId"`
-	ModuleKey  string  `json:"moduleKey"`
-	Score      float64 `json:"score"`
+	PeriodCode string                   `json:"periodCode"`
+	ObjectID   uint                     `json:"objectId"`
+	ModuleKey  string                   `json:"moduleKey"`
+	Score      float64                  `json:"score"`
+	VoteInput  *SessionVoteInputPayload `json:"voteInput,omitempty"`
+}
+
+type SessionVoteInputPayload struct {
+	SubjectVotes []SessionVoteSubjectInput `json:"subjectVotes"`
+}
+
+type SessionVoteSubjectInput struct {
+	SubjectLabel string                  `json:"subjectLabel"`
+	GradeVotes   []SessionVoteGradeInput `json:"gradeVotes"`
+}
+
+type SessionVoteGradeInput struct {
+	GradeLabel string  `json:"gradeLabel"`
+	Count      float64 `json:"count"`
+}
+
+type voteGradeScoreConfig struct {
+	Label string
+	Score float64
+}
+
+type voteSubjectWeightConfig struct {
+	Label  string
+	Weight float64
+}
+
+type voteModuleConfig struct {
+	GradeScores   []voteGradeScoreConfig
+	VoterSubjects []voteSubjectWeightConfig
 }
 
 type calculationEdge struct {
@@ -368,9 +400,18 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 	if err != nil {
 		return nil, err
 	}
-	validObjectIDs := make(map[uint]struct{}, len(objects))
+	objectByID := make(map[uint]model.AssessmentSessionObject, len(objects))
 	for _, item := range objects {
-		validObjectIDs[item.ID] = struct{}{}
+		objectByID[item.ID] = item
+	}
+
+	ruleFile, err := s.pickSessionRuleFile(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	ruleContent, err := parseCalculationRuleContent(ruleFile.ContentJSON)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidExpression, err)
 	}
 
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
@@ -378,12 +419,14 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 	seen := map[string]struct{}{}
 	targetPeriods := make([]string, 0, len(items))
 	periodSeen := map[string]struct{}{}
+	scopedCache := make(map[string]*calculationScoped, 32)
 	for _, item := range items {
 		periodCode := strings.ToUpper(strings.TrimSpace(item.PeriodCode))
 		if _, exists := validPeriods[periodCode]; !exists {
 			return nil, ErrPeriodNotFound
 		}
-		if _, exists := validObjectIDs[item.ObjectID]; !exists {
+		object, exists := objectByID[item.ObjectID]
+		if !exists {
 			return nil, ErrAssessmentObjectNotFound
 		}
 		moduleKey := strings.TrimSpace(item.ModuleKey)
@@ -394,13 +437,38 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 		if _, exists := seen[key]; exists {
 			continue
 		}
+		score := item.Score
+		detailJSON := ""
+		scopedKey := periodCode + "|" + strings.TrimSpace(object.GroupCode)
+		scoped, scopedExists := scopedCache[scopedKey]
+		if !scopedExists {
+			scoped = matchScopedRule(ruleContent, periodCode, object.GroupCode)
+			scopedCache[scopedKey] = scoped
+		}
+		if scoped != nil {
+			moduleNode := findCalculationScoreModule(scoped, moduleKey)
+			if moduleNode != nil && normalizeCalculationMethod(moduleNode.CalculationMethod) == "vote" {
+				voteConfig := resolveVoteModuleConfig(*moduleNode)
+				calculatedVoteScore, voteDetail, voteErr := calculateVoteModuleScore(voteConfig, item.VoteInput)
+				if voteErr != nil {
+					return nil, fmt.Errorf("%w: %v", ErrInvalidParam, voteErr)
+				}
+				score = calculatedVoteScore
+				detailRaw, marshalErr := json.Marshal(voteDetail)
+				if marshalErr != nil {
+					return nil, fmt.Errorf("failed to marshal vote detail json: %w", marshalErr)
+				}
+				detailJSON = string(detailRaw)
+			}
+		}
 		seen[key] = struct{}{}
 		normalized = append(normalized, model.AssessmentObjectModuleScore{
 			AssessmentID: sessionID,
 			PeriodCode:   periodCode,
 			ObjectID:     item.ObjectID,
 			ModuleKey:    moduleKey,
-			Score:        item.Score,
+			Score:        score,
+			DetailJSON:   detailJSON,
 			CreatedBy:    operatorRef,
 			UpdatedBy:    operatorRef,
 		})
@@ -425,9 +493,10 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 					{Name: "module_key"},
 				},
 				DoUpdates: clause.Assignments(map[string]any{
-					"score":      row.Score,
-					"updated_by": operatorRef,
-					"updated_at": now,
+					"score":       row.Score,
+					"detail_json": row.DetailJSON,
+					"updated_by":  operatorRef,
+					"updated_at":  now,
 				}),
 			}).Create(&row).Error; err != nil {
 				return fmt.Errorf("failed to upsert module score: %w", err)
@@ -937,6 +1006,432 @@ func buildOutputModuleScores(
 		result[key] = nil
 	}
 	return result
+}
+
+func findCalculationScoreModule(scoped *calculationScoped, moduleKey string) *calculationScoreNode {
+	if scoped == nil {
+		return nil
+	}
+	target := strings.TrimSpace(moduleKey)
+	if target == "" {
+		return nil
+	}
+	for index := range scoped.ScoreModules {
+		item := &scoped.ScoreModules[index]
+		key := strings.TrimSpace(item.ModuleKey)
+		if key == "" {
+			key = strings.TrimSpace(item.ID)
+		}
+		if key == target {
+			return item
+		}
+	}
+	return nil
+}
+
+func defaultVoteModuleConfig() voteModuleConfig {
+	return voteModuleConfig{
+		GradeScores: []voteGradeScoreConfig{
+			{Label: "优秀", Score: 100},
+			{Label: "良好", Score: 85},
+			{Label: "一般", Score: 70},
+			{Label: "较差", Score: 60},
+		},
+		VoterSubjects: []voteSubjectWeightConfig{
+			{Label: "主体1", Weight: 1},
+		},
+	}
+}
+
+func resolveVoteModuleConfig(module calculationScoreNode) voteModuleConfig {
+	candidate := map[string]any{}
+	if len(module.VoteConfig) > 0 {
+		candidate = module.VoteConfig
+	}
+	if len(module.Detail) > 0 {
+		for _, key := range []string{"voteConfig", "vote", "voteDetail"} {
+			value, exists := module.Detail[key]
+			if !exists {
+				continue
+			}
+			parsed, ok := valueAsMap(value)
+			if ok {
+				candidate = parsed
+				break
+			}
+		}
+		if len(candidate) == 0 {
+			candidate = module.Detail
+		}
+	}
+	config := normalizeVoteModuleConfig(candidate)
+	if len(config.GradeScores) == 0 || len(config.VoterSubjects) == 0 {
+		return defaultVoteModuleConfig()
+	}
+	return config
+}
+
+func normalizeVoteModuleConfig(raw map[string]any) voteModuleConfig {
+	if len(raw) == 0 {
+		return defaultVoteModuleConfig()
+	}
+	var gradeScores []voteGradeScoreConfig
+	for _, key := range []string{"gradeScores", "grades", "levels", "options", "items"} {
+		value, exists := raw[key]
+		if !exists {
+			continue
+		}
+		gradeScores = parseVoteGradeScoreConfigs(value)
+		if len(gradeScores) > 0 {
+			break
+		}
+	}
+	var voterSubjects []voteSubjectWeightConfig
+	for _, key := range []string{"voterSubjects", "subjectWeights", "subjects", "voteSubjects", "voterGroups", "groups"} {
+		value, exists := raw[key]
+		if !exists {
+			continue
+		}
+		voterSubjects = parseVoteSubjectWeightConfigs(value)
+		if len(voterSubjects) > 0 {
+			break
+		}
+	}
+	if len(gradeScores) == 0 {
+		gradeScores = defaultVoteModuleConfig().GradeScores
+	}
+	if len(voterSubjects) == 0 {
+		voterSubjects = defaultVoteModuleConfig().VoterSubjects
+	}
+	return voteModuleConfig{
+		GradeScores:   gradeScores,
+		VoterSubjects: voterSubjects,
+	}
+}
+
+func parseVoteGradeScoreConfigs(value any) []voteGradeScoreConfig {
+	result := make([]voteGradeScoreConfig, 0, 8)
+	seen := map[string]struct{}{}
+	switch typed := value.(type) {
+	case []any:
+		for index, row := range typed {
+			rowMap, ok := valueAsMap(row)
+			if !ok {
+				continue
+			}
+			label := strings.TrimSpace(firstString(rowMap, "label", "name", "title", "grade", "option"))
+			if label == "" {
+				label = "挡位" + strconv.Itoa(index+1)
+			}
+			score, ok := firstNumber(rowMap, "score", "value", "points")
+			if !ok {
+				continue
+			}
+			if _, exists := seen[label]; exists {
+				continue
+			}
+			seen[label] = struct{}{}
+			result = append(result, voteGradeScoreConfig{Label: label, Score: score})
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			score, ok := toFloat64Loose(typed[key])
+			if !ok {
+				continue
+			}
+			label := strings.TrimSpace(key)
+			if label == "" {
+				continue
+			}
+			if _, exists := seen[label]; exists {
+				continue
+			}
+			seen[label] = struct{}{}
+			result = append(result, voteGradeScoreConfig{Label: label, Score: score})
+		}
+	}
+	return result
+}
+
+func parseVoteSubjectWeightConfigs(value any) []voteSubjectWeightConfig {
+	result := make([]voteSubjectWeightConfig, 0, 8)
+	seen := map[string]struct{}{}
+	switch typed := value.(type) {
+	case []any:
+		for index, row := range typed {
+			rowMap, ok := valueAsMap(row)
+			if !ok {
+				continue
+			}
+			label := strings.TrimSpace(firstString(rowMap, "label", "name", "title", "subject", "group"))
+			if label == "" {
+				label = "主体" + strconv.Itoa(index+1)
+			}
+			weight, ok := firstNumber(rowMap, "weight", "ratio", "value", "points")
+			if !ok || weight <= 0 {
+				continue
+			}
+			if _, exists := seen[label]; exists {
+				continue
+			}
+			seen[label] = struct{}{}
+			result = append(result, voteSubjectWeightConfig{Label: label, Weight: weight})
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			weight, ok := toFloat64Loose(typed[key])
+			if !ok || weight <= 0 {
+				continue
+			}
+			label := strings.TrimSpace(key)
+			if label == "" {
+				continue
+			}
+			if _, exists := seen[label]; exists {
+				continue
+			}
+			seen[label] = struct{}{}
+			result = append(result, voteSubjectWeightConfig{Label: label, Weight: weight})
+		}
+	}
+	return result
+}
+
+func valueAsMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case string:
+		text := strings.TrimSpace(typed)
+		if text == "" {
+			return nil, false
+		}
+		parsed := map[string]any{}
+		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+			return nil, false
+		}
+		return parsed, true
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, false
+		}
+		parsed := map[string]any{}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, false
+		}
+		return parsed, true
+	}
+}
+
+func firstString(raw map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, exists := raw[key]; exists {
+			text := strings.TrimSpace(fmt.Sprintf("%v", value))
+			if text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func firstNumber(raw map[string]any, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		if value, exists := raw[key]; exists {
+			if number, ok := toFloat64Loose(value); ok {
+				return number, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func toFloat64Loose(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int8:
+		return float64(typed), true
+	case int16:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case uint:
+		return float64(typed), true
+	case uint8:
+		return float64(typed), true
+	case uint16:
+		return float64(typed), true
+	case uint32:
+		return float64(typed), true
+	case uint64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	case string:
+		text := strings.TrimSpace(typed)
+		if text == "" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func calculateVoteModuleScore(
+	config voteModuleConfig,
+	input *SessionVoteInputPayload,
+) (float64, map[string]any, error) {
+	if input == nil || len(input.SubjectVotes) == 0 {
+		return 0, nil, errors.New("voteInput.subjectVotes is required for vote module")
+	}
+	if len(config.GradeScores) == 0 || len(config.VoterSubjects) == 0 {
+		return 0, nil, errors.New("vote config is empty")
+	}
+
+	gradeScoreByLabel := make(map[string]float64, len(config.GradeScores))
+	for _, grade := range config.GradeScores {
+		label := strings.TrimSpace(grade.Label)
+		if label == "" {
+			continue
+		}
+		gradeScoreByLabel[label] = grade.Score
+	}
+	subjectWeightByLabel := make(map[string]float64, len(config.VoterSubjects))
+	for _, subject := range config.VoterSubjects {
+		label := strings.TrimSpace(subject.Label)
+		if label == "" || subject.Weight <= 0 {
+			continue
+		}
+		subjectWeightByLabel[label] = subject.Weight
+	}
+	if len(gradeScoreByLabel) == 0 || len(subjectWeightByLabel) == 0 {
+		return 0, nil, errors.New("vote config has no valid grade scores or subject weights")
+	}
+
+	inputBySubject := make(map[string]map[string]float64, len(input.SubjectVotes))
+	for _, subjectVote := range input.SubjectVotes {
+		subjectLabel := strings.TrimSpace(subjectVote.SubjectLabel)
+		if subjectLabel == "" {
+			return 0, nil, errors.New("subjectLabel cannot be empty")
+		}
+		if _, exists := subjectWeightByLabel[subjectLabel]; !exists {
+			return 0, nil, fmt.Errorf("subjectLabel %q is not configured in rule", subjectLabel)
+		}
+		if _, exists := inputBySubject[subjectLabel]; exists {
+			return 0, nil, fmt.Errorf("subjectLabel %q is duplicated", subjectLabel)
+		}
+		gradeCountMap := map[string]float64{}
+		for _, gradeVote := range subjectVote.GradeVotes {
+			gradeLabel := strings.TrimSpace(gradeVote.GradeLabel)
+			if gradeLabel == "" {
+				continue
+			}
+			if _, exists := gradeScoreByLabel[gradeLabel]; !exists {
+				return 0, nil, fmt.Errorf("gradeLabel %q is not configured in rule", gradeLabel)
+			}
+			count := gradeVote.Count
+			if count < 0 {
+				return 0, nil, fmt.Errorf("vote count for %s/%s cannot be negative", subjectLabel, gradeLabel)
+			}
+			if math.Abs(count-math.Round(count)) > 1e-9 {
+				return 0, nil, fmt.Errorf("vote count for %s/%s must be integer", subjectLabel, gradeLabel)
+			}
+			gradeCountMap[gradeLabel] = math.Round(count)
+		}
+		inputBySubject[subjectLabel] = gradeCountMap
+	}
+
+	totalScore := 0.0
+	hasAnyVote := false
+	subjectDetails := make([]map[string]any, 0, len(config.VoterSubjects))
+	for _, subject := range config.VoterSubjects {
+		subjectLabel := strings.TrimSpace(subject.Label)
+		if subjectLabel == "" {
+			continue
+		}
+		countMap := inputBySubject[subjectLabel]
+		subjectTotal := 0.0
+		for _, grade := range config.GradeScores {
+			subjectTotal += countMap[strings.TrimSpace(grade.Label)]
+		}
+		subjectContribution := 0.0
+		if subjectTotal > 0 {
+			hasAnyVote = true
+			for _, grade := range config.GradeScores {
+				gradeLabel := strings.TrimSpace(grade.Label)
+				count := countMap[gradeLabel]
+				if count <= 0 {
+					continue
+				}
+				rate := count / subjectTotal
+				subjectContribution += grade.Score * subject.Weight * rate
+			}
+		}
+		totalScore += subjectContribution
+		subjectDetails = append(subjectDetails, map[string]any{
+			"subjectLabel":      subjectLabel,
+			"subjectWeight":     subject.Weight,
+			"subjectTotalVotes": subjectTotal,
+			"scoreContribution": subjectContribution,
+		})
+	}
+	if !hasAnyVote {
+		return 0, nil, errors.New("vote input has no positive vote counts")
+	}
+
+	configDetailGrades := make([]map[string]any, 0, len(config.GradeScores))
+	for _, grade := range config.GradeScores {
+		configDetailGrades = append(configDetailGrades, map[string]any{
+			"label": grade.Label,
+			"score": grade.Score,
+		})
+	}
+	configDetailSubjects := make([]map[string]any, 0, len(config.VoterSubjects))
+	for _, subject := range config.VoterSubjects {
+		configDetailSubjects = append(configDetailSubjects, map[string]any{
+			"label":  subject.Label,
+			"weight": subject.Weight,
+		})
+	}
+
+	detail := map[string]any{
+		"type":            "vote_weighted_rate_sum",
+		"calculatedScore": totalScore,
+		"voteConfig": map[string]any{
+			"gradeScores":   configDetailGrades,
+			"voterSubjects": configDetailSubjects,
+		},
+		"voteInput":      input,
+		"subjectDetails": subjectDetails,
+	}
+	return totalScore, detail, nil
 }
 
 func (s *AssessmentSessionService) listSessionObjects(

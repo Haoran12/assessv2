@@ -139,5 +139,14 @@ export interface UpdateAssessmentModuleScoresPayload {
     objectId: number;
     moduleKey: string;
     score: number;
+    voteInput?: {
+      subjectVotes: Array<{
+        subjectLabel: string;
+        gradeVotes: Array<{
+          gradeLabel: string;
+          count: number;
+        }>;
+      }>;
+    };
   }>;
 }

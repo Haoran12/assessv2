@@ -21,12 +21,14 @@ type calculationScoped struct {
 }
 
 type calculationScoreNode struct {
-	ID                string  `json:"id"`
-	ModuleKey         string  `json:"moduleKey"`
-	ModuleName        string  `json:"moduleName"`
-	Weight            float64 `json:"weight"`
-	CalculationMethod string  `json:"calculationMethod"`
-	CustomScript      string  `json:"customScript"`
+	ID                string         `json:"id"`
+	ModuleKey         string         `json:"moduleKey"`
+	ModuleName        string         `json:"moduleName"`
+	Weight            float64        `json:"weight"`
+	CalculationMethod string         `json:"calculationMethod"`
+	CustomScript      string         `json:"customScript"`
+	Detail            map[string]any `json:"detail,omitempty"`
+	VoteConfig        map[string]any `json:"voteConfig,omitempty"`
 }
 
 type calculationGradeRule struct {

@@ -1,0 +1,2 @@
+ALTER TABLE assessment_object_module_scores
+DROP COLUMN detail_json;

@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strconv"
+	"strings"
 	"testing"
 
 	"assessv2/backend/internal/auth"
@@ -349,6 +351,85 @@ func TestListCalculatedObjects_ExtraConditionLookupFunctions(t *testing.T) {
 	}
 	if rows[0].Grade != "A" {
 		t.Fatalf("expected grade A by lookup functions, got=%s", rows[0].Grade)
+	}
+}
+
+func TestUpsertModuleScores_VoteModuleCalculatedByBackend(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+	replaceCalculationFixtureRuleContent(t, fixture, buildRuleContentJSONWithVoteModule(t))
+
+	items, err := fixture.service.UpsertModuleScores(
+		context.Background(),
+		fixture.claims,
+		1,
+		fixture.sessionID,
+		[]SessionObjectModuleScoreUpsertItem{
+			{
+				PeriodCode: "Q1",
+				ObjectID:   fixture.individualObjectID,
+				ModuleKey:  "vote_module",
+				Score:      0,
+				VoteInput: &SessionVoteInputPayload{
+					SubjectVotes: []SessionVoteSubjectInput{
+						{
+							SubjectLabel: "主体A",
+							GradeVotes: []SessionVoteGradeInput{
+								{GradeLabel: "优秀", Count: 30},
+								{GradeLabel: "良好", Count: 10},
+							},
+						},
+						{
+							SubjectLabel: "主体B",
+							GradeVotes: []SessionVoteGradeInput{
+								{GradeLabel: "一般", Count: 20},
+								{GradeLabel: "较差", Count: 20},
+							},
+						},
+					},
+				},
+			},
+		},
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("upsert module scores failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got=%d", len(items))
+	}
+	expectedScore := 83.75
+	if !almostEqual(items[0].Score, expectedScore) {
+		t.Fatalf("unexpected score, got=%v want=%v", items[0].Score, expectedScore)
+	}
+	if strings.TrimSpace(items[0].DetailJSON) == "" {
+		t.Fatalf("expected detailJson to be generated for vote module")
+	}
+}
+
+func TestUpsertModuleScores_VoteModuleRequiresVoteInput(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+	replaceCalculationFixtureRuleContent(t, fixture, buildRuleContentJSONWithVoteModule(t))
+
+	_, err := fixture.service.UpsertModuleScores(
+		context.Background(),
+		fixture.claims,
+		1,
+		fixture.sessionID,
+		[]SessionObjectModuleScoreUpsertItem{
+			{
+				PeriodCode: "Q1",
+				ObjectID:   fixture.individualObjectID,
+				ModuleKey:  "vote_module",
+				Score:      88,
+				VoteInput:  nil,
+			},
+		},
+		"",
+		"",
+	)
+	if !errors.Is(err, ErrInvalidParam) {
+		t.Fatalf("expected ErrInvalidParam, got=%v", err)
 	}
 }
 
@@ -750,6 +831,49 @@ func buildRuleContentJSONWithLookupGradeScript(t *testing.T, gradeScript string)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal lookup grade rule file payload failed: %v", err)
+	}
+	return string(raw)
+}
+
+func buildRuleContentJSONWithVoteModule(t *testing.T) string {
+	t.Helper()
+	payload := map[string]any{
+		"version": 3,
+		"scopedRules": []map[string]any{
+			{
+				"id":                     "individual_rule",
+				"applicablePeriods":      []string{"Q1", "Q2", "Q3", "Q4", "YEAR_END"},
+				"applicableObjectGroups": []string{"dept_main"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "vote_module",
+						"moduleKey":         "vote_module",
+						"moduleName":        "Vote Module",
+						"weight":            100,
+						"calculationMethod": "vote",
+						"detail": map[string]any{
+							"voteConfig": map[string]any{
+								"gradeScores": []map[string]any{
+									{"label": "优秀", "score": 100},
+									{"label": "良好", "score": 85},
+									{"label": "一般", "score": 70},
+									{"label": "较差", "score": 60},
+								},
+								"voterSubjects": []map[string]any{
+									{"label": "主体A", "weight": 0.6},
+									{"label": "主体B", "weight": 0.4},
+								},
+							},
+						},
+					},
+				},
+				"grades": defaultGradeRules(),
+			},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal vote module rule file payload failed: %v", err)
 	}
 	return string(raw)
 }
