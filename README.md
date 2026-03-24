@@ -1,33 +1,32 @@
-# AssessV2
+﻿# AssessV2
 
-根据 [`docs/00-项目交付总结.md`](./docs/00-项目交付总结.md) 搭建的 M2 基础框架，覆盖以下技术栈：
+AssessV2 是一个以“考核场次（assessment session）”为核心的考核系统。
 
-- 前端：Vue 3 + TypeScript + Element Plus + Pinia + Vue Router
+技术栈：
+- 前端：Vue 3 + TypeScript + Element Plus
 - 后端：Go + Gin + GORM + SQLite
-- 桌面：Wails 2.x（容器层骨架）
+- 桌面壳：Wails 2.x
 
-## 目录结构
+## 核心数据规则（重要）
+
+- **每个场次目录内的 `assess.db` 是该场次业务数据与规则的唯一真源**。
+- 场次业务数据必须落在 `data/{assessment}/` 下，不再使用“年度目录”作为业务主存储。
+- `accounts/` 属于系统级数据，允许集中存储。
+- 组织树可作为通用数据源；场次创建后，场次对象快照独立保存，不随组织树后续变化而改变。
+- **运行时不做自动迁移**。历史数据迁移必须通过离线命令执行。
+
+## 数据目录约定
 
 ```text
-assessv2/
-├── docs/              # 需求与设计文档
-├── backend/           # Go 后端
-├── frontend/          # Vue 前端
-├── backend/desktop/   # Wails 桌面容器
-└── README.md
+data/
+  accounts/
+    accounts.db                 # 系统账号与权限数据
+  {assessment}/
+    assess.db                   # 场次业务数据唯一真源
+    *.json                      # 该场次规则文件
 ```
 
-## 当前已完成
-
-- 后端分层目录与基础服务入口
-- SQLite 初始化与 system_config 表自动迁移
-- 统一响应格式：`{ code, message, data }`
-- 认证模块基础接口：`POST /api/auth/login`
-- JWT 中间件骨架
-- 10 组 API 模块占位接口（`/_ping`）
-- 前端登录页、主布局、模块占位页
-- 前后端联调基础（Axios + 路由守卫）
-- Wails 最小项目结构和配置文件
+说明：历史版本可能残留 `business_data.json` / `default_objects.json`，它们不是运行时真源。
 
 ## 启动方式
 
@@ -35,7 +34,6 @@ assessv2/
 
 ```bash
 cd backend
-go mod tidy
 go run ./cmd/server
 ```
 
@@ -51,26 +49,43 @@ npm run dev
 
 默认访问：`http://127.0.0.1:5173`
 
-初始化登录账户（临时）：`admin / admin123`
-
-### 3. Wails（可选）
+### 3. 桌面（可选）
 
 ```bash
 cd backend/desktop
 wails dev
 ```
 
-## 已对齐的文档要点
+## 离线迁移命令
 
-- 技术选型：与 `docs/00` 中前后端与 Wails 选型一致
-- 架构分层：UI/API/Service/Repository/DB 分层落位
-- 模块边界：`auth/org/assessment/rules/scores/votes/calc/reports/backup/system`
-- 响应规范：统一 JSON 响应结构
+### 1. 场次业务表迁移到每个场次 `assess.db`
 
-## 后续建议开发顺序
+```bash
+cd backend
 
-1. 完善认证与 RBAC（用户表、会话表、权限点）
-2. 建立组织架构核心模型（group/company/department/person）
-3. 实现规则配置与分数模块定义
-4. 接入计算引擎（表达式 + DAG 依赖处理）
-5. 实现投票、报表与备份能力
+# dry-run
+go run ./cmd/migrate-session-business-db --db ../data/assess.db --data-root ../data
+
+# apply
+go run ./cmd/migrate-session-business-db --db ../data/assess.db --data-root ../data --apply
+```
+
+如果历史主库在别处（例如 `../data/2026/assess.db`），将 `--db` 改为实际路径。  
+该命令会把旧 `default_objects.json`（若存在）导入 `assess.db` 的快照表。
+
+### 2. 规则文件路径迁移到场次目录
+
+```bash
+cd backend
+
+# dry-run
+go run ./cmd/migrate-rule-file-paths --db ../data/assess.db --data-root ../data
+
+# apply
+go run ./cmd/migrate-rule-file-paths --db ../data/assess.db --data-root ../data --apply
+```
+
+## 文档
+
+- 文档总览：[`docs/README.md`](./docs/README.md)
+- 路由入口：`backend/internal/api/router/router.go`

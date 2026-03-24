@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 )
 
 const sessionBusinessSQLiteFileName = "assess.db"
+const legacySessionDefaultObjectsFileName = "default_objects.json"
 
 type sessionRow struct {
 	ID             uint
@@ -22,11 +24,28 @@ type sessionRow struct {
 }
 
 type tableCopyStats struct {
-	Periods      int
-	ObjectGroups int
-	Objects      int
-	ModuleScores int
-	RuleFiles    int
+	Periods          int
+	ObjectGroups     int
+	Objects          int
+	ModuleScores     int
+	RuleFiles        int
+	DefaultSnapshots int
+}
+
+type legacySessionDefaultObjectSnapshotFile struct {
+	Items []legacySessionDefaultObjectSnapshotItem `json:"items"`
+}
+
+type legacySessionDefaultObjectSnapshotItem struct {
+	ObjectType       string `json:"objectType"`
+	GroupCode        string `json:"groupCode"`
+	TargetType       string `json:"targetType"`
+	TargetID         uint   `json:"targetId"`
+	ObjectName       string `json:"objectName"`
+	ParentTargetType string `json:"parentTargetType,omitempty"`
+	ParentTargetID   uint   `json:"parentTargetId,omitempty"`
+	SortOrder        int    `json:"sortOrder"`
+	IsActive         bool   `json:"isActive"`
 }
 
 func main() {
@@ -58,10 +77,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("plan failed for assessment_id=%d: %v", session.ID, err)
 		}
+		planned.DefaultSnapshots = estimateLegacySnapshotCount(targetDir, planned.Objects)
 		totalPlanned.add(planned)
 
 		fmt.Printf(
-			"[plan] assessment_id=%d name=%s target=%s periods=%d groups=%d objects=%d module_scores=%d rule_files=%d\n",
+			"[plan] assessment_id=%d name=%s target=%s periods=%d groups=%d objects=%d module_scores=%d rule_files=%d default_snapshots=%d\n",
 			session.ID,
 			session.AssessmentName,
 			filepath.Join(targetDir, sessionBusinessSQLiteFileName),
@@ -70,6 +90,7 @@ func main() {
 			planned.Objects,
 			planned.ModuleScores,
 			planned.RuleFiles,
+			planned.DefaultSnapshots,
 		)
 
 		if !*apply {
@@ -83,36 +104,39 @@ func main() {
 		totalApplied.add(applied)
 
 		fmt.Printf(
-			"[done] assessment_id=%d periods=%d groups=%d objects=%d module_scores=%d rule_files=%d\n",
+			"[done] assessment_id=%d periods=%d groups=%d objects=%d module_scores=%d rule_files=%d default_snapshots=%d\n",
 			session.ID,
 			applied.Periods,
 			applied.ObjectGroups,
 			applied.Objects,
 			applied.ModuleScores,
 			applied.RuleFiles,
+			applied.DefaultSnapshots,
 		)
 	}
 
 	if !*apply {
 		fmt.Printf(
-			"dry-run finished sessions=%d periods=%d groups=%d objects=%d module_scores=%d rule_files=%d\n",
+			"dry-run finished sessions=%d periods=%d groups=%d objects=%d module_scores=%d rule_files=%d default_snapshots=%d\n",
 			len(sessions),
 			totalPlanned.Periods,
 			totalPlanned.ObjectGroups,
 			totalPlanned.Objects,
 			totalPlanned.ModuleScores,
 			totalPlanned.RuleFiles,
+			totalPlanned.DefaultSnapshots,
 		)
 		return
 	}
 	fmt.Printf(
-		"migration finished sessions=%d periods=%d groups=%d objects=%d module_scores=%d rule_files=%d\n",
+		"migration finished sessions=%d periods=%d groups=%d objects=%d module_scores=%d rule_files=%d default_snapshots=%d\n",
 		len(sessions),
 		totalApplied.Periods,
 		totalApplied.ObjectGroups,
 		totalApplied.Objects,
 		totalApplied.ModuleScores,
 		totalApplied.RuleFiles,
+		totalApplied.DefaultSnapshots,
 	)
 }
 
@@ -188,6 +212,7 @@ func applySessionMigration(sourceDB *gorm.DB, session sessionRow, targetDir stri
 		&model.AssessmentSessionObject{},
 		&model.AssessmentObjectModuleScore{},
 		&model.RuleFile{},
+		&model.SessionDefaultObjectSnapshot{},
 	); err != nil {
 		return tableCopyStats{}, fmt.Errorf("automigrate target session schema: %w", err)
 	}
@@ -223,12 +248,127 @@ func applySessionMigration(sourceDB *gorm.DB, session sessionRow, targetDir stri
 			return err
 		}
 		stats.RuleFiles = ruleFiles
+
+		snapshots, err := copyDefaultSnapshots(tx, session.ID, targetDir)
+		if err != nil {
+			return err
+		}
+		stats.DefaultSnapshots = snapshots
 		return nil
 	})
 	if err != nil {
 		return tableCopyStats{}, err
 	}
 	return stats, nil
+}
+
+func copyDefaultSnapshots(targetDB *gorm.DB, assessmentID uint, targetDir string) (int, error) {
+	if err := targetDB.Where("assessment_id = ?", assessmentID).Delete(&model.SessionDefaultObjectSnapshot{}).Error; err != nil {
+		return 0, fmt.Errorf("clear default snapshot rows: %w", err)
+	}
+
+	items, loaded, err := loadLegacyDefaultSnapshotItems(targetDir)
+	if err != nil {
+		return 0, err
+	}
+	if !loaded {
+		objects := make([]model.AssessmentSessionObject, 0, 200)
+		if err := targetDB.
+			Where("assessment_id = ?", assessmentID).
+			Order("sort_order ASC, id ASC").
+			Find(&objects).Error; err != nil {
+			return 0, fmt.Errorf("query target objects for default snapshot: %w", err)
+		}
+		items = buildDefaultSnapshotItemsFromObjects(objects)
+	}
+	if len(items) == 0 {
+		return 0, nil
+	}
+
+	rows := make([]model.SessionDefaultObjectSnapshot, 0, len(items))
+	for _, item := range items {
+		row := model.SessionDefaultObjectSnapshot{
+			AssessmentID: assessmentID,
+			ObjectType:   item.ObjectType,
+			GroupCode:    item.GroupCode,
+			TargetType:   item.TargetType,
+			TargetID:     item.TargetID,
+			ObjectName:   item.ObjectName,
+			SortOrder:    item.SortOrder,
+			IsActive:     item.IsActive,
+		}
+		if strings.TrimSpace(item.ParentTargetType) != "" && item.ParentTargetID > 0 {
+			row.ParentTargetType = item.ParentTargetType
+			row.ParentTargetID = item.ParentTargetID
+		}
+		rows = append(rows, row)
+	}
+	if err := targetDB.CreateInBatches(rows, 200).Error; err != nil {
+		return 0, fmt.Errorf("insert default snapshot rows: %w", err)
+	}
+	return len(rows), nil
+}
+
+func buildDefaultSnapshotItemsFromObjects(objects []model.AssessmentSessionObject) []legacySessionDefaultObjectSnapshotItem {
+	parentTargetByObjectID := make(map[uint]struct {
+		TargetType string
+		TargetID   uint
+	}, len(objects))
+	for _, item := range objects {
+		parentTargetByObjectID[item.ID] = struct {
+			TargetType string
+			TargetID   uint
+		}{
+			TargetType: item.TargetType,
+			TargetID:   item.TargetID,
+		}
+	}
+
+	items := make([]legacySessionDefaultObjectSnapshotItem, 0, len(objects))
+	for _, item := range objects {
+		row := legacySessionDefaultObjectSnapshotItem{
+			ObjectType: item.ObjectType,
+			GroupCode:  item.GroupCode,
+			TargetType: item.TargetType,
+			TargetID:   item.TargetID,
+			ObjectName: item.ObjectName,
+			SortOrder:  item.SortOrder,
+			IsActive:   item.IsActive,
+		}
+		if item.ParentObjectID != nil && *item.ParentObjectID > 0 {
+			if parentTarget, ok := parentTargetByObjectID[*item.ParentObjectID]; ok {
+				row.ParentTargetType = parentTarget.TargetType
+				row.ParentTargetID = parentTarget.TargetID
+			}
+		}
+		items = append(items, row)
+	}
+	return items
+}
+
+func loadLegacyDefaultSnapshotItems(targetDir string) ([]legacySessionDefaultObjectSnapshotItem, bool, error) {
+	path := filepath.Join(targetDir, legacySessionDefaultObjectsFileName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("read legacy default snapshot json: %w", err)
+	}
+
+	payload := legacySessionDefaultObjectSnapshotFile{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, false, fmt.Errorf("parse legacy default snapshot json: %w", err)
+	}
+	return payload.Items, true, nil
+}
+
+func estimateLegacySnapshotCount(targetDir string, fallback int) int {
+	items, loaded, err := loadLegacyDefaultSnapshotItems(targetDir)
+	if err != nil || !loaded {
+		return fallback
+	}
+	return len(items)
 }
 
 func copyPeriods(sourceDB, targetDB *gorm.DB, assessmentID uint) (int, error) {
@@ -376,4 +516,5 @@ func (t *tableCopyStats) add(other tableCopyStats) {
 	t.Objects += other.Objects
 	t.ModuleScores += other.ModuleScores
 	t.RuleFiles += other.RuleFiles
+	t.DefaultSnapshots += other.DefaultSnapshots
 }

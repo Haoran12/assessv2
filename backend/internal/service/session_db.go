@@ -64,6 +64,7 @@ func ensureSessionBusinessSchema(db *gorm.DB) error {
 		&model.AssessmentSessionObject{},
 		&model.AssessmentObjectModuleScore{},
 		&model.RuleFile{},
+		&model.SessionDefaultObjectSnapshot{},
 	); err != nil {
 		return fmt.Errorf("automigrate session business schema failed: %w", err)
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,9 +11,10 @@ import (
 	"assessv2/backend/internal/database"
 	"assessv2/backend/internal/model"
 	"assessv2/backend/internal/repository"
+	"gorm.io/gorm"
 )
 
-func TestCreateSessionWritesBusinessDataFiles(t *testing.T) {
+func TestCreateSessionPersistsDefaultSnapshotInSessionDB(t *testing.T) {
 	dataRoot := t.TempDir()
 	t.Setenv("ASSESS_DATA_ROOT", dataRoot)
 
@@ -60,29 +60,32 @@ func TestCreateSessionWritesBusinessDataFiles(t *testing.T) {
 	}
 
 	sessionDir := detail.Session.DataDir
-	businessDataPath := filepath.Join(sessionDir, sessionBusinessDataFileName)
-	defaultObjectsPath := filepath.Join(sessionDir, sessionDefaultObjectsFileName)
+	businessDataPath := filepath.Join(sessionDir, "business_data.json")
+	defaultObjectsPath := filepath.Join(sessionDir, "default_objects.json")
 
-	if _, statErr := os.Stat(businessDataPath); statErr != nil {
-		t.Fatalf("business data file not found: %v", statErr)
+	if _, statErr := os.Stat(businessDataPath); !os.IsNotExist(statErr) {
+		t.Fatalf("business_data.json should not be generated at runtime")
 	}
-	if _, statErr := os.Stat(defaultObjectsPath); statErr != nil {
-		t.Fatalf("default object snapshot file not found: %v", statErr)
+	if _, statErr := os.Stat(defaultObjectsPath); !os.IsNotExist(statErr) {
+		t.Fatalf("default_objects.json should not be generated at runtime")
 	}
 
-	raw, err := os.ReadFile(businessDataPath)
+	summary := &AssessmentSessionSummary{AssessmentSession: detail.Session.AssessmentSession}
+	err = withSessionBusinessDB(context.Background(), summary, func(sessionDB *gorm.DB) error {
+		var snapshotCount int64
+		if err := sessionDB.
+			Model(&model.SessionDefaultObjectSnapshot{}).
+			Where("assessment_id = ?", detail.Session.ID).
+			Count(&snapshotCount).Error; err != nil {
+			return err
+		}
+		if snapshotCount == 0 {
+			t.Fatalf("expected session default snapshot rows in session db")
+		}
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("read business data file failed: %v", err)
-	}
-	payload := sessionBusinessDataFile{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal business data file failed: %v", err)
-	}
-	if payload.Session.ID != detail.Session.ID {
-		t.Fatalf("unexpected session id in business data, got=%d want=%d", payload.Session.ID, detail.Session.ID)
-	}
-	if len(payload.Periods) == 0 || len(payload.ObjectGroups) == 0 || len(payload.Objects) == 0 {
-		t.Fatalf("business data file missing session payload, periods=%d groups=%d objects=%d", len(payload.Periods), len(payload.ObjectGroups), len(payload.Objects))
+		t.Fatalf("query session db snapshot failed: %v", err)
 	}
 }
 
