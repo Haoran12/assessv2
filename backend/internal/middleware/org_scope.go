@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -40,7 +41,12 @@ func RequireOrgScope() gin.HandlerFunc {
 			return
 		}
 		if !containsOrgScope(claims.OrgScopes, orgType, uint(orgID)) {
-			response.Error(c, http.StatusForbidden, response.CodeForbiddenOrgScope, "organization scope denied")
+			message := fmt.Sprintf(
+				"organization scope denied (Code 40302). 当前用户没有权限访问该组织范围: organizationType=%s, organizationId=%d。",
+				orgType,
+				orgID,
+			)
+			response.Error(c, http.StatusForbidden, response.CodeForbiddenOrgScope, message)
 			c.Abort()
 			return
 		}

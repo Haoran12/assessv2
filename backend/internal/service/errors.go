@@ -7,7 +7,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrAccountInactive    = errors.New("account is inactive")
 	ErrAccountLocked      = errors.New("account is locked")
-	ErrForbidden          = errors.New("Request failed with Code 403: Permission Denied")
+	ErrForbidden          = errors.New("Request failed with Code 403: Permission Denied. 当前用户没有权限执行该操作。")
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrInvalidUserStatus  = errors.New("invalid user status")
 	ErrInvalidUsername    = errors.New("invalid username")

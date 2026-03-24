@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 
 	"assessv2/backend/internal/api/response"
@@ -17,7 +18,11 @@ func RequirePermission(permission string) gin.HandlerFunc {
 			return
 		}
 		if !auth.RoleAllowsPermission(claims.Roles, permission) && !auth.HasPermission(claims.Permissions, permission) {
-			response.Error(c, http.StatusForbidden, response.CodeForbidden, "Request failed with Code 403: Permission Denied")
+			message := fmt.Sprintf(
+				"Request failed with Code 403: Permission Denied. 当前用户没有权限，缺少权限: %s。",
+				permission,
+			)
+			response.Error(c, http.StatusForbidden, response.CodeForbidden, message)
 			c.Abort()
 			return
 		}
@@ -34,7 +39,7 @@ func RequireRoot() gin.HandlerFunc {
 			return
 		}
 		if !auth.HasRole(claims.Roles, "root") {
-			response.Error(c, http.StatusForbidden, response.CodeForbidden, "Request failed with Code 403: Permission Denied")
+			response.Error(c, http.StatusForbidden, response.CodeForbidden, "Request failed with Code 403: Permission Denied. 当前用户没有权限，需要 root 角色。")
 			c.Abort()
 			return
 		}
