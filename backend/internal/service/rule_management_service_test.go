@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"assessv2/backend/internal/auth"
@@ -100,8 +103,89 @@ func TestRuleManagementCreateRuleFileAllowsLookupFunctions(t *testing.T) {
 	}
 }
 
+func TestRuleManagementCreateRuleFileStoresInAssessmentDir(t *testing.T) {
+	fixture := setupRuleManagementFixture(t)
+	contentJSON := buildRuleManagementRuleContentJSON(t, "direct_input", "", "", false)
+
+	record, err := fixture.service.CreateRuleFile(
+		context.Background(),
+		fixture.claims,
+		1,
+		RuleFileInput{
+			AssessmentID: fixture.sessionID,
+			RuleName:     "Rule Storage Check",
+			ContentJSON:  contentJSON,
+		},
+		"127.0.0.1",
+		"unit-test",
+	)
+	if err != nil {
+		t.Fatalf("create rule file failed: %v", err)
+	}
+
+	if strings.Contains(filepath.Clean(record.FilePath), filepath.Join("rules", "rule_test_assessment")) {
+		t.Fatalf("expected rule file path under session dir, got=%s", record.FilePath)
+	}
+
+	expectedPrefix := filepath.Clean(filepath.Join(os.Getenv("ASSESS_DATA_ROOT"), "rule_test_assessment"))
+	if !strings.HasPrefix(filepath.Clean(record.FilePath), expectedPrefix) {
+		t.Fatalf("expected rule file path prefix=%s, got=%s", expectedPrefix, record.FilePath)
+	}
+	if _, statErr := os.Stat(record.FilePath); statErr != nil {
+		t.Fatalf("expected rule file exists, got stat err=%v", statErr)
+	}
+}
+
+func TestRuleManagementListRuleFilesDoesNotMigrateLegacyRulePathAtRuntime(t *testing.T) {
+	fixture := setupRuleManagementFixture(t)
+	legacyRoot := filepath.Join(os.Getenv("ASSESS_DATA_ROOT"), "rules", "rule_test_assessment")
+	if err := os.MkdirAll(legacyRoot, 0o755); err != nil {
+		t.Fatalf("create legacy rule dir failed: %v", err)
+	}
+	legacyPath := filepath.Join(legacyRoot, "legacy_rule.json")
+	contentJSON := buildRuleManagementRuleContentJSON(t, "direct_input", "", "", false)
+	if err := os.WriteFile(legacyPath, []byte(contentJSON), 0o644); err != nil {
+		t.Fatalf("write legacy rule file failed: %v", err)
+	}
+
+	record := model.RuleFile{
+		AssessmentID: fixture.sessionID,
+		RuleName:     "Legacy Rule",
+		ContentJSON:  contentJSON,
+		FilePath:     legacyPath,
+	}
+	if err := fixture.sessionDB.Create(&record).Error; err != nil {
+		t.Fatalf("create legacy rule file record failed: %v", err)
+	}
+
+	items, err := fixture.service.ListRuleFiles(
+		context.Background(),
+		fixture.claims,
+		RuleFileListFilter{AssessmentID: fixture.sessionID},
+	)
+	if err != nil {
+		t.Fatalf("list rule files failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 rule file, got=%d", len(items))
+	}
+
+	if filepath.Clean(items[0].FilePath) != filepath.Clean(legacyPath) {
+		t.Fatalf("expected runtime path unchanged, got=%s want=%s", items[0].FilePath, legacyPath)
+	}
+
+	var dbRecord model.RuleFile
+	if err := fixture.sessionDB.Where("id = ?", record.ID).First(&dbRecord).Error; err != nil {
+		t.Fatalf("reload rule record failed: %v", err)
+	}
+	if filepath.Clean(dbRecord.FilePath) != filepath.Clean(legacyPath) {
+		t.Fatalf("expected db path unchanged, got=%s want=%s", dbRecord.FilePath, legacyPath)
+	}
+}
+
 type ruleManagementFixture struct {
 	db        *gorm.DB
+	sessionDB *gorm.DB
 	service   *RuleManagementService
 	claims    *auth.Claims
 	sessionID uint
@@ -136,10 +220,17 @@ func setupRuleManagementFixture(t *testing.T) ruleManagementFixture {
 	if err := db.Create(&session).Error; err != nil {
 		t.Fatalf("create assessment session failed: %v", err)
 	}
+	sessionSummary := &AssessmentSessionSummary{AssessmentSession: session}
+	sessionDB, closeSessionDB, err := openSessionBusinessDB(sessionSummary)
+	if err != nil {
+		t.Fatalf("open session business db failed: %v", err)
+	}
+	t.Cleanup(closeSessionDB)
 
 	service := NewRuleManagementService(db, repository.NewAuditRepository(db))
 	return ruleManagementFixture{
 		db:        db,
+		sessionDB: sessionDB,
 		service:   service,
 		claims:    &auth.Claims{Roles: []string{auth.RoleRoot}},
 		sessionID: session.ID,

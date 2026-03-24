@@ -140,21 +140,13 @@ function Repair-LegacyDataLayout {
         return
     }
 
-    $year = Resolve-PreferredYear -DataRoot $DataRoot
-    $yearDir = Join-Path $DataRoot $year
-    New-Item -ItemType Directory -Path $yearDir -Force | Out-Null
-
-    $legacyAssessMain = Join-Path $DataRoot "assess.db"
-    $yearAssessMain = Join-Path $yearDir "assess.db"
-    if (Test-FilePath $legacyAssessMain) {
-        if (-not (Test-FilePath $yearAssessMain)) {
-            Move-SqliteBundle -SourceMain $legacyAssessMain -TargetMain $yearAssessMain
-            Write-Host "Migrated legacy assessment DB to yearly layout: data\\$year\\assess.db"
-        } else {
-            $backupDir = Join-Path $DataRoot ("legacy\\" + (Get-Date -Format "yyyyMMddHHmmss"))
-            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-            Move-SqliteBundle -SourceMain $legacyAssessMain -TargetMain (Join-Path $backupDir "assess.db")
-            Write-Host "Moved duplicate legacy assessment DB to backup: $backupDir"
+    $flatAssessMain = Join-Path $DataRoot "assess.db"
+    if (-not (Test-FilePath $flatAssessMain)) {
+        $year = Resolve-PreferredYear -DataRoot $DataRoot
+        $yearAssessMain = Join-Path (Join-Path $DataRoot $year) "assess.db"
+        if (Test-FilePath $yearAssessMain) {
+            Move-SqliteBundle -SourceMain $yearAssessMain -TargetMain $flatAssessMain
+            Write-Host "Migrated legacy yearly assessment DB to flat layout: data\\assess.db"
         }
     }
 
@@ -167,9 +159,9 @@ function Repair-LegacyDataLayout {
         if (Test-FilePath $legacyAccountsMain) {
             Move-SqliteBundle -SourceMain $legacyAccountsMain -TargetMain $accountsMain
             Write-Host "Migrated legacy accounts DB to: data\\accounts\\accounts.db"
-        } elseif (Test-FilePath $yearAssessMain) {
-            Copy-SqliteBundle -SourceMain $yearAssessMain -TargetMain $accountsMain
-            Write-Host "Bootstrapped shared accounts DB from yearly DB: data\\accounts\\accounts.db"
+        } elseif (Test-FilePath $flatAssessMain) {
+            Copy-SqliteBundle -SourceMain $flatAssessMain -TargetMain $accountsMain
+            Write-Host "Bootstrapped shared accounts DB from assessment DB: data\\accounts\\accounts.db"
         }
     }
 }
@@ -313,5 +305,5 @@ Repair-LegacyDataLayout -DataRoot (Join-Path $projectRoot "data")
 
 Write-Step "Done"
 Write-Host "EXE: $rootExe" -ForegroundColor Green
-Write-Host "Data directory pattern: .\\data\\{assessment_year}\\assess.db" -ForegroundColor Green
+Write-Host "Data directory pattern: .\\data\\assess.db" -ForegroundColor Green
 Write-Host "Shared accounts DB: .\\data\\accounts\\accounts.db" -ForegroundColor Green

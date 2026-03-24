@@ -141,12 +141,21 @@ func (h *RuleHandler) CheckRuleDependencies(c *gin.Context) {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
 		return
 	}
+	assessmentID, err := parseOptionalUintQuery(c.Query("assessmentId"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessmentId")
+		return
+	}
 	ruleID, err := parseUserIDParam(c)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid rule id")
 		return
 	}
-	result, err := h.service.CheckRuleDependencies(c.Request.Context(), claims, ruleID)
+	targetAssessmentID := uint(0)
+	if assessmentID != nil {
+		targetAssessmentID = *assessmentID
+	}
+	result, err := h.service.CheckRuleDependencies(c.Request.Context(), claims, targetAssessmentID, ruleID)
 	if err != nil {
 		h.handleRuleError(c, err, "failed to check rule dependencies")
 		return

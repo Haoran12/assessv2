@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -374,6 +375,11 @@ func TestM1RootUserCRUD(t *testing.T) {
 
 func setupTestServer(t *testing.T) (http.Handler, *gorm.DB) {
 	t.Helper()
+	dataRoot := filepath.Join(t.TempDir(), "data")
+	t.Setenv("ASSESS_DATA_ROOT", dataRoot)
+	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
+		t.Fatalf("failed to create data root: %v", err)
+	}
 
 	cfg := config.Config{
 		Server: config.ServerConfig{

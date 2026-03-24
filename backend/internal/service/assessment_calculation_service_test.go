@@ -444,6 +444,7 @@ type calculationFixture struct {
 
 func setupCalculationFixture(t *testing.T) calculationFixture {
 	t.Helper()
+	t.Setenv("ASSESS_DATA_ROOT", t.TempDir())
 
 	db := openIsolatedSQLiteTestDB(t)
 	if err := database.AutoMigrateAndSeed(db, "Test#123456"); err != nil {
@@ -473,6 +474,12 @@ func setupCalculationFixture(t *testing.T) calculationFixture {
 	if err := db.Create(&session).Error; err != nil {
 		t.Fatalf("create assessment session failed: %v", err)
 	}
+	sessionSummary := &AssessmentSessionSummary{AssessmentSession: session}
+	sessionDB, closeSessionDB, err := openSessionBusinessDB(sessionSummary)
+	if err != nil {
+		t.Fatalf("open session business db failed: %v", err)
+	}
+	t.Cleanup(closeSessionDB)
 
 	periodCodes := []string{"Q1", "Q2", "Q3", "Q4", "YEAR_END"}
 	for index, code := range periodCodes {
@@ -483,7 +490,7 @@ func setupCalculationFixture(t *testing.T) calculationFixture {
 			RuleBindingKey: code,
 			SortOrder:      index + 1,
 		}
-		if err := db.Create(&period).Error; err != nil {
+		if err := sessionDB.Create(&period).Error; err != nil {
 			t.Fatalf("create period %s failed: %v", code, err)
 		}
 	}
@@ -498,7 +505,7 @@ func setupCalculationFixture(t *testing.T) calculationFixture {
 		SortOrder:    1,
 		IsActive:     true,
 	}
-	if err := db.Create(&teamObject).Error; err != nil {
+	if err := sessionDB.Create(&teamObject).Error; err != nil {
 		t.Fatalf("create team object failed: %v", err)
 	}
 
@@ -513,7 +520,7 @@ func setupCalculationFixture(t *testing.T) calculationFixture {
 		SortOrder:      2,
 		IsActive:       true,
 	}
-	if err := db.Create(&individualObject).Error; err != nil {
+	if err := sessionDB.Create(&individualObject).Error; err != nil {
 		t.Fatalf("create individual object failed: %v", err)
 	}
 
@@ -524,12 +531,12 @@ func setupCalculationFixture(t *testing.T) calculationFixture {
 		ContentJSON:  contentJSON,
 		FilePath:     "data/rules/test_assessment/session_rule.json",
 	}
-	if err := db.Create(&ruleFile).Error; err != nil {
+	if err := sessionDB.Create(&ruleFile).Error; err != nil {
 		t.Fatalf("create rule file failed: %v", err)
 	}
 
 	return calculationFixture{
-		db:                 db,
+		db:                 sessionDB,
 		service:            service,
 		claims:             claims,
 		sessionID:          session.ID,

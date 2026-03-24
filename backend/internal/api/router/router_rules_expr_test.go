@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"assessv2/backend/internal/api/response"
 	"assessv2/backend/internal/model"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -196,6 +199,7 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 	if err := db.Create(&session).Error; err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
+	sessionDB := openSessionBusinessTestDB(t, session)
 	period := model.AssessmentSessionPeriod{
 		AssessmentID:   session.ID,
 		PeriodCode:     "Q1",
@@ -203,7 +207,7 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 		RuleBindingKey: "Q1",
 		SortOrder:      1,
 	}
-	if err := db.Create(&period).Error; err != nil {
+	if err := sessionDB.Create(&period).Error; err != nil {
 		t.Fatalf("create period failed: %v", err)
 	}
 	teamObject := model.AssessmentSessionObject{
@@ -216,7 +220,7 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 		SortOrder:    1,
 		IsActive:     true,
 	}
-	if err := db.Create(&teamObject).Error; err != nil {
+	if err := sessionDB.Create(&teamObject).Error; err != nil {
 		t.Fatalf("create team object failed: %v", err)
 	}
 	object := model.AssessmentSessionObject{
@@ -230,7 +234,7 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 		SortOrder:      2,
 		IsActive:       true,
 	}
-	if err := db.Create(&object).Error; err != nil {
+	if err := sessionDB.Create(&object).Error; err != nil {
 		t.Fatalf("create object failed: %v", err)
 	}
 	moduleScore := model.AssessmentObjectModuleScore{
@@ -240,7 +244,7 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 		ModuleKey:    "base_performance",
 		Score:        80,
 	}
-	if err := db.Create(&moduleScore).Error; err != nil {
+	if err := sessionDB.Create(&moduleScore).Error; err != nil {
 		t.Fatalf("create module score failed: %v", err)
 	}
 	ruleFile := model.RuleFile{
@@ -250,10 +254,64 @@ func seedExprAssessmentFixture(t *testing.T, db *gorm.DB, ruleContent string) ui
 		FilePath:     filepath.Join(t.TempDir(), "expr-rule.json"),
 		IsCopy:       false,
 	}
-	if err := db.Create(&ruleFile).Error; err != nil {
+	if err := sessionDB.Create(&ruleFile).Error; err != nil {
 		t.Fatalf("create rule file failed: %v", err)
 	}
 	return session.ID
+}
+
+func openSessionBusinessTestDB(t *testing.T, session model.AssessmentSession) *gorm.DB {
+	t.Helper()
+	dataDir := resolveSessionDataDirForTest(session.DataDir, session.AssessmentName)
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("create session data dir failed: %v", err)
+	}
+	sessionDB, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, "assess.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open session db failed: %v", err)
+	}
+	if err := sessionDB.AutoMigrate(
+		&model.AssessmentSessionPeriod{},
+		&model.AssessmentObjectGroup{},
+		&model.AssessmentSessionObject{},
+		&model.AssessmentObjectModuleScore{},
+		&model.RuleFile{},
+	); err != nil {
+		t.Fatalf("auto migrate session db failed: %v", err)
+	}
+	sqlDB, err := sessionDB.DB()
+	if err != nil {
+		t.Fatalf("resolve session sql db failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+	return sessionDB
+}
+
+func resolveSessionDataDirForTest(dataDir string, assessmentName string) string {
+	text := strings.TrimSpace(dataDir)
+	if text == "" {
+		root := strings.TrimSpace(os.Getenv("ASSESS_DATA_ROOT"))
+		if root == "" {
+			root = "data"
+		}
+		return filepath.Clean(filepath.Join(root, assessmentName))
+	}
+	if filepath.IsAbs(text) {
+		return filepath.Clean(text)
+	}
+
+	root := strings.TrimSpace(os.Getenv("ASSESS_DATA_ROOT"))
+	if root == "" {
+		root = "data"
+	}
+	normalized := strings.ReplaceAll(text, "\\", "/")
+	if strings.HasPrefix(strings.ToLower(normalized), "data/") {
+		relative := strings.TrimPrefix(normalized, "data/")
+		return filepath.Clean(filepath.Join(root, filepath.FromSlash(relative)))
+	}
+	return filepath.Clean(filepath.Join(root, filepath.FromSlash(normalized)))
 }
 
 func buildExprRuleContentJSON(

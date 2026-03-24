@@ -58,11 +58,16 @@ func (s *RuleManagementService) ensureSessionRuleFile(
 	operatorRef *uint,
 ) (*model.RuleFile, error) {
 	items := make([]model.RuleFile, 0, 8)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", session.ID).
-		Order("updated_at DESC, id DESC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to query rule files: %w", err)
+	if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", session.ID).
+			Order("updated_at DESC, id DESC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to query rule files: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	if len(items) == 0 {
@@ -86,8 +91,16 @@ func (s *RuleManagementService) ensureSessionRuleFile(
 			CreatedBy:    operatorRef,
 			UpdatedBy:    operatorRef,
 		}
-		if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
-			return nil, fmt.Errorf("failed to create session rule file: %w", err)
+		if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
+			if err := sessionDB.Create(&record).Error; err != nil {
+				return fmt.Errorf("failed to create session rule file: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		if err := syncSessionBusinessDataFile(ctx, session); err != nil {
+			return nil, err
 		}
 		return &record, nil
 	}
@@ -113,11 +126,16 @@ func (s *RuleManagementService) ensureSessionRuleFile(
 			updates["updated_by"] = operatorRef
 			updates["updated_at"] = time.Now().Unix()
 		}
-		if err := s.db.WithContext(ctx).Model(&model.RuleFile{}).Where("id = ?", picked.ID).Updates(updates).Error; err != nil {
-			return nil, fmt.Errorf("failed to normalize session rule file: %w", err)
-		}
-		if err := s.db.WithContext(ctx).Where("id = ?", picked.ID).First(picked).Error; err != nil {
-			return nil, fmt.Errorf("failed to reload session rule file: %w", err)
+		if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
+			if err := sessionDB.Model(&model.RuleFile{}).Where("id = ?", picked.ID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to normalize session rule file: %w", err)
+			}
+			if err := sessionDB.Where("id = ?", picked.ID).First(picked).Error; err != nil {
+				return fmt.Errorf("failed to reload session rule file: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 	}
 	return picked, nil
@@ -192,14 +210,19 @@ func (s *RuleManagementService) CreateRuleFile(
 		"updated_by":   operatorRef,
 		"updated_at":   time.Now().Unix(),
 	}
-	if err := s.db.WithContext(ctx).Model(&model.RuleFile{}).Where("id = ?", record.ID).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to update session rule file metadata: %w", err)
-	}
-	if writeErr := os.WriteFile(record.FilePath, []byte(contentJSON), 0o644); writeErr != nil {
-		return nil, fmt.Errorf("failed to write rule file content: %w", writeErr)
-	}
-	if err := s.db.WithContext(ctx).Where("id = ?", record.ID).First(record).Error; err != nil {
-		return nil, fmt.Errorf("failed to reload rule file: %w", err)
+	if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.Model(&model.RuleFile{}).Where("id = ?", record.ID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update session rule file metadata: %w", err)
+		}
+		if writeErr := os.WriteFile(record.FilePath, []byte(contentJSON), 0o644); writeErr != nil {
+			return fmt.Errorf("failed to write rule file content: %w", writeErr)
+		}
+		if err := sessionDB.Where("id = ?", record.ID).First(record).Error; err != nil {
+			return fmt.Errorf("failed to reload rule file: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	targetID := record.ID
@@ -208,6 +231,9 @@ func (s *RuleManagementService) CreateRuleFile(
 		"assessmentId": input.AssessmentID,
 		"ruleName":     ruleName,
 	}, ipAddress, userAgent))
+	if err := syncSessionBusinessDataFile(ctx, session); err != nil {
+		return nil, err
+	}
 
 	return &RuleFileSummary{
 		RuleFile:           *record,
@@ -229,20 +255,28 @@ func (s *RuleManagementService) UpdateRuleFile(
 	if ruleID == 0 {
 		return nil, ErrInvalidParam
 	}
-
-	var record model.RuleFile
-	if err := s.db.WithContext(ctx).Where("id = ?", ruleID).First(&record).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return nil, ErrRuleNotFound
-		}
-		return nil, fmt.Errorf("failed to query rule file: %w", err)
+	if input.AssessmentID == 0 {
+		return nil, ErrInvalidParam
 	}
 
-	session, err := s.loadSessionSummary(ctx, record.AssessmentID)
+	session, err := s.loadSessionSummary(ctx, input.AssessmentID)
 	if err != nil {
 		return nil, err
 	}
 	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	var record model.RuleFile
+	if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.Where("id = ?", ruleID).First(&record).Error; err != nil {
+			if repository.IsRecordNotFound(err) {
+				return ErrRuleNotFound
+			}
+			return fmt.Errorf("failed to query rule file: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -266,21 +300,29 @@ func (s *RuleManagementService) UpdateRuleFile(
 		"updated_by":   operatorRef,
 		"updated_at":   time.Now().Unix(),
 	}
-	if err := s.db.WithContext(ctx).Model(&model.RuleFile{}).Where("id = ?", ruleID).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to update rule file metadata: %w", err)
-	}
-	if writeErr := os.WriteFile(record.FilePath, []byte(contentJSON), 0o644); writeErr != nil {
-		return nil, fmt.Errorf("failed to update rule file: %w", writeErr)
-	}
+	if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.Model(&model.RuleFile{}).Where("id = ?", ruleID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update rule file metadata: %w", err)
+		}
+		if writeErr := os.WriteFile(record.FilePath, []byte(contentJSON), 0o644); writeErr != nil {
+			return fmt.Errorf("failed to update rule file: %w", writeErr)
+		}
 
-	if err := s.db.WithContext(ctx).Where("id = ?", ruleID).First(&record).Error; err != nil {
-		return nil, fmt.Errorf("failed to reload rule file: %w", err)
+		if err := sessionDB.Where("id = ?", ruleID).First(&record).Error; err != nil {
+			return fmt.Errorf("failed to reload rule file: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	targetID := record.ID
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "rule_files", &targetID, map[string]any{
 		"event": "update_rule_file",
 	}, ipAddress, userAgent))
+	if err := syncSessionBusinessDataFile(ctx, session); err != nil {
+		return nil, err
+	}
 
 	return &RuleFileSummary{
 		RuleFile:           record,
@@ -304,6 +346,77 @@ func (s *RuleManagementService) loadSessionSummary(ctx context.Context, sessionI
 		return nil, fmt.Errorf("failed to query assessment session: %w", err)
 	}
 	return item, nil
+}
+
+func (s *RuleManagementService) findRuleFileAcrossSessions(
+	ctx context.Context,
+	ruleID uint,
+) (*AssessmentSessionSummary, *model.RuleFile, error) {
+	sessions := make([]AssessmentSessionSummary, 0, 16)
+	if err := s.db.WithContext(ctx).
+		Table("assessment_sessions AS a").
+		Select("a.*, o.org_name AS organization_name").
+		Joins("JOIN organizations o ON o.id = a.organization_id").
+		Order("a.id ASC").
+		Scan(&sessions).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to list sessions for rule lookup: %w", err)
+	}
+
+	var (
+		matchedSession *AssessmentSessionSummary
+		matchedRecord  *model.RuleFile
+	)
+	for index := range sessions {
+		summary := sessions[index]
+		record := model.RuleFile{}
+		err := withSessionBusinessDB(ctx, &summary, func(sessionDB *gorm.DB) error {
+			if err := sessionDB.Where("id = ?", ruleID).First(&record).Error; err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			if repository.IsRecordNotFound(err) {
+				continue
+			}
+			return nil, nil, err
+		}
+		if matchedSession != nil {
+			return nil, nil, fmt.Errorf("%w: ambiguous rule id, provide assessmentId", ErrInvalidParam)
+		}
+		currentSession := summary
+		currentRecord := record
+		matchedSession = &currentSession
+		matchedRecord = &currentRecord
+	}
+	if matchedSession == nil {
+		return nil, nil, ErrRuleNotFound
+	}
+	return matchedSession, matchedRecord, nil
+}
+
+func (s *RuleManagementService) findRuleFileInSession(
+	ctx context.Context,
+	sessionID uint,
+	ruleID uint,
+) (*AssessmentSessionSummary, *model.RuleFile, error) {
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	record := model.RuleFile{}
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.Where("id = ? AND assessment_id = ?", ruleID, sessionID).First(&record).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		if repository.IsRecordNotFound(err) {
+			return nil, nil, ErrRuleNotFound
+		}
+		return nil, nil, err
+	}
+	return summary, &record, nil
 }
 
 func validateRuleExpressions(contentJSON string) error {

@@ -129,16 +129,16 @@ func (s *AssessmentSessionService) GetSession(ctx context.Context, claims *auth.
 		return nil, err
 	}
 
-	var objectCount int64
-	if err := s.db.WithContext(ctx).Model(&model.AssessmentSessionObject{}).Where("assessment_id = ?", sessionID).Count(&objectCount).Error; err != nil {
-		return nil, fmt.Errorf("failed to count assessment objects: %w", err)
+	objects, err := s.ListObjects(ctx, claims, sessionID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AssessmentSessionDetail{
 		Session:      *summary,
 		Periods:      periods,
 		ObjectGroups: groups,
-		ObjectCount:  int(objectCount),
+		ObjectCount:  len(objects),
 	}, nil
 }
 
@@ -196,20 +196,6 @@ func (s *AssessmentSessionService) CreateSession(
 			return fmt.Errorf("failed to create assessment session: %w", err)
 		}
 
-		periods := defaultSessionPeriods(session.ID, operatorRef)
-		if err := tx.Create(&periods).Error; err != nil {
-			return fmt.Errorf("failed to create default periods: %w", err)
-		}
-
-		groups := defaultObjectGroups(session.ID, operatorRef)
-		if err := tx.Create(&groups).Error; err != nil {
-			return fmt.Errorf("failed to create default object groups: %w", err)
-		}
-
-		if _, err := s.generateDefaultObjectsTx(tx, session.ID, session.OrganizationID, operatorRef); err != nil {
-			return err
-		}
-
 		createdSession = session
 		return nil
 	}); err != nil {
@@ -223,6 +209,37 @@ func (s *AssessmentSessionService) CreateSession(
 		"organizationId": createdSession.OrganizationID,
 		"year":           createdSession.Year,
 	}, ipAddress, userAgent))
+
+	createdSummary, err := s.loadSessionSummary(ctx, createdSession.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := withSessionBusinessDB(ctx, createdSummary, func(sessionDB *gorm.DB) error {
+		return sessionDB.Transaction(func(tx *gorm.DB) error {
+			periods := defaultSessionPeriods(createdSession.ID, operatorRef)
+			if err := tx.Create(&periods).Error; err != nil {
+				return fmt.Errorf("failed to create default periods: %w", err)
+			}
+
+			groups := defaultObjectGroups(createdSession.ID, operatorRef)
+			if err := tx.Create(&groups).Error; err != nil {
+				return fmt.Errorf("failed to create default object groups: %w", err)
+			}
+
+			if _, err := s.generateDefaultObjectsTx(s.db.WithContext(ctx), tx, createdSession.ID, createdSession.OrganizationID, operatorRef); err != nil {
+				return err
+			}
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+	if err := persistSessionDefaultObjectSnapshot(ctx, createdSummary); err != nil {
+		return nil, err
+	}
+	if err := syncSessionBusinessDataFile(ctx, createdSummary); err != nil {
+		return nil, err
+	}
 
 	return s.GetSession(ctx, claims, createdSession.ID)
 }
@@ -266,6 +283,13 @@ func (s *AssessmentSessionService) UpdateSession(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_sessions", &targetID, map[string]any{
 		"event": "update_assessment_session",
 	}, ipAddress, userAgent))
+	summary, err = s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
 	return s.GetSession(ctx, claims, sessionID)
 }
 
@@ -325,14 +349,16 @@ func (s *AssessmentSessionService) ReplacePeriods(
 		}
 	}
 
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionPeriod{}).Error; err != nil {
-			return fmt.Errorf("failed to delete old periods: %w", err)
-		}
-		if err := tx.Create(&normalized).Error; err != nil {
-			return fmt.Errorf("failed to save periods: %w", err)
-		}
-		return nil
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		return sessionDB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionPeriod{}).Error; err != nil {
+				return fmt.Errorf("failed to delete old periods: %w", err)
+			}
+			if err := tx.Create(&normalized).Error; err != nil {
+				return fmt.Errorf("failed to save periods: %w", err)
+			}
+			return nil
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -342,6 +368,9 @@ func (s *AssessmentSessionService) ReplacePeriods(
 		"event": "replace_assessment_periods",
 		"count": len(normalized),
 	}, ipAddress, userAgent))
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
 	return s.listPeriods(ctx, sessionID)
 }
 
@@ -395,14 +424,16 @@ func (s *AssessmentSessionService) ReplaceObjectGroups(
 		})
 	}
 
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentObjectGroup{}).Error; err != nil {
-			return fmt.Errorf("failed to delete old object groups: %w", err)
-		}
-		if err := tx.Create(&normalized).Error; err != nil {
-			return fmt.Errorf("failed to save object groups: %w", err)
-		}
-		return nil
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		return sessionDB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentObjectGroup{}).Error; err != nil {
+				return fmt.Errorf("failed to delete old object groups: %w", err)
+			}
+			if err := tx.Create(&normalized).Error; err != nil {
+				return fmt.Errorf("failed to save object groups: %w", err)
+			}
+			return nil
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -412,6 +443,9 @@ func (s *AssessmentSessionService) ReplaceObjectGroups(
 		"event": "replace_assessment_object_groups",
 		"count": len(normalized),
 	}, ipAddress, userAgent))
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
 	return s.listObjectGroups(ctx, sessionID)
 }
 
@@ -427,11 +461,16 @@ func (s *AssessmentSessionService) ListObjects(ctx context.Context, claims *auth
 		return nil, err
 	}
 	items := make([]model.AssessmentSessionObject, 0, 64)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("sort_order ASC, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list assessment objects: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", sessionID).
+			Order("sort_order ASC, id ASC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list assessment objects: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -576,39 +615,41 @@ func (s *AssessmentSessionService) ReplaceObjects(
 		parentKeyByIndex = append(parentKeyByIndex, parentKey)
 	}
 
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionObject{}).Error; err != nil {
-			return fmt.Errorf("failed to clear assessment objects: %w", err)
-		}
-		if len(normalized) == 0 {
-			return nil
-		}
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		return sessionDB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionObject{}).Error; err != nil {
+				return fmt.Errorf("failed to clear assessment objects: %w", err)
+			}
+			if len(normalized) == 0 {
+				return nil
+			}
 
-		idByTargetKey := map[string]uint{}
-		rowIDs := make([]uint, len(normalized))
-		for idx := range normalized {
-			normalized[idx].ParentObjectID = nil
-			if err := tx.Create(&normalized[idx]).Error; err != nil {
-				return fmt.Errorf("failed to create assessment object: %w", err)
+			idByTargetKey := map[string]uint{}
+			rowIDs := make([]uint, len(normalized))
+			for idx := range normalized {
+				normalized[idx].ParentObjectID = nil
+				if err := tx.Create(&normalized[idx]).Error; err != nil {
+					return fmt.Errorf("failed to create assessment object: %w", err)
+				}
+				rowIDs[idx] = normalized[idx].ID
+				idByTargetKey[targetKeyByIndex[idx]] = normalized[idx].ID
 			}
-			rowIDs[idx] = normalized[idx].ID
-			idByTargetKey[targetKeyByIndex[idx]] = normalized[idx].ID
-		}
-		for idx, parentKey := range parentKeyByIndex {
-			if parentKey == "" {
-				continue
+			for idx, parentKey := range parentKeyByIndex {
+				if parentKey == "" {
+					continue
+				}
+				parentID, ok := idByTargetKey[parentKey]
+				if !ok || parentID == rowIDs[idx] {
+					continue
+				}
+				if err := tx.Model(&model.AssessmentSessionObject{}).
+					Where("id = ?", rowIDs[idx]).
+					Update("parent_object_id", parentID).Error; err != nil {
+					return fmt.Errorf("failed to set parent object: %w", err)
+				}
 			}
-			parentID, ok := idByTargetKey[parentKey]
-			if !ok || parentID == rowIDs[idx] {
-				continue
-			}
-			if err := tx.Model(&model.AssessmentSessionObject{}).
-				Where("id = ?", rowIDs[idx]).
-				Update("parent_object_id", parentID).Error; err != nil {
-				return fmt.Errorf("failed to set parent object: %w", err)
-			}
-		}
-		return nil
+			return nil
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -618,6 +659,9 @@ func (s *AssessmentSessionService) ReplaceObjects(
 		"event": "replace_assessment_objects",
 		"count": len(normalized),
 	}, ipAddress, userAgent))
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
 	return s.ListObjects(ctx, claims, sessionID)
 }
 
@@ -638,12 +682,21 @@ func (s *AssessmentSessionService) ResetObjectsToDefault(
 	}
 
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionObject{}).Error; err != nil {
-			return fmt.Errorf("failed to clear session objects: %w", err)
-		}
-		_, err := s.generateDefaultObjectsTx(tx, sessionID, summary.OrganizationID, operatorRef)
-		return err
+	snapshotItems, hasSnapshot, err := loadSessionDefaultObjectSnapshot(summary)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load default object snapshot: %w", err)
+	}
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		return sessionDB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionObject{}).Error; err != nil {
+				return fmt.Errorf("failed to clear session objects: %w", err)
+			}
+			if hasSnapshot {
+				return restoreSessionObjectsFromSnapshotTx(tx, sessionID, snapshotItems, operatorRef)
+			}
+			_, restoreErr := s.generateDefaultObjectsTx(s.db.WithContext(ctx), tx, sessionID, summary.OrganizationID, operatorRef)
+			return restoreErr
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -652,6 +705,14 @@ func (s *AssessmentSessionService) ResetObjectsToDefault(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_sessions", &targetID, map[string]any{
 		"event": "reset_assessment_objects_default",
 	}, ipAddress, userAgent))
+	if !hasSnapshot {
+		if persistErr := persistSessionDefaultObjectSnapshot(ctx, summary); persistErr != nil {
+			return nil, persistErr
+		}
+	}
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
 	return s.ListObjects(ctx, claims, sessionID)
 }
 
@@ -672,23 +733,41 @@ func (s *AssessmentSessionService) loadSessionSummary(ctx context.Context, sessi
 }
 
 func (s *AssessmentSessionService) listPeriods(ctx context.Context, sessionID uint) ([]model.AssessmentSessionPeriod, error) {
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]model.AssessmentSessionPeriod, 0, 8)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("sort_order ASC, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list periods: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", sessionID).
+			Order("sort_order ASC, id ASC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list periods: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
 
 func (s *AssessmentSessionService) listObjectGroups(ctx context.Context, sessionID uint) ([]model.AssessmentObjectGroup, error) {
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]model.AssessmentObjectGroup, 0, 16)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("sort_order ASC, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list object groups: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", sessionID).
+			Order("sort_order ASC, id ASC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list object groups: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -764,7 +843,13 @@ func defaultObjectGroups(sessionID uint, operatorID *uint) []model.AssessmentObj
 	return result
 }
 
-func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, sessionID uint, organizationID uint, operatorID *uint) (int, error) {
+func (s *AssessmentSessionService) generateDefaultObjectsTx(
+	sourceDB *gorm.DB,
+	targetTx *gorm.DB,
+	sessionID uint,
+	organizationID uint,
+	operatorID *uint,
+) (int, error) {
 	count := 0
 	deptObjectIDByDept := map[uint]uint{}
 	childOrgObjectID := map[uint]uint{}
@@ -773,7 +858,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 		ID       uint
 		DeptName string
 	}
-	if err := tx.WithContext(context.Background()).
+	if err := sourceDB.WithContext(context.Background()).
 		Table("departments").
 		Select("id, dept_name").
 		Where("organization_id = ? AND deleted_at IS NULL AND status = 'active'", organizationID).
@@ -794,7 +879,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 			CreatedBy:    operatorID,
 			UpdatedBy:    operatorID,
 		}
-		if err := tx.Create(&row).Error; err != nil {
+		if err := targetTx.Create(&row).Error; err != nil {
 			return 0, fmt.Errorf("failed to create department object: %w", err)
 		}
 		deptObjectIDByDept[dept.ID] = row.ID
@@ -807,7 +892,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 		DepartmentID *uint
 		LevelCode    string
 	}
-	if err := tx.WithContext(context.Background()).
+	if err := sourceDB.WithContext(context.Background()).
 		Table("employees e").
 		Select("e.id, e.emp_name, e.department_id, p.level_code").
 		Joins("JOIN position_levels p ON p.id = e.position_level_id").
@@ -845,7 +930,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 			CreatedBy:      operatorID,
 			UpdatedBy:      operatorID,
 		}
-		if err := tx.Create(&row).Error; err != nil {
+		if err := targetTx.Create(&row).Error; err != nil {
 			return 0, fmt.Errorf("failed to create employee object: %w", err)
 		}
 		count++
@@ -855,7 +940,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 		ID      uint
 		OrgName string
 	}
-	if err := tx.WithContext(context.Background()).
+	if err := sourceDB.WithContext(context.Background()).
 		Table("organizations").
 		Select("id, org_name").
 		Where("parent_id = ? AND deleted_at IS NULL AND status = 'active'", organizationID).
@@ -876,7 +961,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 			CreatedBy:    operatorID,
 			UpdatedBy:    operatorID,
 		}
-		if err := tx.Create(&row).Error; err != nil {
+		if err := targetTx.Create(&row).Error; err != nil {
 			return 0, fmt.Errorf("failed to create child organization object: %w", err)
 		}
 		childOrgObjectID[org.ID] = row.ID
@@ -894,7 +979,7 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 		for _, org := range childOrgs {
 			childOrgIDs = append(childOrgIDs, org.ID)
 		}
-		if err := tx.WithContext(context.Background()).
+		if err := sourceDB.WithContext(context.Background()).
 			Table("employees e").
 			Select("e.id, e.emp_name, e.organization_id, p.level_code").
 			Joins("JOIN position_levels p ON p.id = e.position_level_id").
@@ -928,13 +1013,102 @@ func (s *AssessmentSessionService) generateDefaultObjectsTx(tx *gorm.DB, session
 			CreatedBy:      operatorID,
 			UpdatedBy:      operatorID,
 		}
-		if err := tx.Create(&row).Error; err != nil {
+		if err := targetTx.Create(&row).Error; err != nil {
 			return 0, fmt.Errorf("failed to create child leadership member object: %w", err)
 		}
 		count++
 	}
 
 	return count, nil
+}
+
+func restoreSessionObjectsFromSnapshotTx(
+	tx *gorm.DB,
+	sessionID uint,
+	items []sessionDefaultObjectSnapshotItem,
+	operatorID *uint,
+) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	normalized := make([]model.AssessmentSessionObject, 0, len(items))
+	targetKeys := make([]string, 0, len(items))
+	parentKeys := make([]string, 0, len(items))
+	seenTargets := map[string]struct{}{}
+
+	for _, item := range items {
+		objectType, ok := normalizeObjectType(item.ObjectType)
+		if !ok {
+			return ErrInvalidRuleObjectType
+		}
+		groupCode := strings.TrimSpace(item.GroupCode)
+		targetType := normalizeTargetType(item.TargetType)
+		targetID := item.TargetID
+		if groupCode == "" || targetType == "" || targetID == 0 {
+			return ErrInvalidParam
+		}
+		targetKey := buildTargetKey(targetType, targetID)
+		if _, exists := seenTargets[targetKey]; exists {
+			return ErrInvalidParam
+		}
+		seenTargets[targetKey] = struct{}{}
+
+		objectName := strings.TrimSpace(item.ObjectName)
+		if objectName == "" {
+			objectName = targetType + "-" + strconv.FormatUint(uint64(targetID), 10)
+		}
+		parentKey := ""
+		parentType := normalizeTargetType(item.ParentTargetType)
+		if parentType != "" && item.ParentTargetID > 0 {
+			parentKey = buildTargetKey(parentType, item.ParentTargetID)
+		}
+		sortOrder := item.SortOrder
+		if sortOrder <= 0 {
+			sortOrder = len(normalized) + 1
+		}
+		normalized = append(normalized, model.AssessmentSessionObject{
+			AssessmentID: sessionID,
+			ObjectType:   objectType,
+			GroupCode:    groupCode,
+			TargetID:     targetID,
+			TargetType:   targetType,
+			ObjectName:   objectName,
+			SortOrder:    sortOrder,
+			IsActive:     item.IsActive,
+			CreatedBy:    operatorID,
+			UpdatedBy:    operatorID,
+		})
+		targetKeys = append(targetKeys, targetKey)
+		parentKeys = append(parentKeys, parentKey)
+	}
+
+	idByTarget := make(map[string]uint, len(normalized))
+	rowIDs := make([]uint, len(normalized))
+	for idx := range normalized {
+		normalized[idx].ParentObjectID = nil
+		if err := tx.Create(&normalized[idx]).Error; err != nil {
+			return fmt.Errorf("failed to restore assessment object row: %w", err)
+		}
+		rowIDs[idx] = normalized[idx].ID
+		idByTarget[targetKeys[idx]] = normalized[idx].ID
+	}
+
+	for idx, parentKey := range parentKeys {
+		if parentKey == "" {
+			continue
+		}
+		parentID, ok := idByTarget[parentKey]
+		if !ok || parentID == rowIDs[idx] {
+			continue
+		}
+		if err := tx.Model(&model.AssessmentSessionObject{}).
+			Where("id = ?", rowIDs[idx]).
+			Update("parent_object_id", parentID).Error; err != nil {
+			return fmt.Errorf("failed to restore assessment object parent: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *AssessmentSessionService) listObjectCandidatesForSession(
@@ -1121,10 +1295,6 @@ func ensureAssessmentDataDir(assessmentName string) (string, error) {
 	if err := os.MkdirAll(assessmentDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create assessment data directory: %w", err)
 	}
-	ruleDir := filepath.Join(root, "rules", assessmentName)
-	if err := os.MkdirAll(ruleDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create assessment rule directory: %w", err)
-	}
 	return assessmentDir, nil
 }
 
@@ -1205,11 +1375,11 @@ func ensureRuleFilePath(assessmentName string, fileName string) (string, error) 
 	if root == "" {
 		root = "data"
 	}
-	rulesDir := filepath.Join(root, "rules", assessmentName)
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+	assessmentDir := filepath.Join(root, assessmentName)
+	if err := os.MkdirAll(assessmentDir, 0o755); err != nil {
 		return "", err
 	}
-	return filepath.Join(rulesDir, fileName), nil
+	return filepath.Join(assessmentDir, fileName), nil
 }
 
 func buildRuleFileName(ruleName string) string {

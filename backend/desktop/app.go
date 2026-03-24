@@ -158,11 +158,7 @@ func (a *App) SetCloseGuard(enabled bool) {
 }
 
 func (a *App) SetPreferredDataYear(year int) error {
-	if err := persistPreferredDataYear(year); err != nil {
-		log.Printf("persist preferred assessment year failed: %v", err)
-		return err
-	}
-	return nil
+	return fmt.Errorf("preferred data year is deprecated in session-based mode")
 }
 
 func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {

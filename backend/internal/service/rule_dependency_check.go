@@ -9,7 +9,7 @@ import (
 
 	"assessv2/backend/internal/auth"
 	"assessv2/backend/internal/model"
-	"assessv2/backend/internal/repository"
+	"gorm.io/gorm"
 )
 
 const (
@@ -151,21 +151,23 @@ func (c *dependencyIssueCollector) all() []RuleDependencyIssue {
 func (s *RuleManagementService) CheckRuleDependencies(
 	ctx context.Context,
 	claims *auth.Claims,
+	assessmentID uint,
 	ruleID uint,
 ) (*RuleDependencyCheckResult, error) {
 	if ruleID == 0 {
 		return nil, ErrInvalidParam
 	}
 
-	var record model.RuleFile
-	if err := s.db.WithContext(ctx).Where("id = ?", ruleID).First(&record).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return nil, ErrRuleNotFound
-		}
-		return nil, fmt.Errorf("failed to query rule file: %w", err)
+	var (
+		session *AssessmentSessionSummary
+		record  *model.RuleFile
+		err     error
+	)
+	if assessmentID > 0 {
+		session, record, err = s.findRuleFileInSession(ctx, assessmentID, ruleID)
+	} else {
+		session, record, err = s.findRuleFileAcrossSessions(ctx, ruleID)
 	}
-
-	session, err := s.loadSessionSummary(ctx, record.AssessmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -241,12 +243,21 @@ func (s *RuleManagementService) listSessionPeriods(
 	ctx context.Context,
 	sessionID uint,
 ) ([]model.AssessmentSessionPeriod, error) {
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]model.AssessmentSessionPeriod, 0, 8)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("sort_order ASC, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list assessment periods: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", sessionID).
+			Order("sort_order ASC, id ASC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list assessment periods: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -255,12 +266,21 @@ func (s *RuleManagementService) listSessionObjects(
 	ctx context.Context,
 	sessionID uint,
 ) ([]model.AssessmentSessionObject, error) {
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]model.AssessmentSessionObject, 0, 64)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("sort_order ASC, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list assessment objects: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", sessionID).
+			Order("sort_order ASC, id ASC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list assessment objects: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }

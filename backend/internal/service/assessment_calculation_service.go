@@ -114,7 +114,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		return nil, ErrPeriodNotFound
 	}
 
-	ruleFile, err := s.pickSessionRuleFile(ctx, sessionID)
+	ruleFile, err := s.pickSessionRuleFile(ctx, summary)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 		objectByID[item.ID] = item
 	}
 
-	ruleFile, err := s.pickSessionRuleFile(ctx, sessionID)
+	ruleFile, err := s.pickSessionRuleFile(ctx, summary)
 	if err != nil {
 		return nil, err
 	}
@@ -481,37 +481,44 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 		return []model.AssessmentObjectModuleScore{}, nil
 	}
 
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := time.Now().Unix()
-		for _, item := range normalized {
-			row := item
-			if err := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{
-					{Name: "assessment_id"},
-					{Name: "period_code"},
-					{Name: "object_id"},
-					{Name: "module_key"},
-				},
-				DoUpdates: clause.Assignments(map[string]any{
-					"score":       row.Score,
-					"detail_json": row.DetailJSON,
-					"updated_by":  operatorRef,
-					"updated_at":  now,
-				}),
-			}).Create(&row).Error; err != nil {
-				return fmt.Errorf("failed to upsert module score: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		return sessionDB.Transaction(func(tx *gorm.DB) error {
+			now := time.Now().Unix()
+			for _, item := range normalized {
+				row := item
+				if err := tx.Clauses(clause.OnConflict{
+					Columns: []clause.Column{
+						{Name: "assessment_id"},
+						{Name: "period_code"},
+						{Name: "object_id"},
+						{Name: "module_key"},
+					},
+					DoUpdates: clause.Assignments(map[string]any{
+						"score":       row.Score,
+						"detail_json": row.DetailJSON,
+						"updated_by":  operatorRef,
+						"updated_at":  now,
+					}),
+				}).Create(&row).Error; err != nil {
+					return fmt.Errorf("failed to upsert module score: %w", err)
+				}
 			}
-		}
-		return nil
+			return nil
+		})
 	}); err != nil {
 		return nil, err
 	}
 
 	result := make([]model.AssessmentObjectModuleScore, 0, len(normalized))
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ? AND period_code IN ?", sessionID, targetPeriods).
-		Order("period_code ASC, object_id ASC, module_key ASC").
-		Find(&result).Error; err != nil {
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ? AND period_code IN ?", sessionID, targetPeriods).
+			Order("period_code ASC, object_id ASC, module_key ASC").
+			Find(&result).Error; err != nil {
+			return fmt.Errorf("failed to query updated module scores: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to query updated module scores: %w", err)
 	}
 
@@ -521,16 +528,27 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 		"itemCount":   len(normalized),
 		"periodCodes": targetPeriods,
 	}, ipAddress, userAgent))
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
-func (s *AssessmentSessionService) pickSessionRuleFile(ctx context.Context, sessionID uint) (*model.RuleFile, error) {
+func (s *AssessmentSessionService) pickSessionRuleFile(ctx context.Context, summary *AssessmentSessionSummary) (*model.RuleFile, error) {
 	items := make([]model.RuleFile, 0, 8)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("updated_at DESC, id DESC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list rule files: %w", err)
+	if summary == nil {
+		return nil, ErrInvalidParam
+	}
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", summary.ID).
+			Order("updated_at DESC, id DESC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list rule files: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	if len(items) == 0 {
 		return nil, ErrRuleNotFound
@@ -1438,12 +1456,21 @@ func (s *AssessmentSessionService) listSessionObjects(
 	ctx context.Context,
 	sessionID uint,
 ) ([]model.AssessmentSessionObject, error) {
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]model.AssessmentSessionObject, 0, 64)
-	if err := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID).
-		Order("sort_order ASC, id ASC").
-		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to list assessment objects: %w", err)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.
+			Where("assessment_id = ?", sessionID).
+			Order("sort_order ASC, id ASC").
+			Find(&items).Error; err != nil {
+			return fmt.Errorf("failed to list assessment objects: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -1453,17 +1480,25 @@ func (s *AssessmentSessionService) listModuleScores(
 	sessionID uint,
 	periodCodes []string,
 ) ([]model.AssessmentObjectModuleScore, error) {
-	items := make([]model.AssessmentObjectModuleScore, 0, 256)
-	query := s.db.WithContext(ctx).
-		Where("assessment_id = ?", sessionID)
-	if len(periodCodes) > 0 {
-		query = query.Where("period_code IN ?", periodCodes)
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
 	}
-	if err := query.Order("id ASC").Find(&items).Error; err != nil {
-		if repository.IsRecordNotFound(err) {
-			return []model.AssessmentObjectModuleScore{}, nil
+	items := make([]model.AssessmentObjectModuleScore, 0, 256)
+	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
+		query := sessionDB.Where("assessment_id = ?", sessionID)
+		if len(periodCodes) > 0 {
+			query = query.Where("period_code IN ?", periodCodes)
 		}
-		return nil, fmt.Errorf("failed to list module scores: %w", err)
+		if err := query.Order("id ASC").Find(&items).Error; err != nil {
+			if repository.IsRecordNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("failed to list module scores: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
