@@ -11,8 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const legacySessionDefaultObjectsFileName = "default_objects.json"
-
 type sessionDefaultObjectSnapshotItem struct {
 	ObjectType       string `json:"objectType"`
 	GroupCode        string `json:"groupCode"`

@@ -193,6 +193,10 @@ func (s *RuleManagementService) CreateRuleFile(
 	if contentJSON == "" {
 		contentJSON = buildDefaultRuleTemplateJSON()
 	}
+	contentJSON, err = s.normalizeRuleContentByPeriodBindings(ctx, session.ID, contentJSON)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateRuleExpressions(contentJSON); err != nil {
 		return nil, err
 	}
@@ -283,6 +287,10 @@ func (s *RuleManagementService) UpdateRuleFile(
 	contentJSON := strings.TrimSpace(input.ContentJSON)
 	if contentJSON == "" {
 		contentJSON = record.ContentJSON
+	}
+	contentJSON, err = s.normalizeRuleContentByPeriodBindings(ctx, session.ID, contentJSON)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateRuleExpressions(contentJSON); err != nil {
 		return nil, err

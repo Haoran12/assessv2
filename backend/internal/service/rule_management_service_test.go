@@ -103,6 +103,169 @@ func TestRuleManagementCreateRuleFileAllowsLookupFunctions(t *testing.T) {
 	}
 }
 
+func TestRuleManagementUpdateRuleFileSharedPeriodsFollowRuleBindingKey(t *testing.T) {
+	fixture := setupRuleManagementFixture(t)
+	seedFixturePeriods(t, fixture.sessionDB, fixture.sessionID, []model.AssessmentSessionPeriod{
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q1", PeriodName: "Q1", RuleBindingKey: "Q1", SortOrder: 1},
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q2", PeriodName: "Q2", RuleBindingKey: "Q1", SortOrder: 2},
+		{AssessmentID: fixture.sessionID, PeriodCode: "YEAR_END", PeriodName: "YEAR_END", RuleBindingKey: "YEAR_END", SortOrder: 3},
+	})
+
+	contentJSON := buildRuleManagementRuleContentJSON(t, "direct_input", "", "", false)
+	created, err := fixture.service.CreateRuleFile(
+		context.Background(),
+		fixture.claims,
+		1,
+		RuleFileInput{
+			AssessmentID: fixture.sessionID,
+			RuleName:     "Shared Rule",
+			ContentJSON:  contentJSON,
+		},
+		"127.0.0.1",
+		"unit-test",
+	)
+	if err != nil {
+		t.Fatalf("create rule file failed: %v", err)
+	}
+
+	updated, err := fixture.service.UpdateRuleFile(
+		context.Background(),
+		fixture.claims,
+		1,
+		created.ID,
+		RuleFileInput{
+			AssessmentID: fixture.sessionID,
+			RuleName:     "Shared Rule",
+			ContentJSON:  contentJSON,
+		},
+		"127.0.0.1",
+		"unit-test",
+	)
+	if err != nil {
+		t.Fatalf("update rule file failed: %v", err)
+	}
+
+	scoped := extractScopedRulesFromJSON(t, updated.ContentJSON)
+	if len(scoped) == 0 {
+		t.Fatalf("expected at least one scoped rule")
+	}
+	periods := scopedPeriodCodes(scoped[0])
+	if len(periods) != 2 || periods[0] != "Q1" || periods[1] != "Q2" {
+		t.Fatalf("expected scoped periods [Q1 Q2], got=%v", periods)
+	}
+}
+
+func TestRuleManagementUpdateRuleFileSharedPeriodsResolveScopedConflicts(t *testing.T) {
+	fixture := setupRuleManagementFixture(t)
+	seedFixturePeriods(t, fixture.sessionDB, fixture.sessionID, []model.AssessmentSessionPeriod{
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q1", PeriodName: "Q1", RuleBindingKey: "Q1", SortOrder: 1},
+		{AssessmentID: fixture.sessionID, PeriodCode: "Q2", PeriodName: "Q2", RuleBindingKey: "Q1", SortOrder: 2},
+	})
+
+	content := map[string]any{
+		"version": 3,
+		"scopedRules": []map[string]any{
+			{
+				"id":                     "scoped_a",
+				"applicablePeriods":      []string{"Q1"},
+				"applicableObjectGroups": []string{"dept"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "base_a",
+						"moduleKey":         "base_a",
+						"moduleName":        "Base A",
+						"weight":            100,
+						"calculationMethod": "direct_input",
+					},
+				},
+				"grades": []map[string]any{
+					{
+						"id":    "grade_a",
+						"title": "A",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    100,
+							"upperOperator": "<=",
+							"hasLowerLimit": true,
+							"lowerScore":    90,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript":  "",
+						"extraConditionEnabled": false,
+						"conditionLogic":        "and",
+					},
+				},
+			},
+			{
+				"id":                     "scoped_b",
+				"applicablePeriods":      []string{"Q2"},
+				"applicableObjectGroups": []string{"dept"},
+				"scoreModules": []map[string]any{
+					{
+						"id":                "base_b",
+						"moduleKey":         "base_b",
+						"moduleName":        "Base B",
+						"weight":            100,
+						"calculationMethod": "direct_input",
+					},
+				},
+				"grades": []map[string]any{
+					{
+						"id":    "grade_b",
+						"title": "B",
+						"scoreNode": map[string]any{
+							"hasUpperLimit": true,
+							"upperScore":    89.99,
+							"upperOperator": "<=",
+							"hasLowerLimit": true,
+							"lowerScore":    80,
+							"lowerOperator": ">=",
+						},
+						"extraConditionScript":  "",
+						"extraConditionEnabled": false,
+						"conditionLogic":        "and",
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal content failed: %v", err)
+	}
+
+	updated, err := fixture.service.CreateRuleFile(
+		context.Background(),
+		fixture.claims,
+		1,
+		RuleFileInput{
+			AssessmentID: fixture.sessionID,
+			RuleName:     "Conflict Rule",
+			ContentJSON:  string(raw),
+		},
+		"127.0.0.1",
+		"unit-test",
+	)
+	if err != nil {
+		t.Fatalf("create rule file failed: %v", err)
+	}
+
+	scoped := extractScopedRulesFromJSON(t, updated.ContentJSON)
+	if len(scoped) < 2 {
+		t.Fatalf("expected 2 scoped rules, got=%d", len(scoped))
+	}
+	firstPeriods := scopedPeriodCodes(scoped[0])
+	if len(firstPeriods) != 2 || firstPeriods[0] != "Q1" || firstPeriods[1] != "Q2" {
+		t.Fatalf("expected first scoped periods [Q1 Q2], got=%v", firstPeriods)
+	}
+	secondPeriods := scopedPeriodCodes(scoped[1])
+	for _, code := range secondPeriods {
+		if code == "Q1" || code == "Q2" {
+			t.Fatalf("expected second scoped rule to exclude shared periods, got=%v", secondPeriods)
+		}
+	}
+}
+
 func TestRuleManagementCreateRuleFileStoresInAssessmentDir(t *testing.T) {
 	fixture := setupRuleManagementFixture(t)
 	contentJSON := buildRuleManagementRuleContentJSON(t, "direct_input", "", "", false)
@@ -287,4 +450,64 @@ func buildRuleManagementRuleContentJSON(
 		t.Fatalf("marshal rule content failed: %v", err)
 	}
 	return string(raw)
+}
+
+func seedFixturePeriods(t *testing.T, sessionDB *gorm.DB, sessionID uint, items []model.AssessmentSessionPeriod) {
+	t.Helper()
+	if err := sessionDB.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionPeriod{}).Error; err != nil {
+		t.Fatalf("clear periods failed: %v", err)
+	}
+	if len(items) == 0 {
+		return
+	}
+	if err := sessionDB.Create(&items).Error; err != nil {
+		t.Fatalf("seed periods failed: %v", err)
+	}
+}
+
+func extractScopedRulesFromJSON(t *testing.T, contentJSON string) []map[string]any {
+	t.Helper()
+	raw := map[string]any{}
+	if err := json.Unmarshal([]byte(contentJSON), &raw); err != nil {
+		t.Fatalf("unmarshal content json failed: %v", err)
+	}
+	itemsRaw, ok := raw["scopedRules"].([]any)
+	if !ok {
+		return []map[string]any{}
+	}
+	result := make([]map[string]any, 0, len(itemsRaw))
+	for _, item := range itemsRaw {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func scopedPeriodCodes(row map[string]any) []string {
+	items, ok := row["applicablePeriods"].([]any)
+	if !ok {
+		return []string{}
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.ToUpper(strings.TrimSpace(asString(item)))
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func asString(value any) string {
+	switch item := value.(type) {
+	case string:
+		return item
+	case []byte:
+		return string(item)
+	default:
+		return ""
+	}
 }

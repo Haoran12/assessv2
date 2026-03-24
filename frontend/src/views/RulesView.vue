@@ -1123,6 +1123,80 @@ function normalizedCodeList(value: unknown, uppercase = false): string[] {
   return result;
 }
 
+function normalizePeriodCode(value: unknown): string {
+  return String(value || "").trim().toUpperCase();
+}
+
+function resolveSharedPeriodCodes(periodCode: string): string[] {
+  const normalizedPeriod = normalizePeriodCode(periodCode);
+  if (!normalizedPeriod) {
+    return [];
+  }
+
+  const currentPeriod = contextStore.periods.find(
+    (item) => normalizePeriodCode(item.periodCode) === normalizedPeriod,
+  );
+  if (!currentPeriod) {
+    return [normalizedPeriod];
+  }
+
+  const bindingKey = String(currentPeriod.ruleBindingKey || "").trim();
+  if (!bindingKey) {
+    return [normalizedPeriod];
+  }
+
+  const result = contextStore.periods
+    .filter((item) => String(item.ruleBindingKey || "").trim() === bindingKey)
+    .map((item) => normalizePeriodCode(item.periodCode))
+    .filter((item) => !!item);
+  if (result.length === 0) {
+    return [normalizedPeriod];
+  }
+  if (!result.includes(normalizedPeriod)) {
+    result.push(normalizedPeriod);
+  }
+  return Array.from(new Set(result));
+}
+
+function scopedIncludesAnyPeriod(scoped: ScopedRule, periodCodes: string[]): boolean {
+  if (periodCodes.length === 0) {
+    return false;
+  }
+  const lookup = new Set(periodCodes.map((item) => normalizePeriodCode(item)));
+  return scoped.applicablePeriods.some((item) => lookup.has(normalizePeriodCode(item)));
+}
+
+function applySharedPeriodBindingToActiveScopedRule(): string[] {
+  const scoped = activeScopedRule.value;
+  const periodCode = normalizePeriodCode(contextStore.periodCode);
+  const groupCode = String(contextStore.objectGroupCode || "").trim();
+  if (!scoped || !periodCode || !groupCode) {
+    return [];
+  }
+
+  const sharedPeriods = resolveSharedPeriodCodes(periodCode);
+  const targetPeriods = sharedPeriods.length > 0 ? sharedPeriods : [periodCode];
+  const sharedPeriodLookup = new Set(targetPeriods.map((item) => normalizePeriodCode(item)));
+
+  scoped.applicablePeriods = normalizedCodeList([...scoped.applicablePeriods, ...targetPeriods], true);
+  scoped.applicableObjectGroups = normalizedCodeList([...scoped.applicableObjectGroups, groupCode], false);
+
+  // Keep one scoped rule owner per period-group pair in a shared binding.
+  for (const row of ruleContent.scopedRules) {
+    if (row.id === scoped.id) {
+      continue;
+    }
+    if (!row.applicableObjectGroups.includes(groupCode)) {
+      continue;
+    }
+    row.applicablePeriods = normalizedCodeList(
+      row.applicablePeriods.filter((item) => !sharedPeriodLookup.has(normalizePeriodCode(item))),
+      true,
+    );
+  }
+  return targetPeriods;
+}
+
 function unknownToText(value: unknown): string {
   if (value === null || value === undefined || value === "") {
     return "";
@@ -1537,17 +1611,19 @@ function syncActiveScopedRuleWithContext(): void {
     activeScopedRuleId.value = "";
     return;
   }
-  const periodCode = contextStore.periodCode;
+  const periodCode = normalizePeriodCode(contextStore.periodCode);
   const groupCode = contextStore.objectGroupCode;
   if (!periodCode || !groupCode) {
     activeScopedRuleId.value = "";
     return;
   }
+  const sharedPeriodCodes = resolveSharedPeriodCodes(periodCode);
+  const targetPeriods = sharedPeriodCodes.length > 0 ? sharedPeriodCodes : [periodCode];
 
   const target = ruleContent.scopedRules.find(
     (item) =>
-      item.applicablePeriods.includes(periodCode) &&
-      item.applicableObjectGroups.includes(groupCode),
+      item.applicableObjectGroups.includes(groupCode) &&
+      scopedIncludesAnyPeriod(item, targetPeriods),
   );
   if (target) {
     activeScopedRuleId.value = target.id;
@@ -1555,7 +1631,7 @@ function syncActiveScopedRuleWithContext(): void {
   }
 
   const row = defaultScopedRule(false);
-  row.applicablePeriods = [periodCode];
+  row.applicablePeriods = targetPeriods;
   row.applicableObjectGroups = [groupCode];
   ruleContent.scopedRules.push(row);
   activeScopedRuleId.value = row.id;
@@ -2349,6 +2425,7 @@ async function saveRule(): Promise<void> {
     return;
   }
 
+  const synchronizedPeriods = applySharedPeriodBindingToActiveScopedRule();
   const normalizedScopedRules = ruleContent.scopedRules
     .map((item) => normalizeRuleForSave(item))
     .filter((item) => item.applicablePeriods.length > 0 && item.applicableObjectGroups.length > 0);
@@ -2372,7 +2449,11 @@ async function saveRule(): Promise<void> {
       description: currentRule.value.description || "",
       contentJson: JSON.stringify(normalizedContent, null, 2),
     });
-    ElMessage.success("规则已保存");
+    if (synchronizedPeriods.length > 1) {
+      ElMessage.success(`规则已保存，并已同步到周期：${synchronizedPeriods.join(", ")}`);
+    } else {
+      ElMessage.success("规则已保存");
+    }
     await loadFilesOnly();
     if (currentRule.value?.id !== updated.id) {
       setCurrentRule(updated);
