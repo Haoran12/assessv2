@@ -85,6 +85,8 @@ go run ./cmd/migrate-rule-file-paths --db ../data/assess.db --data-root ../data
 go run ./cmd/migrate-rule-file-paths --db ../data/assess.db --data-root ../data --apply
 ```
 
+该命令会清理旧结构痕迹：保留单一 `rule.json`，并移除旧的“基础规则/copy”冗余记录与文件。
+
 ## 文档
 
 - 文档总览：[`docs/README.md`](./docs/README.md)

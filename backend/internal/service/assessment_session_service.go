@@ -1383,9 +1383,6 @@ func ensureRuleFilePath(assessmentName string, fileName string) (string, error) 
 }
 
 func buildRuleFileName(ruleName string) string {
-	base := buildAssessmentName(ruleName)
-	if base == "" {
-		base = "rule"
-	}
-	return base + "_" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".json"
+	_ = ruleName
+	return "rule.json"
 }

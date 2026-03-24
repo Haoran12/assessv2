@@ -13,96 +13,219 @@ import (
 	"gorm.io/gorm"
 )
 
-type ruleFileRow struct {
+const (
+	sessionBusinessSQLiteFileName = "assess.db"
+	canonicalRuleFileName         = "rule.json"
+)
+
+type sessionRow struct {
 	ID             uint
 	AssessmentName string
 	DataDir        string
-	FilePath       string
+}
+
+type ruleFileRow struct {
+	ID           uint
+	AssessmentID uint
+	RuleName     string
+	FilePath     string
+	ContentJSON  string
+	IsCopy       bool
+	SourceRuleID *uint
+	OwnerOrgID   *uint
+	UpdatedAt    int64
 }
 
 func main() {
-	dbPath := flag.String("db", defaultDBPath(), "business sqlite db path")
+	dbPath := flag.String("db", defaultDBPath(), "main metadata sqlite db path (assessment_sessions)")
 	dataRoot := flag.String("data-root", defaultDataRoot(), "assessment data root")
+	assessmentID := flag.Uint("assessment-id", 0, "only process one assessment session (0 = all)")
 	apply := flag.Bool("apply", false, "apply changes (default: dry-run)")
 	flag.Parse()
 
-	db, err := gorm.Open(sqlite.Open(strings.TrimSpace(*dbPath)), &gorm.Config{})
+	mainDB, err := gorm.Open(sqlite.Open(strings.TrimSpace(*dbPath)), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("open sqlite failed: %v", err)
+		log.Fatalf("open main sqlite failed: %v", err)
 	}
 
-	rows := make([]ruleFileRow, 0, 32)
-	if err := db.Table("rule_files AS r").
-		Select("r.id, s.assessment_name, s.data_dir, r.file_path").
-		Joins("JOIN assessment_sessions s ON s.id = r.assessment_id").
-		Order("r.id ASC").
-		Scan(&rows).Error; err != nil {
-		log.Fatalf("query rule files failed: %v", err)
+	sessions, err := loadSessions(mainDB, *assessmentID)
+	if err != nil {
+		log.Fatalf("query assessment sessions failed: %v", err)
+	}
+	if len(sessions) == 0 {
+		fmt.Println("no assessment sessions found")
+		return
 	}
 
-	planCount := 0
-	appliedCount := 0
-	for _, row := range rows {
-		targetPath := buildTargetPath(row, strings.TrimSpace(*dataRoot))
-		if targetPath == "" {
+	planned := 0
+	applied := 0
+	for _, session := range sessions {
+		sessionDir := resolveSessionDataDir(session.DataDir, session.AssessmentName, strings.TrimSpace(*dataRoot))
+		sessionDBPath := filepath.Join(sessionDir, sessionBusinessSQLiteFileName)
+		if !fileExists(sessionDBPath) {
+			fmt.Printf("[skip] assessment_id=%d session_db_missing=%s\n", session.ID, sessionDBPath)
 			continue
 		}
 
-		currentPath := resolvePath(strings.TrimSpace(row.FilePath), strings.TrimSpace(*dataRoot))
-		if currentPath != "" && samePath(currentPath, targetPath) {
+		sessionDB, closeFn, err := openSQLite(sessionDBPath)
+		if err != nil {
+			log.Fatalf("open session db failed assessment_id=%d: %v", session.ID, err)
+		}
+
+		if !sessionDB.Migrator().HasTable("rule_files") {
+			closeFn()
+			fmt.Printf("[skip] assessment_id=%d no rule_files table in %s\n", session.ID, sessionDBPath)
 			continue
 		}
 
-		planCount++
-		fmt.Printf("[plan] rule_id=%d from=%s to=%s\n", row.ID, currentPath, targetPath)
+		rows, err := loadRuleFiles(sessionDB, session.ID)
+		if err != nil {
+			closeFn()
+			log.Fatalf("query rule_files failed assessment_id=%d: %v", session.ID, err)
+		}
+		if len(rows) == 0 {
+			closeFn()
+			continue
+		}
+
+		keeper := pickKeeper(rows)
+		targetPath := filepath.Join(sessionDir, canonicalRuleFileName)
+		currentKeeperPath := resolvePath(strings.TrimSpace(keeper.FilePath), strings.TrimSpace(*dataRoot))
+
+		if currentKeeperPath == "" || !samePath(currentKeeperPath, targetPath) ||
+			keeper.IsCopy || keeper.SourceRuleID != nil || keeper.OwnerOrgID != nil || len(rows) > 1 {
+			planned++
+			fmt.Printf(
+				"[plan] assessment_id=%d keep_rule_id=%d target=%s remove_legacy_rows=%d\n",
+				session.ID,
+				keeper.ID,
+				targetPath,
+				len(rows)-1,
+			)
+		}
+
 		if !*apply {
+			closeFn()
 			continue
 		}
 
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			log.Fatalf("create target dir failed for rule_id=%d: %v", row.ID, err)
+			closeFn()
+			log.Fatalf("create target dir failed assessment_id=%d: %v", session.ID, err)
 		}
 
-		finalTarget := targetPath
-		if currentPath != "" && fileExists(currentPath) && !samePath(currentPath, finalTarget) {
-			if fileExists(finalTarget) {
-				finalTarget = withMigrationSuffix(finalTarget, row.ID)
+		if err := sessionDB.Transaction(func(tx *gorm.DB) error {
+			// Remove duplicate rows and their files first.
+			for _, row := range rows {
+				if row.ID == keeper.ID {
+					continue
+				}
+				oldPath := resolvePath(strings.TrimSpace(row.FilePath), strings.TrimSpace(*dataRoot))
+				if oldPath != "" && !samePath(oldPath, targetPath) {
+					if err := removeFileIfExists(oldPath); err != nil {
+						return fmt.Errorf("remove legacy rule file failed: %w", err)
+					}
+				}
+				if err := tx.Table("rule_files").Where("id = ?", row.ID).Delete(nil).Error; err != nil {
+					return fmt.Errorf("delete legacy rule row failed: %w", err)
+				}
 			}
-			if err := moveFileWithFallback(currentPath, finalTarget); err != nil {
-				log.Fatalf("move file failed for rule_id=%d: %v", row.ID, err)
+
+			// Prepare canonical target file.
+			if currentKeeperPath != "" && fileExists(currentKeeperPath) && !samePath(currentKeeperPath, targetPath) {
+				if fileExists(targetPath) {
+					if err := removeFileIfExists(targetPath); err != nil {
+						return fmt.Errorf("remove existing canonical rule file failed: %w", err)
+					}
+				}
+				if err := moveFileWithFallback(currentKeeperPath, targetPath); err != nil {
+					return fmt.Errorf("move keeper rule file failed: %w", err)
+				}
 			}
+			if !fileExists(targetPath) {
+				if err := os.WriteFile(targetPath, []byte(keeper.ContentJSON), 0o644); err != nil {
+					return fmt.Errorf("write canonical rule file failed: %w", err)
+				}
+			}
+
+			updates := map[string]any{
+				"file_path":      targetPath,
+				"is_copy":        false,
+				"source_rule_id": nil,
+				"owner_org_id":   nil,
+				"updated_at":     time.Now().Unix(),
+			}
+			if err := tx.Table("rule_files").Where("id = ?", keeper.ID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("normalize keeper rule row failed: %w", err)
+			}
+			return nil
+		}); err != nil {
+			closeFn()
+			log.Fatalf("apply cleanup failed assessment_id=%d: %v", session.ID, err)
 		}
 
-		if err := db.Table("rule_files").Where("id = ?", row.ID).Update("file_path", finalTarget).Error; err != nil {
-			log.Fatalf("update file_path failed for rule_id=%d: %v", row.ID, err)
-		}
-		appliedCount++
-		fmt.Printf("[done] rule_id=%d target=%s\n", row.ID, finalTarget)
+		applied++
+		fmt.Printf(
+			"[done] assessment_id=%d keep_rule_id=%d canonical=%s removed=%d\n",
+			session.ID,
+			keeper.ID,
+			targetPath,
+			len(rows)-1,
+		)
+		closeFn()
 	}
 
 	if *apply {
-		fmt.Printf("migration finished, planned=%d applied=%d\n", planCount, appliedCount)
+		fmt.Printf("cleanup finished, planned=%d applied=%d\n", planned, applied)
 	} else {
-		fmt.Printf("dry-run finished, planned=%d (use --apply to execute)\n", planCount)
+		fmt.Printf("dry-run finished, planned=%d (use --apply to execute)\n", planned)
 	}
 }
 
-func buildTargetPath(row ruleFileRow, dataRoot string) string {
-	fileName := strings.TrimSpace(filepath.Base(strings.TrimSpace(row.FilePath)))
-	if fileName == "" || fileName == "." {
-		fileName = fmt.Sprintf("rule_%d.json", row.ID)
+func loadSessions(mainDB *gorm.DB, assessmentID uint) ([]sessionRow, error) {
+	items := make([]sessionRow, 0, 16)
+	query := mainDB.Table("assessment_sessions").Select("id, assessment_name, data_dir").Order("id ASC")
+	if assessmentID > 0 {
+		query = query.Where("id = ?", assessmentID)
 	}
+	if err := query.Scan(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
-	sessionDir := strings.TrimSpace(row.DataDir)
-	if sessionDir != "" {
-		sessionDir = resolvePath(sessionDir, dataRoot)
-		return filepath.Join(sessionDir, fileName)
+func loadRuleFiles(sessionDB *gorm.DB, assessmentID uint) ([]ruleFileRow, error) {
+	items := make([]ruleFileRow, 0, 8)
+	if err := sessionDB.
+		Table("rule_files").
+		Select("id, assessment_id, rule_name, file_path, content_json, is_copy, source_rule_id, owner_org_id, updated_at").
+		Where("assessment_id = ?", assessmentID).
+		Order("updated_at DESC, id DESC").
+		Scan(&items).Error; err != nil {
+		return nil, err
 	}
+	return items, nil
+}
 
-	if dataRoot == "" {
-		return ""
+func pickKeeper(rows []ruleFileRow) ruleFileRow {
+	for _, row := range rows {
+		if !row.IsCopy {
+			return row
+		}
 	}
-	return filepath.Join(dataRoot, strings.TrimSpace(row.AssessmentName), fileName)
+	return rows[0]
+}
+
+func openSQLite(path string) (*gorm.DB, func(), error) {
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		return nil, nil, err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, nil, err
+	}
+	return db, func() { _ = sqlDB.Close() }, nil
 }
 
 func defaultDBPath() string {
@@ -117,6 +240,32 @@ func defaultDataRoot() string {
 		return value
 	}
 	return "data"
+}
+
+func resolveSessionDataDir(dataDir string, assessmentName string, dataRoot string) string {
+	text := strings.TrimSpace(dataDir)
+	if text == "" {
+		root := strings.TrimSpace(dataRoot)
+		if root == "" {
+			root = "data"
+		}
+		return filepath.Clean(filepath.Join(root, assessmentName))
+	}
+	if filepath.IsAbs(text) {
+		return filepath.Clean(text)
+	}
+
+	root := strings.TrimSpace(dataRoot)
+	if root == "" {
+		root = "data"
+	}
+	normalized := strings.ReplaceAll(text, "\\", "/")
+	if strings.HasPrefix(strings.ToLower(normalized), "data/") {
+		relative := strings.TrimPrefix(normalized, "data/")
+		relative = strings.TrimPrefix(relative, "/")
+		return filepath.Clean(filepath.Join(root, filepath.FromSlash(relative)))
+	}
+	return filepath.Clean(filepath.Join(root, filepath.FromSlash(normalized)))
 }
 
 func resolvePath(path string, dataRoot string) string {
@@ -150,12 +299,11 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func withMigrationSuffix(path string, ruleID uint) string {
-	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(filepath.Base(path), ext)
-	dir := filepath.Dir(path)
-	suffix := time.Now().UnixNano()
-	return filepath.Join(dir, fmt.Sprintf("%s_migrated_%d_%d%s", base, ruleID, suffix, ext))
+func removeFileIfExists(path string) error {
+	if path == "" || !fileExists(path) {
+		return nil
+	}
+	return os.Remove(path)
 }
 
 func moveFileWithFallback(src string, dst string) error {
