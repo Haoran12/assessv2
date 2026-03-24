@@ -379,7 +379,7 @@
               </div>
             </div>
             <div class="script-picker-preview">
-              <span class="script-picker-preview-label">灏嗘彃鍏ヤ唬鐮</span>
+              <span class="script-picker-preview-label">将插入代码</span>
               <code class="script-picker-preview-code">{{ moduleInsertCodePreview || "请先完成三项选择" }}</code>
             </div>
             <div class="script-picker-actions">
@@ -556,7 +556,7 @@
             </div>
           </div>
           <div class="script-picker-preview">
-            <span class="script-picker-preview-label">灏嗘彃鍏ヤ唬鐮</span>
+            <span class="script-picker-preview-label">将插入代码</span>
             <code class="script-picker-preview-code">{{ gradeInsertCodePreview || "请先完成三项选择" }}</code>
           </div>
           <div class="script-picker-actions">
@@ -981,6 +981,15 @@ function toNullableNumber(value: unknown): number | null {
 function formatExpressionObjectOption(item: RuleExpressionObjectOption): string {
   const objectName = String(item.objectName || "").trim() || `对象${item.objectId}`;
   const organizationName = String(contextStore.currentSession?.organizationName || "").trim();
+  const targetType = String(item.targetType || "")
+    .trim()
+    .toLowerCase();
+  if (targetType === "organization" || targetType === "org" || targetType === "group" || targetType === "company") {
+    return objectName;
+  }
+  if (targetType === "department" || targetType === "employee" || targetType === "person" || targetType === "individual") {
+    return organizationName ? `${organizationName}-${objectName}` : objectName;
+  }
   if (organizationName) {
     return `${organizationName}-${objectName}`;
   }
