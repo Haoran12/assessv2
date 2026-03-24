@@ -432,6 +432,42 @@
           <div v-if="canEditRule" class="table-footer-actions">
             <el-button type="primary" plain @click="addVoteGradeRow">新增挡位</el-button>
           </div>
+
+          <div class="field-label">投票主体与权重</div>
+          <el-table :data="moduleVoteSubjectRows" border class="rules-table vote-subject-table">
+            <el-table-column label="主体名称" min-width="220">
+              <template #default="{ row }">
+                <el-input v-model="row.label" :disabled="!canEditRule" placeholder="例如：干部评议组" />
+              </template>
+            </el-table-column>
+            <el-table-column label="权重" width="180">
+              <template #default="{ row }">
+                <el-input-number
+                  v-model="row.weight"
+                  :disabled="!canEditRule"
+                  :min="0"
+                  :step="0.01"
+                  :precision="4"
+                  style="width: 100%"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" align="center">
+              <template #default="{ $index }">
+                <el-button
+                  link
+                  type="danger"
+                  :disabled="!canEditRule || moduleVoteSubjectRows.length <= 1"
+                  @click="removeVoteSubjectRow($index)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="canEditRule" class="table-footer-actions">
+            <el-button type="primary" plain @click="addVoteSubjectRow">新增主体</el-button>
+          </div>
         </template>
 
         <el-empty v-else description="直接录入方式暂无额外详情配置" />
@@ -596,6 +632,12 @@ interface VoteGradeRow {
   score: number | null;
 }
 
+interface VoteSubjectRow {
+  id: string;
+  label: string;
+  weight: number | null;
+}
+
 interface GradeScoreNode {
   hasUpperLimit: boolean;
   upperScore: number | null;
@@ -683,6 +725,7 @@ const moduleDetailDraft = reactive({
   voteConfigJson: "",
 });
 const moduleVoteGradeRows = ref<VoteGradeRow[]>([]);
+const moduleVoteSubjectRows = ref<VoteSubjectRow[]>([]);
 const moduleVoteConfigExtras = ref<Record<string, unknown>>({});
 const gradeDetailVisible = ref(false);
 const gradeDetailTargetId = ref("");
@@ -1101,7 +1144,7 @@ function defaultVoteGradeRows(): VoteGradeRow[] {
   const seeds = [
     { label: "优秀", score: 100 },
     { label: "良好", score: 85 },
-    { label: "合格", score: 70 },
+    { label: "一般", score: 70 },
     { label: "较差", score: 60 },
   ];
   return seeds.map((item) => ({
@@ -1109,6 +1152,16 @@ function defaultVoteGradeRows(): VoteGradeRow[] {
     label: item.label,
     score: item.score,
   }));
+}
+
+function defaultVoteSubjectRows(): VoteSubjectRow[] {
+  return [
+    {
+      id: uuid("vote_subject"),
+      label: "主体1",
+      weight: 1,
+    },
+  ];
 }
 
 function normalizeVoteGradeRow(raw: unknown, index: number): VoteGradeRow | null {
@@ -1125,6 +1178,23 @@ function normalizeVoteGradeRow(raw: unknown, index: number): VoteGradeRow | null
     id: uuid("vote_grade"),
     label: label || `挡位${index + 1}`,
     score,
+  };
+}
+
+function normalizeVoteSubjectRow(raw: unknown, index: number): VoteSubjectRow | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  const label = String(row.label ?? row.name ?? row.title ?? row.subject ?? row.group ?? "").trim();
+  const weight = toNullableNumber(row.weight ?? row.ratio ?? row.value ?? row.points);
+  if (!label && weight === null) {
+    return null;
+  }
+  return {
+    id: uuid("vote_subject"),
+    label: label || `主体${index + 1}`,
+    weight,
   };
 }
 
@@ -1195,6 +1265,45 @@ function parseVoteGradeRowsFromConfig(configText: string): {
     rows: rows.length > 0 ? rows : defaultVoteGradeRows(),
     extras,
   };
+}
+
+function parseVoteSubjectRowsFromConfig(extras: Record<string, unknown>): VoteSubjectRow[] {
+  let candidate: unknown;
+  const candidateKeys = ["voterSubjects", "subjectWeights", "subjects", "voteSubjects", "voterGroups", "groups"];
+  for (const key of candidateKeys) {
+    if (Object.prototype.hasOwnProperty.call(extras, key)) {
+      candidate = extras[key];
+      delete extras[key];
+      break;
+    }
+  }
+
+  const rows: VoteSubjectRow[] = [];
+  if (Array.isArray(candidate)) {
+    candidate.forEach((item, index) => {
+      const normalized = normalizeVoteSubjectRow(item, index);
+      if (normalized) {
+        rows.push(normalized);
+      }
+    });
+  } else if (candidate && typeof candidate === "object") {
+    Object.entries(candidate as Record<string, unknown>).forEach(([key, value], index) => {
+      const weight = toNullableNumber(value);
+      if (weight === null) {
+        return;
+      }
+      rows.push({
+        id: uuid("vote_subject"),
+        label: String(key || "").trim() || `主体${index + 1}`,
+        weight,
+      });
+    });
+  }
+
+  if (rows.length === 0) {
+    return defaultVoteSubjectRows();
+  }
+  return rows;
 }
 
 function newScoreModule(seed = "模块", weight = 100): ScoreModule {
@@ -1697,9 +1806,11 @@ function openModuleDetail(module: ScoreModule): void {
   if (module.calculationMethod === "vote") {
     const parsed = parseVoteGradeRowsFromConfig(module.voteConfigJson || "");
     moduleVoteGradeRows.value = parsed.rows;
+    moduleVoteSubjectRows.value = parseVoteSubjectRowsFromConfig(parsed.extras);
     moduleVoteConfigExtras.value = parsed.extras;
   } else {
     moduleVoteGradeRows.value = [];
+    moduleVoteSubjectRows.value = [];
     moduleVoteConfigExtras.value = {};
   }
   ensureExpressionPickerState(moduleInsertPicker);
@@ -1712,6 +1823,7 @@ function closeModuleDetail(): void {
   moduleDetailDraft.customScript = "";
   moduleDetailDraft.voteConfigJson = "";
   moduleVoteGradeRows.value = [];
+  moduleVoteSubjectRows.value = [];
   moduleVoteConfigExtras.value = {};
 }
 
@@ -1730,6 +1842,21 @@ function removeVoteGradeRow(index: number): void {
   moduleVoteGradeRows.value.splice(index, 1);
 }
 
+function addVoteSubjectRow(): void {
+  moduleVoteSubjectRows.value.push({
+    id: uuid("vote_subject"),
+    label: `主体${moduleVoteSubjectRows.value.length + 1}`,
+    weight: null,
+  });
+}
+
+function removeVoteSubjectRow(index: number): void {
+  if (moduleVoteSubjectRows.value.length <= 1) {
+    return;
+  }
+  moduleVoteSubjectRows.value.splice(index, 1);
+}
+
 function applyModuleDetail(): void {
   const target = moduleDetailTarget.value;
   if (!target) {
@@ -1744,8 +1871,16 @@ function applyModuleDetail(): void {
       label: String(item.label || "").trim() || `挡位${index + 1}`,
       score: toNullableNumber(item.score),
     }));
+    const cleanedSubjects = moduleVoteSubjectRows.value.map((item, index) => ({
+      label: String(item.label || "").trim() || `主体${index + 1}`,
+      weight: toNullableNumber(item.weight),
+    }));
     if (cleanedRows.length === 0) {
       ElMessage.warning("请至少配置一个投票挡位");
+      return;
+    }
+    if (cleanedSubjects.length === 0) {
+      ElMessage.warning("请至少配置一个投票主体");
       return;
     }
     const seenLabels = new Set<string>();
@@ -1764,11 +1899,31 @@ function applyModuleDetail(): void {
       }
       seenLabels.add(row.label);
     }
+    const seenSubjectLabels = new Set<string>();
+    for (const subject of cleanedSubjects) {
+      if (subject.weight === null || !Number.isFinite(subject.weight)) {
+        ElMessage.warning(`请填写主体「${subject.label}」的权重`);
+        return;
+      }
+      if (subject.weight <= 0) {
+        ElMessage.warning(`主体「${subject.label}」权重必须大于 0`);
+        return;
+      }
+      if (seenSubjectLabels.has(subject.label)) {
+        ElMessage.warning(`主体名称「${subject.label}」重复，请调整`);
+        return;
+      }
+      seenSubjectLabels.add(subject.label);
+    }
     const voteConfig = {
       ...moduleVoteConfigExtras.value,
       gradeScores: cleanedRows.map((item) => ({
         label: item.label,
         score: item.score as number,
+      })),
+      voterSubjects: cleanedSubjects.map((item) => ({
+        label: item.label,
+        weight: item.weight as number,
       })),
     };
     target.voteConfigJson = JSON.stringify(voteConfig, null, 2);

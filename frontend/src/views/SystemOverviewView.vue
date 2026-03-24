@@ -162,68 +162,51 @@
           <span>{{ voteDialog.moduleName }}</span>
         </el-form-item>
         <el-form-item label="纸质票数">
-          <div class="vote-count-grid">
-            <el-input-number
-              v-model="voteDialog.excellentCount"
-              :min="0"
-              :step="1"
-              :precision="0"
-              :controls="false"
-              placeholder="优秀票"
-            />
-            <el-input-number
-              v-model="voteDialog.goodCount"
-              :min="0"
-              :step="1"
-              :precision="0"
-              :controls="false"
-              placeholder="良好票"
-            />
-            <el-input-number
-              v-model="voteDialog.averageCount"
-              :min="0"
-              :step="1"
-              :precision="0"
-              :controls="false"
-              placeholder="中等票"
-            />
-            <el-input-number
-              v-model="voteDialog.poorCount"
-              :min="0"
-              :step="1"
-              :precision="0"
-              :controls="false"
-              placeholder="较差票"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item>
-          <div class="vote-convert-row">
-            <span class="vote-convert-text">
-              折算分值：
-              <strong>{{ formatScore(voteConvertedScore) }}</strong>
-            </span>
-            <el-button plain type="primary" :disabled="voteConvertedScore === null" @click="applyVoteConvertedScore">
-              使用折算分值
-            </el-button>
-          </div>
-        </el-form-item>
-        <el-form-item label="最终分值" required>
-          <el-input-number
-            v-model="voteDialog.score"
-            :min="0"
-            :max="100"
-            :step="scoreInputStep"
-            :precision="scoreDecimalPlaces"
-            style="width: 100%"
-          />
+          <el-table :data="voteDialog.voterSubjects" border size="small" class="vote-matrix-table">
+            <el-table-column label="投票主体" min-width="160" fixed>
+              <template #default="{ row }">
+                <div class="vote-subject-cell">
+                  <span>{{ row.label }}</span>
+                  <span class="vote-subject-weight">权重 {{ row.weight }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column
+              v-for="grade in voteDialog.gradeScores"
+              :key="`vote-grade-col-${grade.id}`"
+              :label="`${grade.label}(${formatScore(grade.score)})`"
+              min-width="140"
+              align="center"
+            >
+              <template #default="{ row: subject }">
+                <el-input-number
+                  v-model="voteDialog.countByCellKey[voteCellKey(subject.id, grade.id)]"
+                  :min="0"
+                  :step="1"
+                  :precision="0"
+                  :controls="false"
+                  style="width: 100%"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="主体总票数" width="120" align="center">
+              <template #default="{ row }">
+                {{ voteSubjectTotal(row.id) }}
+              </template>
+            </el-table-column>
+          </el-table>
         </el-form-item>
         <el-form-item>
           <el-alert
             type="info"
             :closable="false"
-            title="线上投票功能当前仅保留占位。请按线下纸质票结果录入模块最终分值。"
+            title="模块得分 = Σ(挡位分值 × 主体权重 × 得分率)，其中得分率 = 该主体该挡位票数 / 该主体总票数。"
           />
+        </el-form-item>
+        <el-form-item label="计算得分">
+          <span class="vote-convert-text">
+            <strong>{{ formatScore(voteConvertedScore) }}</strong>
+          </span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -253,10 +236,28 @@ import {
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
 
+interface VoteGradeConfig {
+  id: string;
+  label: string;
+  score: number;
+}
+
+interface VoteSubjectConfig {
+  id: string;
+  label: string;
+  weight: number;
+}
+
+interface VoteModuleConfig {
+  gradeScores: VoteGradeConfig[];
+  voterSubjects: VoteSubjectConfig[];
+}
+
 interface TableModuleColumn {
   moduleKey: string;
   moduleName: string;
   calculationMethod: ScoreMethod;
+  voteConfig: VoteModuleConfig | null;
 }
 
 interface TableRow {
@@ -291,29 +292,19 @@ const voteDialog = ref<{
   objectName: string;
   moduleKey: string;
   moduleName: string;
-  excellentCount?: number;
-  goodCount?: number;
-  averageCount?: number;
-  poorCount?: number;
-  score?: number;
+  gradeScores: VoteGradeConfig[];
+  voterSubjects: VoteSubjectConfig[];
+  countByCellKey: Record<string, number | undefined>;
 }>({
   objectId: 0,
   objectName: "",
   moduleKey: "",
   moduleName: "",
-  excellentCount: undefined,
-  goodCount: undefined,
-  averageCount: undefined,
-  poorCount: undefined,
-  score: undefined,
+  gradeScores: [],
+  voterSubjects: [],
+  countByCellKey: {},
 });
 let fetchSequence = 0;
-const voteGradeScores = {
-  excellent: 100,
-  good: 85,
-  average: 70,
-  poor: 60,
-} as const;
 
 const isContextReady = computed(() =>
   Boolean(contextStore.sessionId && contextStore.periodCode && contextStore.objectGroupCode),
@@ -341,6 +332,13 @@ function toNumberOrNull(value: unknown): number | null {
   return null;
 }
 
+function toInputNumberValue(value: number | null): number | undefined {
+  if (value === null || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return value;
+}
+
 function formatScore(value: number | null): string {
   return formatScoreWithDecimalPlaces(value, scoreDecimalPlaces.value);
 }
@@ -348,13 +346,6 @@ function formatScore(value: number | null): string {
 function formatScoreAction(value: number | null): string {
   const text = formatScore(value);
   return text === "-" ? "点击录入" : text;
-}
-
-function toInputNumberValue(value: number | null): number | undefined {
-  if (value === null || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return value;
 }
 
 function toVoteCount(value: unknown): number {
@@ -365,21 +356,194 @@ function toVoteCount(value: unknown): number {
   return Math.floor(parsed);
 }
 
-const voteConvertedScore = computed(() => {
-  const excellentCount = toVoteCount(voteDialog.value.excellentCount);
-  const goodCount = toVoteCount(voteDialog.value.goodCount);
-  const averageCount = toVoteCount(voteDialog.value.averageCount);
-  const poorCount = toVoteCount(voteDialog.value.poorCount);
-  const totalCount = excellentCount + goodCount + averageCount + poorCount;
-  if (totalCount <= 0) {
+function voteCellKey(subjectID: string, gradeID: string): string {
+  return `${subjectID}::${gradeID}`;
+}
+
+function defaultVoteGradeConfigs(): VoteGradeConfig[] {
+  return [
+    { id: "excellent", label: "优秀", score: 100 },
+    { id: "good", label: "良好", score: 85 },
+    { id: "average", label: "一般", score: 70 },
+    { id: "poor", label: "较差", score: 60 },
+  ];
+}
+
+function defaultVoteSubjectConfigs(): VoteSubjectConfig[] {
+  return [{ id: "subject_1", label: "主体1", weight: 1 }];
+}
+
+function parseJsonLoose(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const text = value.trim();
+  if (!text) {
     return null;
   }
-  const weightedSum =
-    excellentCount * voteGradeScores.excellent
-    + goodCount * voteGradeScores.good
-    + averageCount * voteGradeScores.average
-    + poorCount * voteGradeScores.poor;
-  return weightedSum / totalCount;
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function normalizeVoteGradeConfig(item: unknown, index: number): VoteGradeConfig | null {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const row = item as Record<string, unknown>;
+  const label = String(row.label ?? row.name ?? row.title ?? row.grade ?? row.option ?? "").trim();
+  const score = toNumberOrNull(row.score ?? row.value ?? row.points);
+  if (!label || score === null) {
+    return null;
+  }
+  return {
+    id: `grade_${index + 1}`,
+    label,
+    score,
+  };
+}
+
+function normalizeVoteSubjectConfig(item: unknown, index: number): VoteSubjectConfig | null {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const row = item as Record<string, unknown>;
+  const label = String(row.label ?? row.name ?? row.title ?? row.subject ?? row.group ?? "").trim();
+  const weight = toNumberOrNull(row.weight ?? row.ratio ?? row.value ?? row.points);
+  if (!label || weight === null || weight <= 0) {
+    return null;
+  }
+  return {
+    id: `subject_${index + 1}`,
+    label,
+    weight,
+  };
+}
+
+function normalizeVoteModuleConfig(raw: unknown): VoteModuleConfig {
+  const parsed = parseJsonLoose(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      gradeScores: defaultVoteGradeConfigs(),
+      voterSubjects: defaultVoteSubjectConfigs(),
+    };
+  }
+  const data = parsed as Record<string, unknown>;
+
+  const normalizedGradeRows: VoteGradeConfig[] = [];
+  const gradeSources = [data.gradeScores, data.grades, data.levels, data.options, data.items];
+  for (const source of gradeSources) {
+    if (Array.isArray(source)) {
+      source.forEach((item, index) => {
+        const normalized = normalizeVoteGradeConfig(item, index);
+        if (normalized) {
+          normalizedGradeRows.push(normalized);
+        }
+      });
+      if (normalizedGradeRows.length > 0) {
+        break;
+      }
+    } else if (source && typeof source === "object") {
+      Object.entries(source as Record<string, unknown>).forEach(([key, value], index) => {
+        const score = toNumberOrNull(value);
+        if (score === null) {
+          return;
+        }
+        normalizedGradeRows.push({
+          id: `grade_${index + 1}`,
+          label: String(key || "").trim() || `挡位${index + 1}`,
+          score,
+        });
+      });
+      if (normalizedGradeRows.length > 0) {
+        break;
+      }
+    }
+  }
+
+  const normalizedSubjects: VoteSubjectConfig[] = [];
+  const subjectSources = [
+    data.voterSubjects,
+    data.subjectWeights,
+    data.subjects,
+    data.voteSubjects,
+    data.voterGroups,
+    data.groups,
+  ];
+  for (const source of subjectSources) {
+    if (Array.isArray(source)) {
+      source.forEach((item, index) => {
+        const normalized = normalizeVoteSubjectConfig(item, index);
+        if (normalized) {
+          normalizedSubjects.push(normalized);
+        }
+      });
+      if (normalizedSubjects.length > 0) {
+        break;
+      }
+    } else if (source && typeof source === "object") {
+      Object.entries(source as Record<string, unknown>).forEach(([key, value], index) => {
+        const weight = toNumberOrNull(value);
+        if (weight === null || weight <= 0) {
+          return;
+        }
+        normalizedSubjects.push({
+          id: `subject_${index + 1}`,
+          label: String(key || "").trim() || `主体${index + 1}`,
+          weight,
+        });
+      });
+      if (normalizedSubjects.length > 0) {
+        break;
+      }
+    }
+  }
+
+  return {
+    gradeScores: normalizedGradeRows.length > 0 ? normalizedGradeRows : defaultVoteGradeConfigs(),
+    voterSubjects: normalizedSubjects.length > 0 ? normalizedSubjects : defaultVoteSubjectConfigs(),
+  };
+}
+
+function voteSubjectTotal(subjectID: string): number {
+  let total = 0;
+  for (const grade of voteDialog.value.gradeScores) {
+    const key = voteCellKey(subjectID, grade.id);
+    total += toVoteCount(voteDialog.value.countByCellKey[key]);
+  }
+  return total;
+}
+
+const voteConvertedScore = computed(() => {
+  const subjects = voteDialog.value.voterSubjects;
+  const grades = voteDialog.value.gradeScores;
+  if (subjects.length === 0 || grades.length === 0) {
+    return null;
+  }
+  let hasAnyVote = false;
+  let totalScore = 0;
+  for (const subject of subjects) {
+    const subjectTotal = voteSubjectTotal(subject.id);
+    if (subjectTotal <= 0) {
+      continue;
+    }
+    hasAnyVote = true;
+    for (const grade of grades) {
+      const key = voteCellKey(subject.id, grade.id);
+      const count = toVoteCount(voteDialog.value.countByCellKey[key]);
+      if (count <= 0) {
+        continue;
+      }
+      const rate = count / subjectTotal;
+      totalScore += grade.score * subject.weight * rate;
+    }
+  }
+  if (!hasAnyVote) {
+    return null;
+  }
+  return totalScore;
 });
 
 function normalizeMethod(value: unknown): ScoreMethod {
@@ -411,10 +575,14 @@ function normalizeScoreModules(raw: unknown): TableModuleColumn[] {
     }
     seen.add(moduleKey);
     const moduleName = String(row.moduleName || row.name || moduleKey).trim() || moduleKey;
+    const calculationMethod = normalizeMethod(row.calculationMethod || row.method);
+    const detail = row.detail && typeof row.detail === "object" ? (row.detail as Record<string, unknown>) : null;
+    const voteConfigRaw = row.voteConfig ?? detail?.voteConfig ?? detail?.vote ?? detail?.voteDetail;
     normalized.push({
       moduleKey,
       moduleName,
-      calculationMethod: normalizeMethod(row.calculationMethod || row.method),
+      calculationMethod,
+      voteConfig: calculationMethod === "vote" ? normalizeVoteModuleConfig(voteConfigRaw) : null,
     });
   });
   return normalized;
@@ -498,27 +666,26 @@ function onDirectScoreChange(row: TableRow, module: TableModuleColumn, value: nu
 }
 
 function openVoteDialog(row: TableRow, module: TableModuleColumn): void {
+  const voteConfig = module.voteConfig || {
+    gradeScores: defaultVoteGradeConfigs(),
+    voterSubjects: defaultVoteSubjectConfigs(),
+  };
+  const countByCellKey: Record<string, number | undefined> = {};
+  voteConfig.voterSubjects.forEach((subject) => {
+    voteConfig.gradeScores.forEach((grade) => {
+      countByCellKey[voteCellKey(subject.id, grade.id)] = undefined;
+    });
+  });
   voteDialog.value = {
     objectId: row.objectId,
     objectName: row.objectName,
     moduleKey: module.moduleKey,
     moduleName: module.moduleName,
-    excellentCount: undefined,
-    goodCount: undefined,
-    averageCount: undefined,
-    poorCount: undefined,
-    score: toInputNumberValue(row.moduleScores[module.moduleKey]),
+    gradeScores: voteConfig.gradeScores.map((item) => ({ ...item })),
+    voterSubjects: voteConfig.voterSubjects.map((item) => ({ ...item })),
+    countByCellKey,
   };
   voteDialogVisible.value = true;
-}
-
-function applyVoteConvertedScore(): void {
-  const converted = voteConvertedScore.value;
-  if (converted === null) {
-    ElMessage.warning("请先录入至少一项票数");
-    return;
-  }
-  voteDialog.value.score = roundScoreWithDecimalPlaces(converted, scoreDecimalPlaces.value);
 }
 
 function applyVoteDialogScore(): void {
@@ -533,11 +700,12 @@ function applyVoteDialogScore(): void {
     ElMessage.warning("未找到对应考核对象");
     return;
   }
-  const score = toNumberOrNull(voteDialog.value.score);
-  if (score === null) {
-    ElMessage.warning("请填写有效分数");
+  const converted = voteConvertedScore.value;
+  if (converted === null) {
+    ElMessage.warning("请先录入至少一项票数");
     return;
   }
+  const score = roundScoreWithDecimalPlaces(converted, scoreDecimalPlaces.value);
   row.moduleScores[moduleKey] = score;
   setPendingScore(objectId, moduleKey, score);
   voteDialogVisible.value = false;
@@ -767,22 +935,25 @@ watch(
   color: #606266;
 }
 
-.vote-count-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.vote-matrix-table {
   width: 100%;
 }
 
-.vote-convert-row {
-  width: 100%;
+.vote-subject-cell {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vote-subject-weight {
+  font-size: 12px;
+  color: #909399;
 }
 
 .vote-convert-text {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
   color: #606266;
   font-size: 13px;
 }
@@ -809,13 +980,5 @@ watch(
     word-break: break-all;
   }
 
-  .vote-count-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .vote-convert-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 </style>
