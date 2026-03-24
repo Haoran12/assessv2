@@ -383,6 +383,9 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
 		return nil, err
 	}
+	if err := s.ensureSessionWritable(summary); err != nil {
+		return nil, err
+	}
 
 	periods, err := s.listPeriods(ctx, sessionID)
 	if err != nil {

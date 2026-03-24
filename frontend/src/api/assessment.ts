@@ -10,6 +10,7 @@ import type {
   UpdateAssessmentObjectsPayload,
   UpdateAssessmentPeriodsPayload,
   UpdateAssessmentSessionPayload,
+  UpdateAssessmentSessionStatusPayload,
 } from "@/types/assessment";
 
 export async function listAssessmentSessions(): Promise<AssessmentSessionItem[]> {
@@ -32,6 +33,14 @@ export async function updateAssessmentSession(
   payload: UpdateAssessmentSessionPayload,
 ): Promise<AssessmentSessionDetail> {
   const response = await http.put(`/api/assessment/sessions/${sessionId}`, payload);
+  return response.data?.data as AssessmentSessionDetail;
+}
+
+export async function updateAssessmentSessionStatus(
+  sessionId: number,
+  payload: UpdateAssessmentSessionStatusPayload,
+): Promise<AssessmentSessionDetail> {
+  const response = await http.put(`/api/assessment/sessions/${sessionId}/status`, payload);
   return response.data?.data as AssessmentSessionDetail;
 }
 

@@ -78,7 +78,7 @@
           <template v-else>
             <el-alert
               v-if="!canEditScores"
-              title="当前账号无分数录入权限，仅可查看。"
+              title="当前场次处于只读状态或账号无录入权限，仅可查看。"
               type="info"
               :closable="false"
               class="entry-readonly-alert"
@@ -331,7 +331,9 @@ const isContextReady = computed(() =>
     && contextStore.objectGroupCode,
   ),
 );
-const canEditScores = computed(() => appStore.hasPermission("assessment:update"));
+const canEditScores = computed(
+  () => appStore.hasPermission("assessment:update") && contextStore.currentSession?.status !== "completed",
+);
 const pendingScoreCount = computed(() => Object.keys(pendingScoreMap.value).length);
 const scoreInputStep = computed(() => toScoreInputStep(scoreDecimalPlaces.value));
 const contextSummaryText = computed(() => {

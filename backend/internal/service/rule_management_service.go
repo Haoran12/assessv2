@@ -56,6 +56,7 @@ func (s *RuleManagementService) ensureSessionRuleFile(
 	ctx context.Context,
 	session *AssessmentSessionSummary,
 	operatorRef *uint,
+	allowCreate bool,
 ) (*model.RuleFile, error) {
 	items := make([]model.RuleFile, 0, 8)
 	if err := withSessionBusinessDB(ctx, session, func(sessionDB *gorm.DB) error {
@@ -71,6 +72,9 @@ func (s *RuleManagementService) ensureSessionRuleFile(
 	}
 
 	if len(items) == 0 {
+		if !allowCreate {
+			return nil, ErrRuleNotFound
+		}
 		ruleName := sessionRuleDefaultName(session)
 		contentJSON := buildDefaultRuleTemplateJSON()
 		fileName := buildRuleFileName(ruleName)
@@ -153,15 +157,19 @@ func (s *RuleManagementService) ListRuleFiles(ctx context.Context, claims *auth.
 		return nil, err
 	}
 
-	record, err := s.ensureSessionRuleFile(ctx, session, nil)
+	readOnly := isAssessmentSessionReadOnly(session.Status)
+	record, err := s.ensureSessionRuleFile(ctx, session, nil, !readOnly)
 	if err != nil {
+		if readOnly && err == ErrRuleNotFound {
+			return []RuleFileSummary{}, nil
+		}
 		return nil, err
 	}
 	return []RuleFileSummary{
 		{
 			RuleFile:           *record,
 			HiddenByCurrentOrg: false,
-			CanEdit:            true,
+			CanEdit:            !readOnly,
 			CanDelete:          false,
 		},
 	}, nil
@@ -185,6 +193,9 @@ func (s *RuleManagementService) CreateRuleFile(
 	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
 		return nil, err
 	}
+	if isAssessmentSessionReadOnly(session.Status) {
+		return nil, ErrAssessmentReadOnly
+	}
 	ruleName := strings.TrimSpace(input.RuleName)
 	if ruleName == "" {
 		ruleName = sessionRuleDefaultName(session)
@@ -202,7 +213,7 @@ func (s *RuleManagementService) CreateRuleFile(
 	}
 
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
-	record, err := s.ensureSessionRuleFile(ctx, session, operatorRef)
+	record, err := s.ensureSessionRuleFile(ctx, session, operatorRef, true)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +253,7 @@ func (s *RuleManagementService) CreateRuleFile(
 	return &RuleFileSummary{
 		RuleFile:           *record,
 		HiddenByCurrentOrg: false,
-		CanEdit:            true,
+		CanEdit:            !isAssessmentSessionReadOnly(session.Status),
 		CanDelete:          false,
 	}, nil
 }
@@ -269,6 +280,9 @@ func (s *RuleManagementService) UpdateRuleFile(
 	}
 	if err := ensureAssessmentOrganizationScope(claims, session.OrganizationID); err != nil {
 		return nil, err
+	}
+	if isAssessmentSessionReadOnly(session.Status) {
+		return nil, ErrAssessmentReadOnly
 	}
 
 	var record model.RuleFile
@@ -335,7 +349,7 @@ func (s *RuleManagementService) UpdateRuleFile(
 	return &RuleFileSummary{
 		RuleFile:           record,
 		HiddenByCurrentOrg: false,
-		CanEdit:            true,
+		CanEdit:            !isAssessmentSessionReadOnly(session.Status),
 		CanDelete:          false,
 	}, nil
 }
@@ -353,6 +367,7 @@ func (s *RuleManagementService) loadSessionSummary(ctx context.Context, sessionI
 		}
 		return nil, fmt.Errorf("failed to query assessment session: %w", err)
 	}
+	item.Status = assessmentSessionStatusOrDefault(item.Status)
 	return item, nil
 }
 

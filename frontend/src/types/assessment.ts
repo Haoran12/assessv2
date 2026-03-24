@@ -1,5 +1,6 @@
 export type AssessmentPeriodCode = string;
 export type AssessmentObjectType = "team" | "individual";
+export type AssessmentSessionStatus = "preparing" | "active" | "completed";
 export type GlobalAssessmentObjectType = AssessmentObjectType | "all";
 export type AssessmentObjectCategory =
   | "group"
@@ -21,9 +22,12 @@ export interface AssessmentSessionItem {
   displayName: string;
   year: number;
   organizationId: number;
+  status: AssessmentSessionStatus;
   organizationName: string;
   description: string;
   dataDir: string;
+  completedSnapshotPath?: string;
+  completedSnapshotCreatedAt?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -100,6 +104,10 @@ export interface CreateAssessmentSessionPayload {
 export interface UpdateAssessmentSessionPayload {
   displayName?: string;
   description?: string;
+}
+
+export interface UpdateAssessmentSessionStatusPayload {
+  status: AssessmentSessionStatus;
 }
 
 export interface UpdateAssessmentPeriodsPayload {

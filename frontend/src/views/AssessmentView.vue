@@ -1,23 +1,46 @@
 <template>
   <div ref="assessmentViewRef" class="assessment-view">
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="考核场次" name="sessions">
+      <el-tab-pane label="鑰冩牳鍦烘" name="sessions">
         <el-card>
           <div class="tool-row">
             <div class="header-actions">
-              <el-button :loading="loadingSessions" @click="loadSessions">刷新</el-button>
+              <el-button :loading="loadingSessions" @click="loadSessions">鍒锋柊</el-button>
               <el-button type="primary" :disabled="!canEdit" @click="openCreateDialog">
-                创建考核场次
+                鍒涘缓鑰冩牳鍦烘
               </el-button>
             </div>
           </div>
 
-          <el-table v-loading="loadingSessions" :data="sessions" border>
+                    <el-table v-loading="loadingSessions" :data="sessions" border>
             <el-table-column prop="id" label="ID" width="80" />
             <el-table-column prop="displayName" label="场次名称" min-width="260" />
             <el-table-column prop="year" label="年度" width="100" />
+            <el-table-column label="状态" width="220">
+              <template #default="{ row }">
+                <div class="session-status-cell">
+                  <el-tag :type="sessionStatusTagType(row.status)" effect="light">
+                    {{ sessionStatusText(row.status) }}
+                  </el-tag>
+                  <el-select
+                    :model-value="row.status"
+                    size="small"
+                    class="session-status-select"
+                    :disabled="!canEdit || changingSessionStatusId === row.id"
+                    @change="(value) => onSessionStatusChange(row, value)"
+                  >
+                    <el-option
+                      v-for="option in sessionStatusOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="assessmentName" label="目录名" min-width="220" />
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="selectSession(row.id)">管理</el-button>
               </template>
@@ -26,15 +49,15 @@
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="周期配置" name="period">
+      <el-tab-pane label="鍛ㄦ湡閰嶇疆" name="period">
         <el-card>
           <div class="tool-row">
             <div class="header-actions">
-              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">鍒锋柊</el-button>
             </div>
           </div>
 
-          <el-empty v-if="!selectedDetail" description="请先在考核场次标签选择一个考核场次" />
+          <el-empty v-if="!selectedDetail" description="璇峰厛鍦ㄨ€冩牳鍦烘鏍囩閫夋嫨涓€涓€冩牳鍦烘" />
 
           <template v-else>
             <div class="section">
@@ -42,10 +65,10 @@
                 <div class="header-actions">
                   <el-button
                     type="primary"
-                    :disabled="!canEdit"
+                    :disabled="!canEditCurrentSession"
                     @click="addPeriod"
                   >
-                    新增周期
+                    鏂板鍛ㄦ湡
                   </el-button>
                 </div>
               </div>
@@ -62,42 +85,42 @@
                     </span>
                   </template>
                 </el-table-column>
-                <el-table-column label="编码" width="160">
+                <el-table-column label="缂栫爜" width="160">
                   <template #default="{ row }">
                     <el-input v-model="row.periodCode" @blur="onPeriodCodeBlur(row)" />
                   </template>
                 </el-table-column>
-                <el-table-column label="名称" min-width="180">
+                <el-table-column label="鍚嶇О" min-width="180">
                   <template #default="{ row }">
                     <el-input v-model="row.periodName" />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="100">
+                <el-table-column label="鎿嶄綔" width="100">
                   <template #default="{ $index }">
-                    <el-button link type="danger" :disabled="!canEdit" @click="removePeriod($index)">删除</el-button>
+                    <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removePeriod($index)">鍒犻櫎</el-button>
                   </template>
                 </el-table-column>
               </el-table>
               <div class="shared-rules-toggle">
                 <el-button size="small" type="primary" plain @click="sharedRulesExpanded = !sharedRulesExpanded">
-                  共用规则
+                  鍏辩敤瑙勫垯
                 </el-button>
               </div>
               <el-collapse-transition>
                 <div v-show="sharedRulesExpanded" class="binding-section">
                   <div class="section-head">
-                    <strong>共用规则分组</strong>
+                    <strong>鍏辩敤瑙勫垯鍒嗙粍</strong>
                     <el-button
                       type="primary"
-                      :disabled="!canEdit"
+                      :disabled="!canEditCurrentSession"
                       @click="addRuleBindingGroup"
                     >
-                      新增分组
+                      鏂板鍒嗙粍
                     </el-button>
                   </div>
                   <el-empty
                     v-if="ruleBindingGroups.length === 0"
-                    description="未配置分组时，每个周期使用独立规则"
+                    description="未配置分组时，每个周期使用独立规则。"
                   />
                   <div
                     v-for="(group, groupIndex) in ruleBindingGroups"
@@ -106,9 +129,9 @@
                     class="binding-group-row"
                   >
                     <div class="binding-group-head">
-                      <span>分组 {{ groupIndex + 1 }}</span>
-                      <el-button link type="danger" :disabled="!canEdit" @click="removeRuleBindingGroup(group.id)">
-                        删除分组
+                      <span>鍒嗙粍 {{ groupIndex + 1 }}</span>
+                      <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removeRuleBindingGroup(group.id)">
+                        鍒犻櫎鍒嗙粍
                       </el-button>
                     </div>
                     <el-checkbox-group v-model="group.periodCodes" @change="onRuleBindingGroupChange">
@@ -117,17 +140,17 @@
                       </el-checkbox>
                     </el-checkbox-group>
                   </div>
-                  <div class="period-hint">同组周期将共用规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
+                  <div class="period-hint">同组周期将共享规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
                 </div>
               </el-collapse-transition>
               <div class="section-foot">
                 <el-button
                   type="primary"
-                  :disabled="!canEdit || savingPeriods"
+                  :disabled="!canEditCurrentSession || savingPeriods"
                   :loading="savingPeriods"
                   @click="savePeriods"
                 >
-                  保存周期
+                  淇濆瓨鍛ㄦ湡
                 </el-button>
               </div>
             </div>
@@ -135,15 +158,15 @@
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="对象分组配置" name="groups">
+      <el-tab-pane label="瀵硅薄鍒嗙粍閰嶇疆" name="groups">
         <el-card>
           <div class="tool-row">
             <div class="header-actions">
-              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">鍒锋柊</el-button>
             </div>
           </div>
 
-          <el-empty v-if="!selectedDetail" description="请先在考核场次标签选择一个考核场次" />
+          <el-empty v-if="!selectedDetail" description="璇峰厛鍦ㄨ€冩牳鍦烘鏍囩閫夋嫨涓€涓€冩牳鍦烘" />
 
           <template v-else>
             <div class="section">
@@ -151,47 +174,47 @@
                 <div class="header-actions">
                   <el-button
                     type="primary"
-                    :disabled="!canEdit"
+                    :disabled="!canEditCurrentSession"
                     @click="addGroup"
                   >
-                    新增分组
+                    鏂板鍒嗙粍
                   </el-button>
                 </div>
               </div>
               <el-table :data="groupDrafts" border>
                 <el-table-column type="index" label="#" width="60" />
-                <el-table-column label="类型" width="120">
+                <el-table-column label="绫诲瀷" width="120">
                   <template #default="{ row }">
                     <el-select v-model="row.objectType">
-                      <el-option label="团体" value="team" />
-                      <el-option label="个人" value="individual" />
+                      <el-option label="鍥綋" value="team" />
+                      <el-option label="涓汉" value="individual" />
                     </el-select>
                   </template>
                 </el-table-column>
-                <el-table-column label="编码" width="180">
+                <el-table-column label="缂栫爜" width="180">
                   <template #default="{ row }">
                     <el-input v-model="row.groupCode" />
                   </template>
                 </el-table-column>
-                <el-table-column label="名称" min-width="180">
+                <el-table-column label="鍚嶇О" min-width="180">
                   <template #default="{ row }">
                     <el-input v-model="row.groupName" />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="100">
+                <el-table-column label="鎿嶄綔" width="100">
                   <template #default="{ $index }">
-                    <el-button link type="danger" :disabled="!canEdit" @click="removeGroup($index)">删除</el-button>
+                    <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removeGroup($index)">鍒犻櫎</el-button>
                   </template>
                 </el-table-column>
               </el-table>
               <div class="section-foot">
                 <el-button
                   type="primary"
-                  :disabled="!canEdit || savingGroups"
+                  :disabled="!canEditCurrentSession || savingGroups"
                   :loading="savingGroups"
                   @click="saveGroups"
                 >
-                  保存分组
+                  淇濆瓨鍒嗙粍
                 </el-button>
               </div>
             </div>
@@ -199,15 +222,15 @@
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="考核对象" name="objects">
+      <el-tab-pane label="鑰冩牳瀵硅薄" name="objects">
         <el-card>
           <div class="tool-row">
             <div class="header-actions">
-              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">鍒锋柊</el-button>
             </div>
           </div>
 
-          <el-empty v-if="!selectedDetail" description="请先在考核场次标签选择一个考核场次" />
+          <el-empty v-if="!selectedDetail" description="璇峰厛鍦ㄨ€冩牳鍦烘鏍囩閫夋嫨涓€涓€冩牳鍦烘" />
 
           <template v-else>
             <div class="section">
@@ -215,51 +238,50 @@
                 <div class="header-actions">
                   <el-button
                     type="primary"
-                    :disabled="!canEdit"
+                    :disabled="!canEditCurrentSession"
                     @click="openObjectDialog"
                   >
-                    新增对象
+                    鏂板瀵硅薄
                   </el-button>
                   <el-button
                     type="primary"
-                    :disabled="!canEdit || savingObjects"
+                    :disabled="!canEditCurrentSession || savingObjects"
                     :loading="savingObjects"
                     @click="saveObjects"
                   >
-                    保存对象
+                    淇濆瓨瀵硅薄
                   </el-button>
                   <el-button
-                    :disabled="!canEdit || resettingObjects"
+                    :disabled="!canEditCurrentSession || resettingObjects"
                     :loading="resettingObjects"
                     @click="resetObjects"
                   >
-                    重置为默认
-                  </el-button>
+                    閲嶇疆涓洪粯璁?                  </el-button>
                 </div>
               </div>
               <el-table v-loading="loadingObjects" :data="objectDrafts" border>
                 <el-table-column prop="id" label="ID" width="80" />
-                <el-table-column label="类型" width="100">
+                <el-table-column label="绫诲瀷" width="100">
                   <template #default="{ row }">
-                    {{ row.objectType === "team" ? "团体" : "个人" }}
+                    {{ row.objectType === "team" ? "鍥綋" : "涓汉" }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="groupCode" label="分组编码" width="180" />
-                <el-table-column label="分组名称" width="180">
+                <el-table-column prop="groupCode" label="鍒嗙粍缂栫爜" width="180" />
+                <el-table-column label="鍒嗙粍鍚嶇О" width="180">
                   <template #default="{ row }">
                     {{ groupNameByCode[row.groupCode] || row.groupCode }}
                   </template>
                 </el-table-column>
-                <el-table-column label="来源类型" width="140">
+                <el-table-column label="鏉ユ簮绫诲瀷" width="140">
                   <template #default="{ row }">
-                    {{ row.targetType === "department" ? "部门" : row.targetType === "organization" ? "组织" : "人员" }}
+                    {{ row.targetType === "department" ? "閮ㄩ棬" : row.targetType === "organization" ? "缁勭粐" : "浜哄憳" }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="objectName" label="对象名称" min-width="220" />
-                <el-table-column prop="targetId" label="来源ID" width="100" />
-                <el-table-column label="操作" width="100">
+                <el-table-column prop="objectName" label="瀵硅薄鍚嶇О" min-width="220" />
+                <el-table-column prop="targetId" label="鏉ユ簮ID" width="100" />
+                <el-table-column label="鎿嶄綔" width="100">
                   <template #default="{ $index }">
-                    <el-button link type="danger" :disabled="!canEdit" @click="removeObject($index)">删除</el-button>
+                    <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removeObject($index)">鍒犻櫎</el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -269,9 +291,9 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="createVisible" title="创建考核场次" width="620px">
+    <el-dialog v-model="createVisible" title="鍒涘缓鑰冩牳鍦烘" width="620px">
       <el-form label-width="110px">
-        <el-form-item label="组织" required>
+        <el-form-item label="缁勭粐" required>
           <el-select v-model="createForm.organizationId" filterable style="width: 100%">
             <el-option
               v-for="item in organizations"
@@ -281,27 +303,27 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="年度" required>
+        <el-form-item label="骞村害" required>
           <el-input-number v-model="createForm.year" :min="2000" :max="9999" />
         </el-form-item>
-        <el-form-item label="场次名称">
+        <el-form-item label="鍦烘鍚嶇О">
           <el-input
             v-model="createForm.displayName"
-            placeholder="默认：当前年份+组织名+考核"
+            placeholder="榛樿锛氬綋鍓嶅勾浠?缁勭粐鍚?鑰冩牳"
             @input="markCreateNameTouched"
           />
         </el-form-item>
-        <el-form-item label="说明">
+        <el-form-item label="璇存槑">
           <el-input v-model="createForm.description" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="createSession">创建</el-button>
+        <el-button @click="createVisible = false">鍙栨秷</el-button>
+        <el-button type="primary" :loading="creating" @click="createSession">鍒涘缓</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="objectDialogVisible" title="新增考核对象" width="780px">
+        <el-dialog v-model="objectDialogVisible" title="新增考核对象" width="780px">
       <el-form label-width="96px">
         <el-form-item label="筛选类型">
           <el-radio-group v-model="candidateFilter.targetType">
@@ -372,12 +394,14 @@ import {
   updateAssessmentObjectGroups,
   updateAssessmentObjects,
   updateAssessmentPeriods,
+  updateAssessmentSessionStatus,
 } from "@/api/assessment";
 import { listOrganizations } from "@/api/org";
 import type {
   AssessmentObjectCandidateItem,
   AssessmentObjectGroupItem,
   AssessmentSessionDetail,
+  AssessmentSessionStatus,
   AssessmentSessionObjectItem,
   AssessmentSessionPeriodItem,
 } from "@/types/assessment";
@@ -387,6 +411,10 @@ const appStore = useAppStore();
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
 const canEdit = computed(() => appStore.hasPermission("assessment:update"));
+const selectedSessionStatus = computed<AssessmentSessionStatus>(() =>
+  (selectedDetail.value?.session.status || "preparing") as AssessmentSessionStatus,
+);
+const canEditCurrentSession = computed(() => canEdit.value && selectedSessionStatus.value !== "completed");
 const periodDirtySourceId = "assessment:periods";
 const groupDirtySourceId = "assessment:groups";
 const objectDirtySourceId = "assessment:objects";
@@ -411,6 +439,7 @@ const savingPeriods = ref(false);
 const savingGroups = ref(false);
 const savingObjects = ref(false);
 const resettingObjects = ref(false);
+const changingSessionStatusId = ref<number | null>(null);
 
 const organizations = ref<OrganizationItem[]>([]);
 const createVisible = ref(false);
@@ -446,6 +475,35 @@ const sharedRuleTagPalette = [
   { bg: "#f0fafa", fg: "#14b8a6" },
   { bg: "#f4f4f5", fg: "#606266" },
 ];
+const sessionStatusOptions: Array<{ value: AssessmentSessionStatus; label: string }> = [
+  { value: "preparing", label: "准备中" },
+  { value: "active", label: "进行中" },
+  { value: "completed", label: "已完成" },
+];
+
+function sessionStatusText(status: string): string {
+  switch (status) {
+    case "active":
+      return "进行中";
+    case "completed":
+      return "已完成";
+    case "preparing":
+    default:
+      return "准备中";
+  }
+}
+
+function sessionStatusTagType(status: string): "info" | "success" | "warning" {
+  switch (status) {
+    case "active":
+      return "success";
+    case "completed":
+      return "info";
+    case "preparing":
+    default:
+      return "warning";
+  }
+}
 
 const groupNameByCode = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
@@ -572,7 +630,7 @@ function periodSharedGroupTitle(item: { periodCode: string }): string {
   if (groupIndex < 0) {
     return "";
   }
-  return `共用规则分组 ${groupIndex + 1}`;
+  return `鍏辩敤瑙勫垯鍒嗙粍 ${groupIndex + 1}`;
 }
 
 function periodDraftSignature(): string {
@@ -708,7 +766,7 @@ async function saveActiveTab(): Promise<void> {
 }
 
 function canTriggerSaveShortcut(): boolean {
-  if (!canEdit.value) {
+  if (!canEditCurrentSession.value) {
     return false;
   }
   if (activeTab.value === "period") {
@@ -731,13 +789,13 @@ function canTriggerCreateShortcut(): boolean {
     return !creating.value;
   }
   if (activeTab.value === "period") {
-    return Boolean(selectedDetail.value) && !loadingDetail.value;
+    return Boolean(selectedDetail.value) && canEditCurrentSession.value && !loadingDetail.value;
   }
   if (activeTab.value === "groups") {
-    return Boolean(selectedDetail.value) && !loadingDetail.value;
+    return Boolean(selectedDetail.value) && canEditCurrentSession.value && !loadingDetail.value;
   }
   if (activeTab.value === "objects") {
-    return Boolean(selectedDetail.value) && !loadingDetail.value && !loadingCandidates.value;
+    return Boolean(selectedDetail.value) && canEditCurrentSession.value && !loadingDetail.value && !loadingCandidates.value;
   }
   return false;
 }
@@ -806,12 +864,12 @@ async function removePeriod(index: number): Promise<void> {
   if (!period) {
     return;
   }
-  const periodLabel = period.periodName.trim() || period.periodCode.trim().toUpperCase() || `第${index + 1}个周期`;
+  const periodLabel = period.periodName.trim() || period.periodCode.trim().toUpperCase() || `第 ${index + 1} 个周期`;
   try {
     await ElMessageBox.confirm(`确认删除周期「${periodLabel}」吗？`, "删除确认", {
       type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
+      confirmButtonText: "鍒犻櫎",
+      cancelButtonText: "鍙栨秷",
     });
     periodDrafts.value.splice(index, 1);
     ensureRuleBindingGroupsIntegrity();
@@ -820,7 +878,7 @@ async function removePeriod(index: number): Promise<void> {
     if (isDialogCancel(error)) {
       return;
     }
-    ElMessage.error("删除周期失败");
+    ElMessage.error("鍒犻櫎鍛ㄦ湡澶辫触");
   }
 }
 
@@ -843,10 +901,10 @@ async function removeRuleBindingGroup(groupID: string): Promise<void> {
     return;
   }
   try {
-    await ElMessageBox.confirm(`确认删除分组 ${groupIndex + 1} 吗？`, "删除确认", {
+    await ElMessageBox.confirm(`纭鍒犻櫎鍒嗙粍 ${groupIndex + 1} 鍚楋紵`, "鍒犻櫎纭", {
       type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
+      confirmButtonText: "鍒犻櫎",
+      cancelButtonText: "鍙栨秷",
     });
     ruleBindingGroups.value = ruleBindingGroups.value.filter((item) => item.id !== groupID);
     ensureRuleBindingGroupsIntegrity();
@@ -855,7 +913,7 @@ async function removeRuleBindingGroup(groupID: string): Promise<void> {
     if (isDialogCancel(error)) {
       return;
     }
-    ElMessage.error("删除分组失败");
+    ElMessage.error("鍒犻櫎鍒嗙粍澶辫触");
   }
 }
 
@@ -999,19 +1057,19 @@ async function removeGroup(index: number): Promise<void> {
   if (!group) {
     return;
   }
-  const groupLabel = group.groupName.trim() || group.groupCode.trim() || `第${index + 1}个分组`;
+  const groupLabel = group.groupName.trim() || group.groupCode.trim() || `第 ${index + 1} 个分组`;
   try {
     await ElMessageBox.confirm(`确认删除对象分组「${groupLabel}」吗？`, "删除确认", {
       type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
+      confirmButtonText: "鍒犻櫎",
+      cancelButtonText: "鍙栨秷",
     });
     groupDrafts.value.splice(index, 1);
   } catch (error) {
     if (isDialogCancel(error)) {
       return;
     }
-    ElMessage.error("删除对象分组失败");
+    ElMessage.error("鍒犻櫎瀵硅薄鍒嗙粍澶辫触");
   }
 }
 
@@ -1021,11 +1079,11 @@ function candidateKey(item: Pick<AssessmentObjectCandidateItem, "targetType" | "
 
 function buildDefaultDisplayName(year: number, organizationId?: number): string {
   if (!organizationId) {
-    return `${year}年考核`;
+    return `${year}骞磋€冩牳`;
   }
   const organization = organizations.value.find((item) => item.id === organizationId);
   if (!organization) {
-    return `${year}年考核`;
+    return `${year}骞磋€冩牳`;
   }
   return `${year}年${organization.orgName}考核`;
 }
@@ -1069,7 +1127,7 @@ async function loadSessions(): Promise<void> {
       await selectSession(sessions.value[0].id);
     }
   } catch (_error) {
-    ElMessage.error("加载考核场次失败");
+    ElMessage.error("鍔犺浇鑰冩牳鍦烘澶辫触");
   } finally {
     loadingSessions.value = false;
   }
@@ -1113,7 +1171,7 @@ async function selectSession(sessionId: number): Promise<void> {
     resetGroupBaseline();
     resetObjectBaseline();
   } catch (_error) {
-    ElMessage.error("加载场次详情失败");
+    ElMessage.error("鍔犺浇鍦烘璇︽儏澶辫触");
   } finally {
     loadingDetail.value = false;
   }
@@ -1137,7 +1195,7 @@ function openCreateDialog(): void {
 
 async function createSession(): Promise<void> {
   if (!createForm.organizationId) {
-    ElMessage.warning("请选择组织");
+    ElMessage.warning("璇烽€夋嫨缁勭粐");
     return;
   }
   creating.value = true;
@@ -1148,13 +1206,13 @@ async function createSession(): Promise<void> {
       displayName: createForm.displayName.trim() || undefined,
       description: createForm.description.trim() || undefined,
     });
-    ElMessage.success("考核场次创建成功");
+    ElMessage.success("鑰冩牳鍦烘鍒涘缓鎴愬姛");
     createVisible.value = false;
     await contextStore.refreshSessions();
     await loadSessions();
     await selectSession(detail.session.id);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "创建考核场次失败";
+    const message = error instanceof Error ? error.message : "鍒涘缓鑰冩牳鍦烘澶辫触";
     ElMessage.error(message);
   } finally {
     creating.value = false;
@@ -1162,6 +1220,9 @@ async function createSession(): Promise<void> {
 }
 
 async function savePeriods(): Promise<boolean> {
+  if (!canEditCurrentSession.value) {
+    return false;
+  }
   if (!selectedSessionId.value) {
     return false;
   }
@@ -1209,7 +1270,7 @@ async function savePeriods(): Promise<boolean> {
     await reloadCurrent();
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "保存周期失败";
+    const message = error instanceof Error ? error.message : "淇濆瓨鍛ㄦ湡澶辫触";
     ElMessage.error(message);
     return false;
   } finally {
@@ -1217,7 +1278,65 @@ async function savePeriods(): Promise<boolean> {
   }
 }
 
+async function onSessionStatusChange(
+  row: AssessmentSessionDetail["session"],
+  nextStatusRaw: string,
+): Promise<void> {
+  if (!canEdit.value) {
+    return;
+  }
+  const nextStatus = String(nextStatusRaw || "").trim() as AssessmentSessionStatus;
+  if (!row?.id || !nextStatus || row.status === nextStatus) {
+    return;
+  }
+  if (!sessionStatusOptions.some((item) => item.value === nextStatus)) {
+    ElMessage.warning("无效的场次状态");
+    return;
+  }
+
+  if (nextStatus === "completed") {
+    try {
+      await ElMessageBox.confirm(
+        "切换到“已完成”后，将创建该场次唯一数据快照，并锁定场次数据与规则（包括 Root 在内均不可修改）。确认继续？",
+        "完成确认",
+        {
+          type: "warning",
+          confirmButtonText: "确认完成",
+          cancelButtonText: "取消",
+        },
+      );
+    } catch (error) {
+      if (isDialogCancel(error)) {
+        return;
+      }
+      ElMessage.error("状态切换已取消");
+      return;
+    }
+  }
+
+  changingSessionStatusId.value = row.id;
+  try {
+    await updateAssessmentSessionStatus(row.id, { status: nextStatus });
+    ElMessage.success(`场次状态已更新为「${sessionStatusText(nextStatus)}」`);
+
+    const shouldRefreshDetail = selectedSessionId.value === row.id;
+    await contextStore.refreshSessions();
+    await loadSessions();
+    if (shouldRefreshDetail) {
+      await selectSession(row.id);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "更新场次状态失败";
+    ElMessage.error(message);
+  } finally {
+    changingSessionStatusId.value = null;
+  }
+}
+
 async function saveGroups(): Promise<boolean> {
+  if (!canEditCurrentSession.value) {
+    return false;
+  }
   if (!selectedSessionId.value) {
     return false;
   }
@@ -1239,7 +1358,7 @@ async function saveGroups(): Promise<boolean> {
     await reloadCurrent();
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "保存对象分组失败";
+    const message = error instanceof Error ? error.message : "淇濆瓨瀵硅薄鍒嗙粍澶辫触";
     ElMessage.error(message);
     return false;
   } finally {
@@ -1255,19 +1374,22 @@ async function removeObject(index: number): Promise<void> {
   try {
     await ElMessageBox.confirm(`确认删除对象「${object.objectName}」吗？`, "删除确认", {
       type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
+      confirmButtonText: "鍒犻櫎",
+      cancelButtonText: "鍙栨秷",
     });
     objectDrafts.value.splice(index, 1);
   } catch (error) {
     if (isDialogCancel(error)) {
       return;
     }
-    ElMessage.error("删除对象失败");
+    ElMessage.error("鍒犻櫎瀵硅薄澶辫触");
   }
 }
 
 async function saveObjects(): Promise<boolean> {
+  if (!canEditCurrentSession.value) {
+    return false;
+  }
   if (!selectedSessionId.value) {
     return false;
   }
@@ -1287,7 +1409,7 @@ async function saveObjects(): Promise<boolean> {
     ElMessage.success("考核对象已保存");
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "保存考核对象失败";
+    const message = error instanceof Error ? error.message : "淇濆瓨鑰冩牳瀵硅薄澶辫触";
     ElMessage.error(message);
     return false;
   } finally {
@@ -1319,8 +1441,11 @@ function syncDialogGroupCode(): void {
 }
 
 async function openObjectDialog(): Promise<void> {
+  if (!canEditCurrentSession.value) {
+    return;
+  }
   if (!selectedSessionId.value) {
-    ElMessage.warning("请先选择考核场次");
+    ElMessage.warning("璇峰厛閫夋嫨鑰冩牳鍦烘");
     return;
   }
   loadingCandidates.value = true;
@@ -1345,7 +1470,7 @@ function appendObjectFromCandidate(): void {
     return;
   }
   if (!objectDialog.groupCode) {
-    ElMessage.warning("请选择对象分组");
+    ElMessage.warning("璇烽€夋嫨瀵硅薄鍒嗙粍");
     return;
   }
   const key = candidateKey(selectedCandidate.value);
@@ -1370,6 +1495,9 @@ function appendObjectFromCandidate(): void {
 }
 
 async function resetObjects(): Promise<void> {
+  if (!canEditCurrentSession.value) {
+    return;
+  }
   if (!selectedSessionId.value) {
     return;
   }
@@ -1378,9 +1506,9 @@ async function resetObjects(): Promise<void> {
     objects.value = await resetAssessmentSessionObjects(selectedSessionId.value);
     objectDrafts.value = objects.value.map((item) => ({ ...item }));
     resetObjectBaseline();
-    ElMessage.success("已重置为默认对象");
+    ElMessage.success("宸查噸缃负榛樿瀵硅薄");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "重置对象失败";
+    const message = error instanceof Error ? error.message : "閲嶇疆瀵硅薄澶辫触";
     ElMessage.error(message);
   } finally {
     resettingObjects.value = false;
@@ -1431,15 +1559,15 @@ watch(
 onMounted(async () => {
   window.addEventListener("keydown", handleAssessmentViewKeydown);
   unsavedStore.setSourceMeta(periodDirtySourceId, {
-    label: "考核管理-周期配置",
+    label: "鑰冩牳绠＄悊-鍛ㄦ湡閰嶇疆",
     save: savePeriods,
   });
   unsavedStore.setSourceMeta(groupDirtySourceId, {
-    label: "考核管理-对象分组",
+    label: "鑰冩牳绠＄悊-瀵硅薄鍒嗙粍",
     save: saveGroups,
   });
   unsavedStore.setSourceMeta(objectDirtySourceId, {
-    label: "考核管理-考核对象",
+    label: "鑰冩牳绠＄悊-鑰冩牳瀵硅薄",
     save: saveObjects,
   });
 
@@ -1536,4 +1664,16 @@ onBeforeUnmount(() => {
 .period-index-tag.is-shared {
   font-weight: 600;
 }
+
+.session-status-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-status-select {
+  width: 120px;
+}
 </style>
+
+

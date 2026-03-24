@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -82,6 +83,10 @@ type UpdateAssessmentSessionInput struct {
 	Description string
 }
 
+type UpdateAssessmentSessionStatusInput struct {
+	Status string
+}
+
 func NewAssessmentSessionService(db *gorm.DB, auditRepo *repository.AuditRepository) *AssessmentSessionService {
 	return &AssessmentSessionService{db: db, auditRepo: auditRepo}
 }
@@ -103,6 +108,9 @@ func (s *AssessmentSessionService) ListSessions(ctx context.Context, claims *aut
 	items := make([]AssessmentSessionSummary, 0, 16)
 	if err := query.Order("a.created_at DESC, a.id DESC").Scan(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to list assessment sessions: %w", err)
+	}
+	for index := range items {
+		items[index].Status = assessmentSessionStatusOrDefault(items[index].Status)
 	}
 	return items, nil
 }
@@ -184,6 +192,7 @@ func (s *AssessmentSessionService) CreateSession(
 			DisplayName:    displayName,
 			Year:           input.Year,
 			OrganizationID: input.OrganizationID,
+			Status:         AssessmentSessionStatusPreparing,
 			Description:    strings.TrimSpace(input.Description),
 			DataDir:        dataDir,
 			CreatedBy:      operatorRef,
@@ -234,9 +243,6 @@ func (s *AssessmentSessionService) CreateSession(
 	}); err != nil {
 		return nil, err
 	}
-	if err := persistSessionDefaultObjectSnapshot(ctx, createdSummary); err != nil {
-		return nil, err
-	}
 	if err := syncSessionBusinessDataFile(ctx, createdSummary); err != nil {
 		return nil, err
 	}
@@ -261,6 +267,9 @@ func (s *AssessmentSessionService) UpdateSession(
 		return nil, err
 	}
 	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureSessionWritable(summary); err != nil {
 		return nil, err
 	}
 
@@ -293,6 +302,89 @@ func (s *AssessmentSessionService) UpdateSession(
 	return s.GetSession(ctx, claims, sessionID)
 }
 
+func (s *AssessmentSessionService) UpdateSessionStatus(
+	ctx context.Context,
+	claims *auth.Claims,
+	operatorID uint,
+	sessionID uint,
+	input UpdateAssessmentSessionStatusInput,
+	ipAddress string,
+	userAgent string,
+) (*AssessmentSessionDetail, error) {
+	if sessionID == 0 {
+		return nil, ErrInvalidParam
+	}
+	targetStatus := normalizeAssessmentSessionStatus(input.Status)
+	if targetStatus == "" {
+		return nil, ErrInvalidSessionStatus
+	}
+
+	summary, err := s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	currentStatus := assessmentSessionStatusOrDefault(summary.Status)
+	if currentStatus == targetStatus {
+		return s.GetSession(ctx, claims, sessionID)
+	}
+
+	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
+
+	updates := map[string]any{
+		"status":     targetStatus,
+		"updated_at": time.Now().Unix(),
+		"updated_by": operatorRef,
+	}
+
+	createdSnapshotPath := ""
+	var createdSnapshotAt int64
+	if targetStatus == AssessmentSessionStatusCompleted {
+		createdSnapshotPath, createdSnapshotAt, err = s.ensureCompletedSnapshot(summary)
+		if err != nil {
+			return nil, err
+		}
+		updates["completed_snapshot_path"] = createdSnapshotPath
+		updates["completed_snapshot_created_at"] = createdSnapshotAt
+	}
+
+	if err := s.db.WithContext(ctx).Model(&model.AssessmentSession{}).Where("id = ?", sessionID).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("failed to update assessment session status: %w", err)
+	}
+
+	summary, err = s.loadSessionSummary(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if targetStatus == AssessmentSessionStatusActive {
+		if err := persistSessionDefaultObjectSnapshot(ctx, summary); err != nil {
+			return nil, err
+		}
+	}
+
+	targetID := sessionID
+	auditDetail := map[string]any{
+		"event":      "update_assessment_session_status",
+		"fromStatus": currentStatus,
+		"toStatus":   targetStatus,
+	}
+	if createdSnapshotPath != "" {
+		auditDetail["completedSnapshotPath"] = createdSnapshotPath
+	}
+	if createdSnapshotAt > 0 {
+		auditDetail["completedSnapshotCreatedAt"] = createdSnapshotAt
+	}
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_sessions", &targetID, auditDetail, ipAddress, userAgent))
+
+	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
+		return nil, err
+	}
+	return s.GetSession(ctx, claims, sessionID)
+}
+
 func (s *AssessmentSessionService) ReplacePeriods(
 	ctx context.Context,
 	claims *auth.Claims,
@@ -311,6 +403,9 @@ func (s *AssessmentSessionService) ReplacePeriods(
 		return nil, err
 	}
 	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureSessionWritable(summary); err != nil {
 		return nil, err
 	}
 
@@ -391,6 +486,9 @@ func (s *AssessmentSessionService) ReplaceObjectGroups(
 		return nil, err
 	}
 	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureSessionWritable(summary); err != nil {
 		return nil, err
 	}
 
@@ -530,6 +628,9 @@ func (s *AssessmentSessionService) ReplaceObjects(
 		return nil, err
 	}
 	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureSessionWritable(summary); err != nil {
 		return nil, err
 	}
 
@@ -680,18 +781,26 @@ func (s *AssessmentSessionService) ResetObjectsToDefault(
 	if err := ensureAssessmentOrganizationScope(claims, summary.OrganizationID); err != nil {
 		return nil, err
 	}
+	if err := s.ensureSessionWritable(summary); err != nil {
+		return nil, err
+	}
 
 	operatorRef := resolveBusinessWriteOperatorRef(s.db.WithContext(ctx), operatorID)
-	snapshotItems, hasSnapshot, err := loadSessionDefaultObjectSnapshot(summary)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load default object snapshot: %w", err)
+	useSnapshot := useAssessmentObjectSnapshotMode(summary.Status)
+	snapshotItems := make([]sessionDefaultObjectSnapshotItem, 0, 128)
+	hasSnapshot := false
+	if useSnapshot {
+		snapshotItems, hasSnapshot, err = loadSessionDefaultObjectSnapshot(summary)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load default object snapshot: %w", err)
+		}
 	}
 	if err := withSessionBusinessDB(ctx, summary, func(sessionDB *gorm.DB) error {
 		return sessionDB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Where("assessment_id = ?", sessionID).Delete(&model.AssessmentSessionObject{}).Error; err != nil {
 				return fmt.Errorf("failed to clear session objects: %w", err)
 			}
-			if hasSnapshot {
+			if useSnapshot && hasSnapshot {
 				return restoreSessionObjectsFromSnapshotTx(tx, sessionID, snapshotItems, operatorRef)
 			}
 			_, restoreErr := s.generateDefaultObjectsTx(s.db.WithContext(ctx), tx, sessionID, summary.OrganizationID, operatorRef)
@@ -705,9 +814,9 @@ func (s *AssessmentSessionService) ResetObjectsToDefault(
 	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "update", "assessment_sessions", &targetID, map[string]any{
 		"event": "reset_assessment_objects_default",
 	}, ipAddress, userAgent))
-	if !hasSnapshot {
-		if persistErr := persistSessionDefaultObjectSnapshot(ctx, summary); persistErr != nil {
-			return nil, persistErr
+	if useSnapshot && !hasSnapshot {
+		if err := persistSessionDefaultObjectSnapshot(ctx, summary); err != nil {
+			return nil, err
 		}
 	}
 	if err := syncSessionBusinessDataFile(ctx, summary); err != nil {
@@ -729,7 +838,64 @@ func (s *AssessmentSessionService) loadSessionSummary(ctx context.Context, sessi
 		}
 		return nil, fmt.Errorf("failed to query assessment session: %w", err)
 	}
+	item.Status = assessmentSessionStatusOrDefault(item.Status)
 	return item, nil
+}
+
+func (s *AssessmentSessionService) ensureSessionWritable(summary *AssessmentSessionSummary) error {
+	if summary == nil {
+		return ErrInvalidParam
+	}
+	if isAssessmentSessionReadOnly(summary.Status) {
+		return ErrAssessmentReadOnly
+	}
+	return nil
+}
+
+func (s *AssessmentSessionService) ensureCompletedSnapshot(summary *AssessmentSessionSummary) (string, int64, error) {
+	if summary == nil {
+		return "", 0, ErrInvalidParam
+	}
+
+	sessionDir := resolveSessionDataDir(summary.DataDir, summary.AssessmentName)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		return "", 0, fmt.Errorf("failed to ensure assessment session directory: %w", err)
+	}
+
+	existing := strings.TrimSpace(summary.CompletedSnapshotPath)
+	if existing != "" {
+		normalizedExisting := existing
+		if !filepath.IsAbs(normalizedExisting) {
+			normalizedExisting = filepath.Clean(filepath.Join(sessionDir, normalizedExisting))
+		}
+		if stat, err := os.Stat(normalizedExisting); err == nil && !stat.IsDir() {
+			createdAt := time.Now().Unix()
+			if summary.CompletedSnapshotCreatedAt != nil && *summary.CompletedSnapshotCreatedAt > 0 {
+				createdAt = *summary.CompletedSnapshotCreatedAt
+			}
+			return normalizedExisting, createdAt, nil
+		}
+	}
+
+	// Make sure session business DB exists before taking snapshot.
+	if err := withSessionBusinessDB(context.Background(), summary, func(_ *gorm.DB) error { return nil }); err != nil {
+		return "", 0, err
+	}
+
+	sourcePath := filepath.Join(sessionDir, sessionBusinessSQLiteFileName)
+	if _, err := os.Stat(sourcePath); err != nil {
+		return "", 0, fmt.Errorf("failed to locate session business db for snapshot: %w", err)
+	}
+
+	snapshotDir := filepath.Join(sessionDir, "snapshots")
+	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
+		return "", 0, fmt.Errorf("failed to ensure completed snapshot directory: %w", err)
+	}
+	snapshotPath := filepath.Join(snapshotDir, fmt.Sprintf("completed_snapshot_%d.db", summary.ID))
+	if err := copyFileWithReplace(sourcePath, snapshotPath); err != nil {
+		return "", 0, fmt.Errorf("failed to create completed snapshot: %w", err)
+	}
+	return snapshotPath, time.Now().Unix(), nil
 }
 
 func (s *AssessmentSessionService) listPeriods(ctx context.Context, sessionID uint) ([]model.AssessmentSessionPeriod, error) {
@@ -1385,4 +1551,43 @@ func ensureRuleFilePath(assessmentName string, fileName string) (string, error) 
 func buildRuleFileName(ruleName string) string {
 	_ = ruleName
 	return "rule.json"
+}
+
+func copyFileWithReplace(sourcePath string, targetPath string) error {
+	src, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }()
+
+	targetDir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+
+	tempPath := targetPath + ".tmp"
+	dst, err := os.Create(tempPath)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := dst.Sync(); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return nil
 }

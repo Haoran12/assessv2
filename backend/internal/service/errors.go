@@ -52,6 +52,7 @@ var (
 	ErrYearAlreadyExists     = errors.New("assessment year already exists")
 	ErrInvalidYearTransition = errors.New("invalid year status transition")
 	ErrYearAlreadyEnded      = errors.New("assessment year already ended")
+	ErrInvalidSessionStatus  = errors.New("invalid assessment session status")
 	ErrAssessmentReadOnly    = errors.New("assessment data is read-only in completed status")
 	ErrAssessmentNotActive   = errors.New("assessment year is not active")
 

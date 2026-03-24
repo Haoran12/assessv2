@@ -87,7 +87,7 @@ func (s *RuleManagementService) GetRuleExpressionContext(
 	}
 
 	moduleKeys := make([]string, 0, 8)
-	record, err := s.ensureSessionRuleFile(ctx, session, nil)
+	record, err := s.ensureSessionRuleFile(ctx, session, nil, !isAssessmentSessionReadOnly(session.Status))
 	if err == nil {
 		if parsed, parseErr := parseCalculationRuleContent(record.ContentJSON); parseErr == nil {
 			scoped := matchScopedRule(parsed, normalizedPeriod, normalizedGroup)

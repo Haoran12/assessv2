@@ -31,6 +31,10 @@ type updateAssessmentSessionRequest struct {
 	Description string `json:"description"`
 }
 
+type updateAssessmentSessionStatusRequest struct {
+	Status string `json:"status"`
+}
+
 type updatePeriodsRequest struct {
 	Items []service.SessionPeriodItem `json:"items"`
 }
@@ -149,6 +153,44 @@ func (h *AssessmentHandler) UpdateSession(c *gin.Context) {
 	)
 	if err != nil {
 		h.handleAssessmentError(c, err, "failed to update assessment session")
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *AssessmentHandler) UpdateSessionStatus(c *gin.Context) {
+	operatorID, ok := operatorFromClaims(c)
+	if !ok {
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
+		return
+	}
+	sessionID, err := parseUserIDParam(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid assessment id")
+		return
+	}
+	var req updateAssessmentSessionStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidPayload, "invalid assessment status payload")
+		return
+	}
+	result, err := h.service.UpdateSessionStatus(
+		c.Request.Context(),
+		claims,
+		operatorID,
+		sessionID,
+		service.UpdateAssessmentSessionStatusInput{
+			Status: strings.TrimSpace(req.Status),
+		},
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		h.handleAssessmentError(c, err, "failed to update assessment session status")
 		return
 	}
 	response.Success(c, result)
@@ -400,10 +442,13 @@ func (h *AssessmentHandler) ResetObjects(c *gin.Context) {
 func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, service.ErrInvalidParam),
+		errors.Is(err, service.ErrInvalidSessionStatus),
 		errors.Is(err, service.ErrInvalidPeriodTemplate),
 		errors.Is(err, service.ErrInvalidRuleObjectType),
 		errors.Is(err, service.ErrInvalidRuleObjectCategory):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, err.Error())
+	case errors.Is(err, service.ErrAssessmentReadOnly):
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
 	case errors.Is(err, service.ErrCalcDependencyCycle),
 		errors.Is(err, service.ErrCalcExpressionEval):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())

@@ -96,6 +96,7 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		assessment.POST("/sessions", middleware.RequirePermission("assessment:update"), assessmentHandler.CreateSession)
 		assessment.GET("/sessions/:id", middleware.RequirePermission("assessment:view"), assessmentHandler.GetSession)
 		assessment.PUT("/sessions/:id", middleware.RequirePermission("assessment:update"), assessmentHandler.UpdateSession)
+		assessment.PUT("/sessions/:id/status", middleware.RequirePermission("assessment:update"), assessmentHandler.UpdateSessionStatus)
 		assessment.PUT("/sessions/:id/periods", middleware.RequirePermission("assessment:update"), assessmentHandler.ReplacePeriods)
 		assessment.PUT("/sessions/:id/object-groups", middleware.RequirePermission("assessment:update"), assessmentHandler.ReplaceObjectGroups)
 		assessment.GET("/sessions/:id/object-candidates", middleware.RequirePermission("assessment:view"), assessmentHandler.ListObjectCandidates)
