@@ -329,6 +329,9 @@ func (s *OrgService) DeleteOrganization(ctx context.Context, claims *auth.Claims
 	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
 		return err
 	}
+	if !isRootClaims(claims) {
+		return ErrForbidden
+	}
 	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
 	if err != nil {
 		return err
@@ -521,6 +524,9 @@ func (s *OrgService) UpdateDepartment(ctx context.Context, claims *auth.Claims, 
 func (s *OrgService) DeleteDepartment(ctx context.Context, claims *auth.Claims, operatorID, departmentID uint, ipAddress string, userAgent string) error {
 	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
 		return err
+	}
+	if !isRootClaims(claims) {
+		return ErrForbidden
 	}
 	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
 	if err != nil {
@@ -939,6 +945,9 @@ func (s *OrgService) UpdateEmployee(ctx context.Context, claims *auth.Claims, op
 func (s *OrgService) DeleteEmployee(ctx context.Context, claims *auth.Claims, operatorID, employeeID uint, ipAddress string, userAgent string) error {
 	if err := ensureLatestAssessmentConfigWritableTx(s.db.WithContext(ctx)); err != nil {
 		return err
+	}
+	if !isRootClaims(claims) {
+		return ErrForbidden
 	}
 	writeScope, err := requireOrgWriteScope(ctx, s.db, claims)
 	if err != nil {
