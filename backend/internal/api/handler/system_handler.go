@@ -38,13 +38,21 @@ type updateUserGroupsRequest struct {
 	PrimaryRoleID uint   `json:"primaryRoleId"`
 }
 
+type upsertUserOrganizationRequest struct {
+	OrganizationType string `json:"organizationType"`
+	OrganizationID   uint   `json:"organizationId"`
+	RoleInOrg        string `json:"roleInOrg"`
+	IsPrimary        bool   `json:"isPrimary"`
+}
+
 type upsertUserRequest struct {
-	Username           string `json:"username"`
-	Password           string `json:"password"`
-	Status             string `json:"status"`
-	MustChangePassword *bool  `json:"mustChangePassword"`
-	RoleIDs            []uint `json:"roleIds"`
-	PrimaryRoleID      uint   `json:"primaryRoleId"`
+	Username           string                          `json:"username"`
+	Password           string                          `json:"password"`
+	Status             string                          `json:"status"`
+	MustChangePassword *bool                           `json:"mustChangePassword"`
+	RoleIDs            []uint                          `json:"roleIds"`
+	PrimaryRoleID      uint                            `json:"primaryRoleId"`
+	Organizations      []upsertUserOrganizationRequest `json:"organizations"`
 }
 
 func NewSystemHandler(
@@ -120,6 +128,7 @@ func (h *SystemHandler) CreateUser(c *gin.Context) {
 			MustChangePassword: req.MustChangePassword,
 			RoleIDs:            req.RoleIDs,
 			PrimaryRoleID:      req.PrimaryRoleID,
+			OrganizationScopes: mapUpsertUserOrganizations(req.Organizations),
 		},
 		c.ClientIP(),
 		c.GetHeader("User-Agent"),
@@ -170,6 +179,8 @@ func (h *SystemHandler) UpdateUser(c *gin.Context) {
 			MustChangePassword: req.MustChangePassword,
 			RoleIDs:            req.RoleIDs,
 			PrimaryRoleID:      req.PrimaryRoleID,
+			OrganizationScopes: mapUpsertUserOrganizations(req.Organizations),
+			ScopesProvided:     req.Organizations != nil,
 		},
 		c.ClientIP(),
 		c.GetHeader("User-Agent"),
@@ -486,4 +497,17 @@ func parseUserIDParam(c *gin.Context) (uint, error) {
 		return 0, err
 	}
 	return uint(parsed), nil
+}
+
+func mapUpsertUserOrganizations(raw []upsertUserOrganizationRequest) []service.OrganizationScopeInput {
+	items := make([]service.OrganizationScopeInput, 0, len(raw))
+	for _, item := range raw {
+		items = append(items, service.OrganizationScopeInput{
+			OrganizationType: strings.TrimSpace(item.OrganizationType),
+			OrganizationID:   item.OrganizationID,
+			RoleInOrg:        strings.TrimSpace(item.RoleInOrg),
+			IsPrimary:        item.IsPrimary,
+		})
+	}
+	return items
 }

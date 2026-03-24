@@ -298,6 +298,13 @@ func TestM1RootUserCRUD(t *testing.T) {
 		"mustChangePassword": true,
 		"roleIds":            []uint{staffRole.ID},
 		"primaryRoleId":      staffRole.ID,
+		"organizations": []map[string]any{
+			{
+				"organizationType": "company",
+				"organizationId":   7,
+				"isPrimary":        true,
+			},
+		},
 	})
 	createReq := httptest.NewRequest(http.MethodPost, "/api/system/users", bytes.NewReader(createBody))
 	createReq.Header.Set("Authorization", "Bearer "+rootToken)
@@ -313,15 +320,23 @@ func TestM1RootUserCRUD(t *testing.T) {
 		t.Fatalf("failed to parse create user response: %v", err)
 	}
 	var createdUser struct {
-		ID       uint   `json:"id"`
-		Username string `json:"username"`
-		Status   string `json:"status"`
+		ID            uint   `json:"id"`
+		Username      string `json:"username"`
+		Status        string `json:"status"`
+		Organizations []struct {
+			OrganizationType string `json:"organizationType"`
+			OrganizationID   uint   `json:"organizationId"`
+			IsPrimary        bool   `json:"isPrimary"`
+		} `json:"organizations"`
 	}
 	if err := json.Unmarshal(createEnvelope.Data, &createdUser); err != nil {
 		t.Fatalf("failed to parse create user payload: %v", err)
 	}
 	if createdUser.ID == 0 || createdUser.Username != "ops_user" || createdUser.Status != "active" {
 		t.Fatalf("unexpected created user: %+v", createdUser)
+	}
+	if len(createdUser.Organizations) != 1 || createdUser.Organizations[0].OrganizationID != 7 {
+		t.Fatalf("expected created user organizations to include id=7, got=%+v", createdUser.Organizations)
 	}
 
 	updateBody, _ := json.Marshal(map[string]any{
@@ -330,6 +345,13 @@ func TestM1RootUserCRUD(t *testing.T) {
 		"mustChangePassword": false,
 		"roleIds":            []uint{staffRole.ID},
 		"primaryRoleId":      staffRole.ID,
+		"organizations": []map[string]any{
+			{
+				"organizationType": "company",
+				"organizationId":   8,
+				"isPrimary":        true,
+			},
+		},
 	})
 	updateReq := httptest.NewRequest(
 		http.MethodPut,

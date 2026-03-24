@@ -25,6 +25,7 @@ type UserService struct {
 	userRepo        *repository.UserRepository
 	roleRepo        *repository.RoleRepository
 	userRoleRepo    *repository.UserRoleRepository
+	userOrgRepo     *repository.UserOrganizationRepository
 	auditRepo       *repository.AuditRepository
 	defaultPassword string
 }
@@ -86,6 +87,13 @@ type UpdateUserGroupsInput struct {
 	PrimaryRoleID uint
 }
 
+type OrganizationScopeInput struct {
+	OrganizationType string
+	OrganizationID   uint
+	RoleInOrg        string
+	IsPrimary        bool
+}
+
 type CreateUserInput struct {
 	Username           string
 	Password           string
@@ -93,6 +101,7 @@ type CreateUserInput struct {
 	MustChangePassword *bool
 	RoleIDs            []uint
 	PrimaryRoleID      uint
+	OrganizationScopes []OrganizationScopeInput
 }
 
 type UpdateUserInput struct {
@@ -102,12 +111,15 @@ type UpdateUserInput struct {
 	MustChangePassword *bool
 	RoleIDs            []uint
 	PrimaryRoleID      uint
+	OrganizationScopes []OrganizationScopeInput
+	ScopesProvided     bool
 }
 
 func NewUserService(
 	userRepo *repository.UserRepository,
 	roleRepo *repository.RoleRepository,
 	userRoleRepo *repository.UserRoleRepository,
+	userOrgRepo *repository.UserOrganizationRepository,
 	auditRepo *repository.AuditRepository,
 	defaultPassword string,
 ) *UserService {
@@ -115,6 +127,7 @@ func NewUserService(
 		userRepo:        userRepo,
 		roleRepo:        roleRepo,
 		userRoleRepo:    userRoleRepo,
+		userOrgRepo:     userOrgRepo,
 		auditRepo:       auditRepo,
 		defaultPassword: defaultPassword,
 	}
@@ -211,6 +224,7 @@ func (s *UserService) CreateUser(
 		mustChangePassword = *input.MustChangePassword
 	}
 	primaryRoleID := resolvePrimaryRoleID(input.PrimaryRoleID, roleIDs)
+	orgAssignments := normalizeOrganizationAssignments(input.OrganizationScopes)
 
 	var createdUserID uint
 	if err := s.userRepo.WithTransaction(ctx, func(tx *gorm.DB) error {
@@ -226,6 +240,9 @@ func (s *UserService) CreateUser(
 
 		operator := operatorID
 		if err := s.userRoleRepo.ReplaceForUserWithTx(tx, record.ID, roleIDs, primaryRoleID, &operator); err != nil {
+			return err
+		}
+		if err := s.userOrgRepo.ReplaceForUserWithTx(tx, record.ID, orgAssignments, &operator); err != nil {
 			return err
 		}
 
@@ -256,6 +273,7 @@ func (s *UserService) CreateUser(
 			"input_role_ids":       roleIDs,
 			"input_primary_role":   primaryRoleID,
 			"must_change_password": mustChangePassword,
+			"input_organizations":  orgAssignments,
 		}),
 		ipAddress,
 		userAgent,
@@ -330,6 +348,7 @@ func (s *UserService) UpdateUser(
 	}
 
 	primaryRoleID := resolvePrimaryRoleID(input.PrimaryRoleID, roleIDs)
+	orgAssignments := normalizeOrganizationAssignments(input.OrganizationScopes)
 
 	password := strings.TrimSpace(input.Password)
 	mustChangePassword := existing.MustChangePassword
@@ -362,6 +381,11 @@ func (s *UserService) UpdateUser(
 		if err := s.userRoleRepo.ReplaceForUserWithTx(tx, targetUserID, roleIDs, primaryRoleID, &operator); err != nil {
 			return err
 		}
+		if input.ScopesProvided {
+			if err := s.userOrgRepo.ReplaceForUserWithTx(tx, targetUserID, orgAssignments, &operator); err != nil {
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
 		return nil, err
@@ -384,7 +408,9 @@ func (s *UserService) UpdateUser(
 		"users",
 		&targetID,
 		buildAuditDetail("system.user.update", beforeAudit, serializeUserForAudit(updatedUser), map[string]any{
-			"password_updated": password != "",
+			"password_updated":    password != "",
+			"organizations_saved": input.ScopesProvided,
+			"input_organizations": orgAssignments,
 		}),
 		ipAddress,
 		userAgent,
@@ -408,6 +434,9 @@ func (s *UserService) DeleteUser(ctx context.Context, operatorID, targetUserID u
 	now := time.Now().Unix()
 	if err := s.userRepo.WithTransaction(ctx, func(tx *gorm.DB) error {
 		if err := s.userRoleRepo.DeleteByUserIDWithTx(tx, targetUserID); err != nil {
+			return err
+		}
+		if err := s.userOrgRepo.DeleteByUserIDWithTx(tx, targetUserID); err != nil {
 			return err
 		}
 		if err := s.userRepo.SoftDeleteWithTx(tx, targetUserID, now); err != nil {
@@ -873,6 +902,53 @@ func containsUint(list []uint, target uint) bool {
 		}
 	}
 	return false
+}
+
+func normalizeOrganizationAssignments(scopes []OrganizationScopeInput) []repository.UserOrganizationAssignment {
+	normalized := make([]repository.UserOrganizationAssignment, 0, len(scopes))
+	seen := make(map[string]struct{}, len(scopes))
+	primaryAssigned := false
+
+	for _, item := range scopes {
+		if item.OrganizationID == 0 {
+			continue
+		}
+		organizationType := normalizeOrganizationType(item.OrganizationType)
+		key := fmt.Sprintf("%s:%d", organizationType, item.OrganizationID)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		isPrimary := item.IsPrimary && !primaryAssigned
+		if isPrimary {
+			primaryAssigned = true
+		}
+		normalized = append(normalized, repository.UserOrganizationAssignment{
+			OrganizationType: organizationType,
+			OrganizationID:   item.OrganizationID,
+			RoleInOrg:        strings.TrimSpace(item.RoleInOrg),
+			IsPrimary:        isPrimary,
+		})
+	}
+
+	if len(normalized) > 0 && !primaryAssigned {
+		normalized[0].IsPrimary = true
+	}
+	return normalized
+}
+
+func normalizeOrganizationType(rawType string) string {
+	switch strings.ToLower(strings.TrimSpace(rawType)) {
+	case "group":
+		return "group"
+	case "company":
+		return "company"
+	case "organization", "org":
+		return "company"
+	default:
+		return "company"
+	}
 }
 
 func (s *UserService) EnsureUserExists(ctx context.Context, userID uint) error {

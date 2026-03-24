@@ -21,6 +21,14 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="所属组织" min-width="220">
+          <template #default="{ row }">
+            <el-tag v-for="name in organizationNamesForUser(row)" :key="`${row.id}-org-${name}`" size="small" class="mr-4">
+              {{ name }}
+            </el-tag>
+            <span v-if="organizationNamesForUser(row).length === 0">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="120" />
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
@@ -79,6 +87,20 @@
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
+        <el-form-item label="所在组织">
+          <el-select
+            v-model="userForm.organizationIds"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :loading="loadingOrganizations"
+            style="width: 100%"
+            placeholder="请选择组织"
+          >
+            <el-option v-for="item in organizations" :key="item.id" :label="item.orgName" :value="item.id" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="userDialogVisible = false">取消</el-button>
@@ -110,13 +132,17 @@
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { http } from "@/api/http";
+import { listOrganizations } from "@/api/org";
+import type { OrganizationItem } from "@/types/org";
 import type { UserGroupItem, UserListItem } from "@/types/system";
 
 const users = ref<UserListItem[]>([]);
 const groups = ref<UserGroupItem[]>([]);
+const organizations = ref<OrganizationItem[]>([]);
 
 const loadingUsers = ref(false);
 const loadingGroups = ref(false);
+const loadingOrganizations = ref(false);
 const savingUser = ref(false);
 const savingGroup = ref(false);
 
@@ -127,6 +153,7 @@ const userForm = reactive({
   password: "",
   status: "active",
   roleIds: [] as number[],
+  organizationIds: [] as number[],
 });
 
 const groupDialogVisible = ref(false);
@@ -165,6 +192,54 @@ async function loadGroups(): Promise<void> {
   }
 }
 
+async function loadOrganizations(): Promise<void> {
+  loadingOrganizations.value = true;
+  try {
+    organizations.value = await listOrganizations({ status: "active" });
+  } finally {
+    loadingOrganizations.value = false;
+  }
+}
+
+function normalizeNumberIds(values: unknown[]): number[] {
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const value of values) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      continue;
+    }
+    if (seen.has(parsed)) {
+      continue;
+    }
+    seen.add(parsed);
+    normalized.push(parsed);
+  }
+  return normalized;
+}
+
+function organizationTypeById(organizationId: number): string {
+  return organizations.value.find((item) => item.id === organizationId)?.orgType || "company";
+}
+
+function organizationNamesForUser(user: UserListItem): string[] {
+  const names = user.organizations
+    .map((scope) => organizations.value.find((item) => item.id === scope.organizationId)?.orgName || "")
+    .filter((name) => name.length > 0);
+  return Array.from(new Set(names));
+}
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+  const message = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return fallback;
+}
+
 function openUserDialog(user?: UserListItem): void {
   if (!user) {
     editingUserId.value = null;
@@ -172,6 +247,7 @@ function openUserDialog(user?: UserListItem): void {
     userForm.password = "";
     userForm.status = "active";
     userForm.roleIds = [];
+    userForm.organizationIds = [];
     userDialogVisible.value = true;
     return;
   }
@@ -182,6 +258,7 @@ function openUserDialog(user?: UserListItem): void {
   userForm.password = "";
   userForm.status = user.status;
   userForm.roleIds = user.roles.map((code) => map[code]).filter((id) => Number.isFinite(id));
+  userForm.organizationIds = normalizeNumberIds(user.organizations.map((item) => item.organizationId));
   userDialogVisible.value = true;
 }
 
@@ -190,10 +267,23 @@ async function saveUser(): Promise<void> {
     ElMessage.warning("用户名不能为空");
     return;
   }
-  if (userForm.roleIds.length === 0) {
+  const roleIds = normalizeNumberIds(userForm.roleIds);
+  if (roleIds.length === 0) {
     ElMessage.warning("请至少选择一个用户组");
     return;
   }
+  const organizationIds = normalizeNumberIds(userForm.organizationIds);
+  if (userForm.username !== "root" && organizationIds.length === 0) {
+    ElMessage.warning("请至少选择一个所在组织");
+    return;
+  }
+
+  const organizationScopes = organizationIds.map((organizationId, index) => ({
+    organizationType: organizationTypeById(organizationId),
+    organizationId,
+    isPrimary: index === 0,
+  }));
+
   savingUser.value = true;
   try {
     const payload = {
@@ -201,8 +291,9 @@ async function saveUser(): Promise<void> {
       password: userForm.password.trim() || undefined,
       status: userForm.status,
       mustChangePassword: false,
-      roleIds: userForm.roleIds,
-      primaryRoleId: userForm.roleIds[0],
+      roleIds,
+      primaryRoleId: roleIds[0],
+      organizations: organizationScopes,
     };
     if (editingUserId.value) {
       await http.put(`/api/system/users/${editingUserId.value}`, payload);
@@ -213,8 +304,7 @@ async function saveUser(): Promise<void> {
     ElMessage.success("用户已保存");
     await loadUsers();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "保存用户失败";
-    ElMessage.error(message);
+    ElMessage.error(extractErrorMessage(error, "保存用户失败"));
   } finally {
     savingUser.value = false;
   }
@@ -293,7 +383,7 @@ async function removeGroup(groupId: number): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([loadGroups(), loadUsers()]);
+  await Promise.all([loadGroups(), loadUsers(), loadOrganizations()]);
 });
 </script>
 
