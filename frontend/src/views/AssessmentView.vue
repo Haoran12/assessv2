@@ -27,7 +27,7 @@
                     size="small"
                     class="session-status-select"
                     :disabled="!canEdit || changingSessionStatusId === row.id"
-                    @change="(value) => onSessionStatusChange(row, value)"
+                    @change="(value: string) => onSessionStatusChange(row, value)"
                   >
                     <el-option
                       v-for="option in sessionStatusOptions"
@@ -256,7 +256,7 @@
                     :loading="resettingObjects"
                     @click="resetObjects"
                   >
-                    閲嶇疆涓洪粯璁?                  </el-button>
+                    重置为默认</el-button>
                 </div>
               </div>
               <el-table v-loading="loadingObjects" :data="objectDrafts" border>
