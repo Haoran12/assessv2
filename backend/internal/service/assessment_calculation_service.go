@@ -116,6 +116,9 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 
 	ruleFile, err := s.pickSessionRuleFile(ctx, summary)
 	if err != nil {
+		if errors.Is(err, ErrRuleNotFound) {
+			return []CalculatedAssessmentObject{}, nil
+		}
 		return nil, err
 	}
 	ruleContent, err := parseCalculationRuleContent(ruleFile.ContentJSON)
@@ -124,7 +127,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 	}
 	targetScoped := matchScopedRule(ruleContent, targetPeriod, targetGroup)
 	if targetScoped == nil {
-		return nil, ErrRuleNotFound
+		return []CalculatedAssessmentObject{}, nil
 	}
 
 	objects, err := s.listSessionObjects(ctx, sessionID)

@@ -593,6 +593,14 @@ type CreatePositionLevelInput struct {
 type UpdatePositionLevelInput = CreatePositionLevelInput
 
 func (s *OrgService) ListAssessmentCategories(ctx context.Context, filter ListAssessmentCategoryFilter) ([]model.AssessmentCategory, error) {
+	exists, err := s.sqliteTableExists(ctx, "assessment_categories")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check assessment categories table: %w", err)
+	}
+	if !exists {
+		return []model.AssessmentCategory{}, nil
+	}
+
 	query := s.db.WithContext(ctx).Model(&model.AssessmentCategory{}).Order("sort_order ASC, id ASC")
 
 	status := strings.TrimSpace(filter.Status)
@@ -613,6 +621,16 @@ func (s *OrgService) ListAssessmentCategories(ctx context.Context, filter ListAs
 		return nil, fmt.Errorf("failed to list assessment categories: %w", err)
 	}
 	return items, nil
+}
+
+func (s *OrgService) sqliteTableExists(ctx context.Context, tableName string) (bool, error) {
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Raw("SELECT COUNT(1) FROM sqlite_master WHERE type='table' AND name = ?", strings.TrimSpace(tableName)).
+		Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (s *OrgService) ListPositionLevels(ctx context.Context, filter ListPositionLevelFilter) ([]model.PositionLevel, error) {

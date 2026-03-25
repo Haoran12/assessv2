@@ -458,7 +458,8 @@ func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fal
 		response.Error(c, http.StatusForbidden, response.CodeForbidden, err.Error())
 	case errors.Is(err, service.ErrYearNotFound),
 		errors.Is(err, service.ErrOrganizationNotFound),
-		errors.Is(err, service.ErrPeriodNotFound):
+		errors.Is(err, service.ErrPeriodNotFound),
+		errors.Is(err, service.ErrRuleNotFound):
 		response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())
 	case errors.Is(err, service.ErrYearAlreadyExists):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
