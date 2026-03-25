@@ -687,13 +687,16 @@ watch(activeTab, (value) => {
 
 watch(
   () => contextStore.currentSession?.organizationId,
-  () => {
+  (nextOrgId, previousOrgId) => {
     if (treeData.value.length === 0) {
       return;
     }
     refreshTreeDefaultExpandState();
     void nextTick(() => {
       treeRef.value?.filter(treeKeyword.value);
+      if (nextOrgId && nextOrgId !== previousOrgId) {
+        activateSessionOrganizationFilter();
+      }
     });
   },
 );
@@ -857,6 +860,18 @@ function resolveDefaultExpandedTreeKeys(): string[] {
 function refreshTreeDefaultExpandState(): void {
   defaultExpandedTreeKeys.value = resolveDefaultExpandedTreeKeys();
   treeRenderKey.value += 1;
+}
+
+function activateSessionOrganizationFilter(): void {
+  const targetOrgNode = findOrganizationNode(treeData.value, contextStore.currentSession?.organizationId);
+  if (!targetOrgNode) {
+    return;
+  }
+  treeRef.value?.setCurrentKey?.(targetOrgNode.treeKey);
+  if (selectedTreeNode.value?.treeKey === targetOrgNode.treeKey) {
+    return;
+  }
+  handleTreeNodeClick(targetOrgNode);
 }
 
 function rowClassByStatus({ row }: { row: { status?: string } }): string {
@@ -1511,6 +1526,7 @@ onMounted(async () => {
   ]);
   await nextTick();
   treeRef.value?.filter(treeKeyword.value);
+  activateSessionOrganizationFilter();
 });
 
 onBeforeUnmount(() => {
