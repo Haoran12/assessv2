@@ -1103,28 +1103,56 @@ function hasSessionInCurrentList(sessionId: number | undefined): boolean {
   return sessions.value.some((item) => item.id === sessionId);
 }
 
-async function loadSessions(): Promise<void> {
+function clearSessionSelection(): void {
+  selectedSessionId.value = undefined;
+  selectedDetail.value = null;
+  periodDrafts.value = [];
+  ruleBindingGroups.value = [];
+  groupDrafts.value = [];
+  objects.value = [];
+  objectDrafts.value = [];
+  resetPeriodBaseline();
+  resetGroupBaseline();
+  resetObjectBaseline();
+}
+
+function pickSessionId(...candidates: Array<number | undefined>): number | undefined {
+  for (const candidate of candidates) {
+    if (hasSessionInCurrentList(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+async function loadSessions(preferredSessionId?: number): Promise<void> {
   loadingSessions.value = true;
   try {
     sessions.value = await listAssessmentSessions();
     if (sessions.value.length === 0) {
-      selectedSessionId.value = undefined;
-      selectedDetail.value = null;
-      periodDrafts.value = [];
-      ruleBindingGroups.value = [];
-      groupDrafts.value = [];
-      objects.value = [];
-      objectDrafts.value = [];
-      resetPeriodBaseline();
-      resetGroupBaseline();
-      resetObjectBaseline();
+      clearSessionSelection();
+      if (contextStore.sessionId) {
+        await contextStore.setSession(undefined);
+      }
       return;
     }
     if (!hasSessionInCurrentList(selectedSessionId.value)) {
       selectedSessionId.value = undefined;
     }
-    if (!selectedSessionId.value) {
-      await selectSession(sessions.value[0].id);
+
+    const targetSessionId = pickSessionId(
+      selectedSessionId.value,
+      preferredSessionId,
+      contextStore.sessionId,
+      sessions.value[0]?.id,
+    );
+    if (!targetSessionId) {
+      clearSessionSelection();
+      return;
+    }
+
+    if (selectedSessionId.value !== targetSessionId || selectedDetail.value?.session.id !== targetSessionId) {
+      await selectSession(targetSessionId);
     }
   } catch (_error) {
     ElMessage.error("加载考核场次失败");
@@ -1556,6 +1584,24 @@ watch(
   { deep: true },
 );
 
+watch(
+  () => contextStore.sessionId,
+  (nextSessionId) => {
+    if (!nextSessionId) {
+      clearSessionSelection();
+      return;
+    }
+    if (nextSessionId === selectedSessionId.value) {
+      return;
+    }
+    if (!hasSessionInCurrentList(nextSessionId)) {
+      void loadSessions(nextSessionId);
+      return;
+    }
+    void selectSession(nextSessionId);
+  },
+);
+
 onMounted(async () => {
   window.addEventListener("keydown", handleAssessmentViewKeydown);
   unsavedStore.setSourceMeta(periodDirtySourceId, {
@@ -1571,15 +1617,8 @@ onMounted(async () => {
     save: saveObjects,
   });
 
-  await Promise.all([loadOrganizations(), loadSessions()]);
   const preferredSessionId = contextStore.sessionId;
-  if (
-    preferredSessionId
-    && preferredSessionId !== selectedSessionId.value
-    && hasSessionInCurrentList(preferredSessionId)
-  ) {
-    await selectSession(preferredSessionId);
-  }
+  await Promise.all([loadOrganizations(), loadSessions(preferredSessionId)]);
 });
 
 onBeforeUnmount(() => {
