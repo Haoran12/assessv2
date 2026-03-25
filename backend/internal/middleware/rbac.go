@@ -19,7 +19,7 @@ func RequirePermission(permission string) gin.HandlerFunc {
 		}
 		if !auth.RoleAllowsPermission(claims.Roles, permission) && !auth.HasPermission(claims.Permissions, permission) {
 			message := fmt.Sprintf(
-				"Request failed with Code 403: Permission Denied. 当前用户没有权限，缺少权限: %s。",
+				"Request Failed 40301: 当前账号缺少权限「%s」，请联系管理员授权后重试。",
 				permission,
 			)
 			response.Error(c, http.StatusForbidden, response.CodeForbidden, message)
@@ -39,7 +39,7 @@ func RequireRoot() gin.HandlerFunc {
 			return
 		}
 		if !auth.HasRole(claims.Roles, "root") {
-			response.Error(c, http.StatusForbidden, response.CodeForbidden, "Request failed with Code 403: Permission Denied. 当前用户没有权限，需要 root 角色。")
+			response.Error(c, http.StatusForbidden, response.CodeForbidden, "Request Failed 40301: 当前操作仅允许 root 角色执行，请联系管理员处理。")
 			c.Abort()
 			return
 		}

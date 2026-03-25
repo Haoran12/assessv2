@@ -2,7 +2,7 @@
   <div class="forbidden-page">
     <el-result
       icon="warning"
-      title="Request failed with Code 403: Permission Denied"
+      title="Request Failed 40301: 当前账号无权访问该页面"
       sub-title="当前用户没有权限访问该页面，请联系管理员分配角色或授权。"
     >
       <template #extra>
