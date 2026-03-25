@@ -9,7 +9,19 @@
                 <strong>考核结果</strong>
                 <span class="context-text">{{ contextSummaryText }}</span>
               </div>
-              <el-button size="small" :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
+              <div class="header-actions">
+                <el-button size="small" :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
+                <el-button
+                  type="primary"
+                  plain
+                  size="small"
+                  :loading="exportingSummary"
+                  :disabled="!isContextReady || loadingTable || exportingSummary"
+                  @click="exportAssessmentResults"
+                >
+                  导出
+                </el-button>
+              </div>
             </div>
           </template>
 
@@ -225,7 +237,7 @@ import { listRuleFiles } from "@/api/rules";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import RulesView from "@/views/RulesView.vue";
-import type { AssessmentSessionObjectItem } from "@/types/assessment";
+import type { AssessmentObjectGroupItem, AssessmentSessionObjectItem } from "@/types/assessment";
 import type { RuleFileItem } from "@/types/rules";
 import {
   formatScoreWithDecimalPlaces,
@@ -293,6 +305,7 @@ const moduleColumns = ref<TableModuleColumn[]>([]);
 const assessmentRows = ref<TableRow[]>([]);
 const loadingTable = ref(false);
 const savingScores = ref(false);
+const exportingSummary = ref(false);
 const pendingScoreMap = ref<Record<string, PendingScoreItem>>({});
 const scoreDecimalPlaces = ref(readScoreDecimalPlaces());
 const voteDialogVisible = ref(false);
@@ -660,6 +673,204 @@ function compareObjectOrder(left: AssessmentSessionObjectItem, right: Assessment
 
 function moduleScorePendingKey(periodCode: string, objectId: number, moduleKey: string): string {
   return `${periodCode}|${objectId}|${moduleKey}`;
+}
+
+function sortObjectGroups(items: AssessmentObjectGroupItem[]): AssessmentObjectGroupItem[] {
+  return [...items].sort((left, right) => {
+    if (left.sortOrder !== right.sortOrder) {
+      return left.sortOrder - right.sortOrder;
+    }
+    return left.id - right.id;
+  });
+}
+
+function toSheetNameToken(value: string): string {
+  const normalized = value
+    .replace(/[\\/*?:\[\]]/g, "_")
+    .replace(/[\u0000-\u001f]/g, "")
+    .trim();
+  return normalized || "Sheet";
+}
+
+function buildUniqueSheetName(
+  baseName: string,
+  fallbackIndex: number,
+  usedSheetNames: Set<string>,
+): string {
+  const base = toSheetNameToken(baseName).slice(0, 31) || `Sheet${fallbackIndex}`;
+  let candidate = base;
+  let index = 1;
+  while (usedSheetNames.has(candidate)) {
+    index += 1;
+    const suffix = `_${index}`;
+    const room = Math.max(1, 31 - suffix.length);
+    candidate = `${base.slice(0, room)}${suffix}`;
+  }
+  usedSheetNames.add(candidate);
+  return candidate;
+}
+
+function toExportCellValue(value: unknown): number | string {
+  const parsed = toNumberOrNull(value);
+  if (parsed === null) {
+    return "";
+  }
+  return roundScoreWithDecimalPlaces(parsed, scoreDecimalPlaces.value);
+}
+
+function buildExportSheetRows(
+  objects: AssessmentSessionObjectItem[],
+  modules: TableModuleColumn[],
+): Array<Array<string | number>> {
+  const sorted = [...objects].sort(compareObjectOrder);
+  return sorted.map((item, index) => {
+    const source = item as unknown as Record<string, unknown>;
+    const rankValue = toNumberOrNull(source.rank);
+    const gradeRaw = typeof source.grade === "string" ? source.grade.trim() : "";
+    const moduleScores = source.moduleScores && typeof source.moduleScores === "object"
+      ? (source.moduleScores as Record<string, unknown>)
+      : {};
+    return [
+      rankValue ? Math.max(1, Math.floor(rankValue)) : index + 1,
+      item.objectName || "-",
+      toExportCellValue(source.totalScore),
+      gradeRaw || "-",
+      ...modules.map((module) => toExportCellValue(moduleScores[module.moduleKey])),
+    ];
+  });
+}
+
+function buildExportColumnWidths(moduleCount: number): number[] {
+  return [
+    8,
+    28,
+    12,
+    10,
+    ...new Array(Math.max(0, moduleCount)).fill(14),
+  ];
+}
+
+function toExportFileName(): string {
+  const sessionName = (contextStore.currentSession?.displayName || "考核场次").trim();
+  const periodName = (contextStore.currentPeriod?.periodName || contextStore.periodCode || "当前周期").trim();
+  const dateToken = new Date().toISOString().slice(0, 10);
+  const rawName = `${sessionName}_${periodName}_考核结果_${dateToken}.xlsx`;
+  return rawName.replace(/[<>:"/\\|?*]/g, "_");
+}
+
+type DesktopAppBridge = {
+  SaveXlsxFileWithDialog: (fileName: string, contentBase64: string) => Promise<string>;
+};
+
+function getDesktopSaveBridge(): DesktopAppBridge | null {
+  const browserWindow = window as Window & {
+    go?: {
+      main?: {
+        App?: Partial<DesktopAppBridge>;
+      };
+    };
+  };
+  if (typeof browserWindow?.go?.main?.App?.SaveXlsxFileWithDialog !== "function") {
+    return null;
+  }
+  return {
+    SaveXlsxFileWithDialog: browserWindow.go.main.App.SaveXlsxFileWithDialog,
+  };
+}
+
+function toBase64FromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+async function exportAssessmentResults(): Promise<void> {
+  if (!contextStore.sessionId || !contextStore.periodCode) {
+    ElMessage.warning("请先选择完整的场次与周期");
+    return;
+  }
+  if (exportingSummary.value) {
+    return;
+  }
+  const groups = sortObjectGroups(contextStore.objectGroups);
+  if (groups.length === 0) {
+    ElMessage.warning("当前场次暂无可导出的对象分组");
+    return;
+  }
+
+  exportingSummary.value = true;
+  try {
+    scoreDecimalPlaces.value = readScoreDecimalPlaces();
+    const sessionID = contextStore.sessionId;
+    const periodCode = contextStore.periodCode;
+    const [ruleFiles, groupedObjects] = await Promise.all([
+      listRuleFiles(sessionID, false),
+      Promise.all(groups.map((group) => listCalculatedAssessmentSessionObjects(sessionID, periodCode, group.groupCode))),
+    ]);
+
+    const exceljsModule = await import("exceljs");
+    const workbook = new exceljsModule.Workbook();
+    const usedSheetNames = new Set<string>();
+    groups.forEach((group, groupIndex) => {
+      const modules = resolveModulesByContext(ruleFiles, periodCode, group.groupCode);
+      const header = ["排名", "对象名称", "总分", "等第", ...modules.map((item) => item.moduleName)];
+      const bodyRows = buildExportSheetRows(groupedObjects[groupIndex] || [], modules);
+      const groupTypeLabel = group.objectType === "team" ? "团体" : "个人";
+      const sheetName = buildUniqueSheetName(
+        `${groupTypeLabel}-${group.groupName || group.groupCode}`,
+        groupIndex + 1,
+        usedSheetNames,
+      );
+      const worksheet = workbook.addWorksheet(sheetName);
+      const columnWidths = buildExportColumnWidths(modules.length);
+      worksheet.columns = header.map((item, index) => ({
+        header: item,
+        key: `col_${index + 1}`,
+        width: columnWidths[index] || 14,
+      }));
+      bodyRows.forEach((row) => {
+        worksheet.addRow(row);
+      });
+    });
+    const rawBuffer = await workbook.xlsx.writeBuffer();
+    const bytes = rawBuffer instanceof Uint8Array ? rawBuffer : new Uint8Array(rawBuffer);
+    const fileName = toExportFileName();
+    const desktopSaveBridge = getDesktopSaveBridge();
+    if (desktopSaveBridge) {
+      const savedPath = await desktopSaveBridge.SaveXlsxFileWithDialog(fileName, toBase64FromBytes(bytes));
+      if (!savedPath) {
+        ElMessage.info("已取消导出");
+        return;
+      }
+    } else {
+      const blob = new Blob(
+        [bytes],
+        { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+      );
+      downloadBlob(blob, fileName);
+    }
+    ElMessage.success(`已导出 ${groups.length} 个对象分组的考核结果`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "导出考核结果失败";
+    ElMessage.error(message);
+  } finally {
+    exportingSummary.value = false;
+  }
 }
 
 function clearPendingScores(): void {

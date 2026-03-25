@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -159,6 +161,63 @@ func (a *App) SetCloseGuard(enabled bool) {
 
 func (a *App) SetPreferredDataYear(year int) error {
 	return fmt.Errorf("preferred data year is deprecated in session-based mode")
+}
+
+func (a *App) SaveXlsxFileWithDialog(defaultFileName string, contentBase64 string) (string, error) {
+	a.mu.RLock()
+	ctx := a.ctx
+	a.mu.RUnlock()
+	if ctx == nil {
+		return "", fmt.Errorf("desktop context is not ready")
+	}
+
+	fileName := strings.TrimSpace(defaultFileName)
+	if fileName == "" {
+		fileName = "assessment-export.xlsx"
+	}
+	if !strings.HasSuffix(strings.ToLower(fileName), ".xlsx") {
+		fileName += ".xlsx"
+	}
+
+	targetPath, err := runtime.SaveFileDialog(ctx, runtime.SaveDialogOptions{
+		Title:           "导出考核结果",
+		DefaultFilename: fileName,
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "Excel 文件 (*.xlsx)",
+				Pattern:     "*.xlsx",
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(targetPath) == "" {
+		return "", nil
+	}
+	if !strings.HasSuffix(strings.ToLower(targetPath), ".xlsx") {
+		targetPath += ".xlsx"
+	}
+
+	contentRaw := strings.TrimSpace(contentBase64)
+	if contentRaw == "" {
+		return "", fmt.Errorf("export content is empty")
+	}
+	data, err := base64.StdEncoding.DecodeString(contentRaw)
+	if err != nil {
+		return "", fmt.Errorf("decode export content: %w", err)
+	}
+	if len(data) == 0 {
+		return "", fmt.Errorf("export content is empty")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return "", fmt.Errorf("create export directory: %w", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("write export file: %w", err)
+	}
+	return targetPath, nil
 }
 
 func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
