@@ -100,7 +100,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { path: "/overview", label: "系统概览" },
+  { path: "/overview", label: "考核主页" },
   { path: "/assessment-management", label: "考核管理", permission: "assessment:view" },
   { path: "/org", label: "组织架构", permission: "org:view" },
   { path: "/system/users", label: "用户管理", permission: "user:view", rootOnly: true },
