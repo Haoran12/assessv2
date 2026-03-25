@@ -25,11 +25,12 @@
           </div>
 
           <el-tree
+            :key="treeRenderKey"
             ref="treeRef"
             class="org-tree"
             :data="treeData"
             node-key="treeKey"
-            default-expand-all
+            :default-expanded-keys="defaultExpandedTreeKeys"
             highlight-current
             :props="treeProps"
             :filter-node-method="filterTreeNode"
@@ -511,7 +512,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import type { AxiosError } from "axios";
 import { useAppStore } from "@/stores/app";
+import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
 import {
   createDepartment,
@@ -547,8 +550,20 @@ interface TreeNodeUI extends OrgTreeNode {
   children?: TreeNodeUI[];
 }
 
+function extractErrorMessage(error: unknown, fallback: string): string {
+  const message = (error as AxiosError<{ message?: unknown }>)?.response?.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return fallback;
+}
+
 const treeRef = ref();
 const appStore = useAppStore();
+const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
 const canEdit = computed(() => appStore.hasPermission("org:update"));
 const isRoot = computed(() => appStore.primaryRole === "root" || appStore.roles.includes("root"));
@@ -566,6 +581,8 @@ const treeKeyword = ref("");
 const includeInactive = ref(false);
 const loadingTree = ref(false);
 const treeData = ref<TreeNodeUI[]>([]);
+const defaultExpandedTreeKeys = ref<string[]>([]);
+const treeRenderKey = ref(0);
 
 const loadingOrganizations = ref(false);
 const organizations = ref<OrganizationItem[]>([]);
@@ -667,6 +684,19 @@ watch(activeTab, (value) => {
     void loadEmployees();
   }
 });
+
+watch(
+  () => contextStore.currentSession?.organizationId,
+  () => {
+    if (treeData.value.length === 0) {
+      return;
+    }
+    refreshTreeDefaultExpandState();
+    void nextTick(() => {
+      treeRef.value?.filter(treeKeyword.value);
+    });
+  },
+);
 
 watch(organizationDialogVisible, (visible) => {
   if (visible) {
@@ -792,6 +822,41 @@ function normalizeTree(nodes: OrgTreeNode[]): TreeNodeUI[] {
     treeKey: `${node.nodeType}-${node.id}`,
     children: node.children ? normalizeTree(node.children) : [],
   }));
+}
+
+function findOrganizationNode(nodes: TreeNodeUI[], organizationId?: number): TreeNodeUI | null {
+  if (!organizationId) {
+    return null;
+  }
+  for (const node of nodes) {
+    if (node.nodeType === "organization" && node.id === organizationId) {
+      return node;
+    }
+    const nested = findOrganizationNode(node.children || [], organizationId);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
+function resolveDefaultExpandedTreeKeys(): string[] {
+  const targetOrgId = contextStore.currentSession?.organizationId;
+  const targetOrgNode = findOrganizationNode(treeData.value, targetOrgId);
+  if (!targetOrgNode) {
+    return [];
+  }
+
+  const expandedKeys = new Set<string>([targetOrgNode.treeKey]);
+  for (const child of targetOrgNode.children || []) {
+    expandedKeys.add(child.treeKey);
+  }
+  return Array.from(expandedKeys);
+}
+
+function refreshTreeDefaultExpandState(): void {
+  defaultExpandedTreeKeys.value = resolveDefaultExpandedTreeKeys();
+  treeRenderKey.value += 1;
 }
 
 function rowClassByStatus({ row }: { row: { status?: string } }): string {
@@ -1008,6 +1073,9 @@ async function loadTree(): Promise<void> {
   try {
     const rows = await getOrgTree(includeInactive.value);
     treeData.value = normalizeTree(rows);
+    refreshTreeDefaultExpandState();
+    await nextTick();
+    treeRef.value?.filter(treeKeyword.value);
   } catch (_error) {
     ElMessage.error("组织树加载失败");
   } finally {
@@ -1146,7 +1214,7 @@ async function handleDeleteOrganization(item: OrganizationItem): Promise<void> {
     ) {
       return;
     }
-    const message = error instanceof Error ? error.message : "组织删除失败";
+    const message = extractErrorMessage(error, "组织删除失败");
     ElMessage.error(message);
   }
 }
@@ -1233,7 +1301,7 @@ async function handleDeleteDepartment(item: DepartmentItem): Promise<void> {
     ) {
       return;
     }
-    const message = error instanceof Error ? error.message : "部门删除失败";
+    const message = extractErrorMessage(error, "部门删除失败");
     ElMessage.error(message);
   }
 }
