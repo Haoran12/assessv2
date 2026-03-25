@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"assessv2/backend/internal/api/response"
-	"assessv2/backend/internal/middleware"
 	"assessv2/backend/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -75,40 +74,6 @@ func (h *AuditHandler) Detail(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
-}
-
-func (h *AuditHandler) Rollback(c *gin.Context) {
-	claims, ok := middleware.ClaimsFromContext(c)
-	if !ok {
-		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "missing auth context")
-		return
-	}
-
-	auditID, err := parseUserIDParam(c)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, response.CodeBadRequestInvalidParam, "invalid audit id")
-		return
-	}
-
-	err = h.auditService.Rollback(
-		c.Request.Context(),
-		claims.UserID,
-		auditID,
-		c.ClientIP(),
-		c.GetHeader("User-Agent"),
-	)
-	if err != nil {
-		switch err {
-		case service.ErrAuditLogNotFound:
-			response.Error(c, http.StatusNotFound, response.CodeNotFound, err.Error())
-		case service.ErrAuditRollbackUnsupported:
-			response.Error(c, http.StatusBadRequest, response.CodeBadRequestBusinessRule, err.Error())
-		default:
-			response.Error(c, http.StatusInternalServerError, response.CodeInternal, "failed to rollback audit log")
-		}
-		return
-	}
-	response.Success(c, gin.H{"rolledBack": true})
 }
 
 func parseOptionalInt64Query(raw string) (*int64, error) {

@@ -70,15 +70,6 @@
           <template #default="{ row }">
             <div class="action-row">
               <el-button size="small" @click="openDetail(row.id)">详情</el-button>
-              <el-button
-                size="small"
-                type="warning"
-                plain
-                :disabled="!canRollback || rollbackLoadingId === row.id"
-                @click="handleRollback(row.id)"
-              >
-                回滚
-              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -119,12 +110,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="changeType" label="变更类型" width="120" />
-        <el-table-column label="回滚前">
+        <el-table-column label="变更前">
           <template #default="{ row }">
             <pre class="json-block">{{ stringifyValue(row.before) }}</pre>
           </template>
         </el-table-column>
-        <el-table-column label="回滚后">
+        <el-table-column label="变更后">
           <template #default="{ row }">
             <pre class="json-block">{{ stringifyValue(row.after) }}</pre>
           </template>
@@ -136,31 +127,18 @@
 
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button
-          type="warning"
-          :disabled="!canRollback || !detail?.canRollback"
-          :loading="rollbackLoadingId === detail?.id"
-          @click="detail && handleRollback(detail.id)"
-        >
-          回滚该记录
-        </el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
-import { getAuditLogDetail, listAuditLogs, rollbackAuditLog } from "@/api/system-admin";
-import { useAppStore } from "@/stores/app";
+import { onMounted, reactive, ref } from "vue";
+import { ElMessage } from "element-plus";
+import { getAuditLogDetail, listAuditLogs } from "@/api/system-admin";
 import type { AuditLogDetail, AuditLogItem } from "@/types/system";
 
-const appStore = useAppStore();
-const canRollback = computed(() => appStore.hasPermission("audit:rollback"));
-
 const loading = ref(false);
-const rollbackLoadingId = ref<number | null>(null);
 const rows = ref<AuditLogItem[]>([]);
 const total = ref(0);
 const timeRange = ref<string[]>([]);
@@ -206,33 +184,6 @@ async function openDetail(auditId: number): Promise<void> {
     detailVisible.value = true;
   } catch (_error) {
     ElMessage.error("审计详情加载失败");
-  }
-}
-
-async function handleRollback(auditId: number): Promise<void> {
-  if (!canRollback.value) {
-    return;
-  }
-  try {
-    await ElMessageBox.confirm("确认回滚这条审计记录对应的数据变更吗？", "回滚确认", {
-      type: "warning",
-      confirmButtonText: "确认回滚",
-      cancelButtonText: "取消",
-    });
-    rollbackLoadingId.value = auditId;
-    await rollbackAuditLog(auditId);
-    ElMessage.success("回滚成功");
-    await loadAuditLogs();
-    if (detail.value?.id === auditId) {
-      detail.value = await getAuditLogDetail(auditId);
-    }
-  } catch (error) {
-    if (String(error).includes("cancel")) {
-      return;
-    }
-    ElMessage.error("回滚失败");
-  } finally {
-    rollbackLoadingId.value = null;
   }
 }
 

@@ -38,7 +38,7 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 	ruleService := service.NewRuleManagementService(businessDB, businessAuditRepo)
 	settingsService := service.NewSystemSettingService(businessDB, businessAuditRepo)
 	backupService := service.NewBackupService(businessDB, businessAuditRepo, cfg.Database.Path)
-	auditService := service.NewAuditService(businessDB, accountDB, businessAuditRepo)
+	auditService := service.NewAuditService(businessDB, accountDB)
 	backupService.StartAutoBackup(context.Background())
 
 	authHandler := handler.NewAuthHandler(authService)
@@ -147,7 +147,6 @@ func NewWithDatabases(cfg config.Config, businessDB *gorm.DB, accountDB *gorm.DB
 		system.PUT("/settings", middleware.RequireRoot(), settingsHandler.Update)
 		system.GET("/audit-logs", middleware.RequirePermission("audit:view"), auditHandler.List)
 		system.GET("/audit-logs/:id", middleware.RequirePermission("audit:view"), auditHandler.Detail)
-		system.POST("/audit-logs/:id/rollback", middleware.RequirePermission("audit:rollback"), auditHandler.Rollback)
 	}
 
 	return r

@@ -224,7 +224,7 @@ func seedSystemRoles(db *gorm.DB) error {
 				"org:view", "org:update",
 				"backup:view", "backup:update",
 				"backup:org:view", "backup:org:update",
-				"audit:view", "audit:rollback",
+				"audit:view",
 				"setting:view", "setting:update",
 			},
 			IsSystem: true,

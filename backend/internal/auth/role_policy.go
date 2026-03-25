@@ -25,7 +25,6 @@ var rolePermissions = map[string][]string{
 		"backup:org:view",
 		"backup:org:update",
 		"audit:view",
-		"audit:rollback",
 		"setting:view",
 		"setting:update",
 	},

@@ -5,19 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
-	"assessv2/backend/internal/model"
-	"assessv2/backend/internal/repository"
 	"gorm.io/gorm"
 )
 
 type AuditService struct {
-	db        *gorm.DB
-	userDB    *gorm.DB
-	auditRepo *repository.AuditRepository
+	db     *gorm.DB
+	userDB *gorm.DB
 }
 
 type AuditLogListInput struct {
@@ -66,19 +61,17 @@ type AuditDiffItem struct {
 
 type AuditLogDetail struct {
 	AuditLogListItem
-	Detail      map[string]any  `json:"detail"`
-	Diffs       []AuditDiffItem `json:"diffs"`
-	CanRollback bool            `json:"canRollback"`
+	Detail map[string]any  `json:"detail"`
+	Diffs  []AuditDiffItem `json:"diffs"`
 }
 
-func NewAuditService(db *gorm.DB, userDB *gorm.DB, auditRepo *repository.AuditRepository) *AuditService {
+func NewAuditService(db *gorm.DB, userDB *gorm.DB) *AuditService {
 	if userDB == nil {
 		userDB = db
 	}
 	return &AuditService{
-		db:        db,
-		userDB:    userDB,
-		auditRepo: auditRepo,
+		db:     db,
+		userDB: userDB,
 	}
 }
 
@@ -286,7 +279,6 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 		changeCount = len(diffs)
 	}
 	hasDiff := item.HasDiff || changeCount > 0
-	canRollback := s.isRollbackSupported(item.TargetType, item.ActionType, detail)
 
 	return &AuditLogDetail{
 		AuditLogListItem: AuditLogListItem{
@@ -306,9 +298,8 @@ func (s *AuditService) Detail(ctx context.Context, auditLogID uint) (*AuditLogDe
 			UserAgent:    item.UserAgent,
 			CreatedAt:    item.CreatedAt,
 		},
-		Detail:      detail,
-		Diffs:       diffs,
-		CanRollback: canRollback,
+		Detail: detail,
+		Diffs:  diffs,
 	}, nil
 }
 
@@ -372,149 +363,6 @@ func (s *AuditService) loadUserProfileByID(ctx context.Context, userID uint) (*a
 	return &profile, nil
 }
 
-func (s *AuditService) Rollback(
-	ctx context.Context,
-	operatorID uint,
-	auditLogID uint,
-	ipAddress string,
-	userAgent string,
-) error {
-	var logRecord model.AuditLog
-	if err := s.db.WithContext(ctx).Where("id = ?", auditLogID).First(&logRecord).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrAuditLogNotFound
-		}
-		return fmt.Errorf("failed to query audit log: %w", err)
-	}
-
-	detail := decodeActionDetail(logRecord.ActionDetail, logRecord.ActionType, logRecord.TargetType, logRecord.TargetID)
-	if !s.isRollbackSupported(logRecord.TargetType, logRecord.ActionType, detail) {
-		return ErrAuditRollbackUnsupported
-	}
-
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		switch strings.ToLower(strings.TrimSpace(logRecord.ActionType)) {
-		case "update":
-			before := pickMap(detail, "before")
-			if len(before) == 0 {
-				return ErrAuditRollbackUnsupported
-			}
-			return restoreSystemSetting(tx, before, operatorID)
-		case "delete":
-			before := pickMap(detail, "before")
-			if len(before) == 0 {
-				return ErrAuditRollbackUnsupported
-			}
-			return restoreSystemSetting(tx, before, operatorID)
-		case "create":
-			after := pickMap(detail, "after")
-			key := extractString(after, "setting_key")
-			if key == "" {
-				key = extractString(after, "settingKey")
-			}
-			if key == "" {
-				return ErrAuditRollbackUnsupported
-			}
-			return tx.Where("setting_key = ?", key).Delete(&model.SystemSetting{}).Error
-		default:
-			return ErrAuditRollbackUnsupported
-		}
-	}); err != nil {
-		return err
-	}
-
-	sourceID := auditLogID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(
-		&operatorID,
-		"update",
-		"audit_logs",
-		&sourceID,
-		map[string]any{
-			"event":            "rollback_audit_log",
-			"source_log_id":    auditLogID,
-			"source_target":    logRecord.TargetType,
-			"source_action":    logRecord.ActionType,
-			"rollback_applied": true,
-		},
-		ipAddress,
-		userAgent,
-	))
-
-	return nil
-}
-
-func (s *AuditService) isRollbackSupported(targetType, actionType string, detail map[string]any) bool {
-	if strings.TrimSpace(targetType) != "system_settings" {
-		return false
-	}
-	action := strings.ToLower(strings.TrimSpace(actionType))
-	switch action {
-	case "create":
-		after := pickMap(detail, "after")
-		return extractString(after, "setting_key") != "" || extractString(after, "settingKey") != ""
-	case "update", "delete":
-		before := pickMap(detail, "before")
-		return extractString(before, "setting_key") != "" || extractString(before, "settingKey") != ""
-	default:
-		return false
-	}
-}
-
-func restoreSystemSetting(tx *gorm.DB, payload map[string]any, operatorID uint) error {
-	key := extractString(payload, "setting_key")
-	if key == "" {
-		key = extractString(payload, "settingKey")
-	}
-	if key == "" {
-		return ErrAuditRollbackUnsupported
-	}
-
-	value := extractString(payload, "setting_value")
-	if value == "" {
-		value = extractString(payload, "settingValue")
-	}
-	settingType := extractString(payload, "setting_type")
-	if settingType == "" {
-		settingType = extractString(payload, "settingType")
-	}
-	if settingType == "" {
-		settingType = "string"
-	}
-
-	description := extractString(payload, "description")
-	isSystem := extractBool(payload, "is_system")
-	if _, exists := payload["isSystem"]; exists {
-		isSystem = extractBool(payload, "isSystem")
-	}
-
-	now := time.Now().Unix()
-	var existing model.SystemSetting
-	err := tx.Where("setting_key = ?", key).First(&existing).Error
-	switch {
-	case err == nil:
-		existing.SettingValue = value
-		existing.SettingType = settingType
-		existing.Description = description
-		existing.IsSystem = isSystem
-		existing.UpdatedBy = &operatorID
-		existing.UpdatedAt = now
-		return tx.Save(&existing).Error
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		record := model.SystemSetting{
-			SettingKey:   key,
-			SettingValue: value,
-			SettingType:  settingType,
-			Description:  description,
-			IsSystem:     isSystem,
-			UpdatedBy:    &operatorID,
-			UpdatedAt:    now,
-		}
-		return tx.Create(&record).Error
-	default:
-		return err
-	}
-}
-
 func pickMap(data map[string]any, key string) map[string]any {
 	value, exists := data[key]
 	if !exists {
@@ -546,24 +394,5 @@ func extractString(data map[string]any, key string) string {
 		return strings.TrimSpace(text)
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", text))
-	}
-}
-
-func extractBool(data map[string]any, key string) bool {
-	value, exists := data[key]
-	if !exists || value == nil {
-		return false
-	}
-	switch flag := value.(type) {
-	case bool:
-		return flag
-	case string:
-		parsed, err := strconv.ParseBool(strings.TrimSpace(flag))
-		if err != nil {
-			return false
-		}
-		return parsed
-	default:
-		return false
 	}
 }

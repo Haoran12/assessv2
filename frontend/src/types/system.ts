@@ -122,7 +122,6 @@ export interface AuditLogListResponse {
 export interface AuditLogDetail extends AuditLogItem {
   detail: Record<string, unknown>;
   diffs: AuditDiffItem[];
-  canRollback: boolean;
 }
 
 export interface SystemSettingItem {

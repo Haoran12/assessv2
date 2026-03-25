@@ -95,7 +95,7 @@ func TestM7BackupLifecycle(t *testing.T) {
 	}
 }
 
-func TestM7SettingsAuditRollback(t *testing.T) {
+func TestM7SettingsAuditDetail(t *testing.T) {
 	engine, _ := setupTestServer(t)
 	rootToken, _ := loginAndReadData(t, engine, "root", testDefaultPassword)
 
@@ -157,15 +157,6 @@ func TestM7SettingsAuditRollback(t *testing.T) {
 		t.Fatalf("expected audit detail status=200, got=%d body=%s", detailResp.Code, detailResp.Body.String())
 	}
 
-	rollbackReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/system/audit-logs/%d/rollback", auditID), bytes.NewReader([]byte("{}")))
-	rollbackReq.Header.Set("Authorization", "Bearer "+rootToken)
-	rollbackReq.Header.Set("Content-Type", "application/json")
-	rollbackResp := httptest.NewRecorder()
-	engine.ServeHTTP(rollbackResp, rollbackReq)
-	if rollbackResp.Code != http.StatusOK {
-		t.Fatalf("expected audit rollback status=200, got=%d body=%s", rollbackResp.Code, rollbackResp.Body.String())
-	}
-
 	verifyReq := httptest.NewRequest(http.MethodGet, "/api/system/settings", nil)
 	verifyReq.Header.Set("Authorization", "Bearer "+rootToken)
 	verifyResp := httptest.NewRecorder()
@@ -195,8 +186,8 @@ func TestM7SettingsAuditRollback(t *testing.T) {
 			break
 		}
 	}
-	if systemName != "AssessV2" {
-		t.Fatalf("expected rolled back system.name=AssessV2, got=%s", systemName)
+	if systemName != "AssessV2 M7 Test" {
+		t.Fatalf("expected updated system.name=AssessV2 M7 Test, got=%s", systemName)
 	}
 }
 

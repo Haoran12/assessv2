@@ -102,10 +102,6 @@ export async function getAuditLogDetail(auditId: number): Promise<AuditLogDetail
   return response.data?.data as AuditLogDetail;
 }
 
-export async function rollbackAuditLog(auditId: number): Promise<void> {
-  await http.post(`/api/system/audit-logs/${auditId}/rollback`, {});
-}
-
 export async function getSystemSettings(): Promise<SystemSettingsResponse> {
   const response = await http.get("/api/system/settings");
   return response.data?.data as SystemSettingsResponse;

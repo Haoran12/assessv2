@@ -108,8 +108,7 @@ var (
 	ErrBackupTargetMismatch     = errors.New("backup target organization mismatch")
 	ErrBackupPackageBroken      = errors.New("backup package is invalid or corrupted")
 
-	ErrAuditLogNotFound         = errors.New("audit log not found")
-	ErrAuditRollbackUnsupported = errors.New("audit log does not support rollback")
+	ErrAuditLogNotFound = errors.New("audit log not found")
 
 	ErrInvalidSettingKey   = errors.New("invalid setting key")
 	ErrInvalidSettingValue = errors.New("invalid setting value")
