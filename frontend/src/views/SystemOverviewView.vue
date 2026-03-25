@@ -32,7 +32,7 @@
             :closable="false"
           />
           <template v-else>
-            <el-table :data="assessmentRows" border stripe v-loading="loadingTable">
+            <el-table ref="summaryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
               <el-table-column prop="rank" label="排名" width="88" />
               <el-table-column prop="objectName" label="考核对象名称" min-width="220" />
               <el-table-column label="总分" width="120">
@@ -95,7 +95,7 @@
               :closable="false"
               class="entry-readonly-alert"
             />
-            <el-table :data="assessmentRows" border stripe v-loading="loadingTable">
+            <el-table ref="entryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
               <el-table-column prop="objectName" label="考核对象名称" min-width="220" fixed="left" />
               <el-table-column
                 v-for="module in moduleColumns"
@@ -174,7 +174,7 @@
           <span>{{ voteDialog.moduleName }}</span>
         </el-form-item>
         <el-form-item label="纸质票数">
-          <el-table :data="voteDialog.voterSubjects" border size="small" class="vote-matrix-table">
+          <el-table ref="voteMatrixTableRef" :data="voteDialog.voterSubjects" border size="small" class="vote-matrix-table">
             <el-table-column label="投票主体" min-width="160" fixed>
               <template #default="{ row }">
                 <div class="vote-subject-cell">
@@ -230,8 +230,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
+import type { TableInstance } from "element-plus";
 import { listCalculatedAssessmentSessionObjects, upsertAssessmentModuleScores } from "@/api/assessment";
 import { listRuleFiles } from "@/api/rules";
 import { useAppStore } from "@/stores/app";
@@ -300,6 +301,9 @@ interface PendingScoreItem {
 const contextStore = useContextStore();
 const appStore = useAppStore();
 const overviewViewRef = ref<HTMLElement>();
+const summaryTableRef = ref<TableInstance>();
+const entryTableRef = ref<TableInstance>();
+const voteMatrixTableRef = ref<TableInstance>();
 const activeTab = ref<"summary" | "entry" | "rule-modules" | "rule-grades">("summary");
 const moduleColumns = ref<TableModuleColumn[]>([]);
 const assessmentRows = ref<TableRow[]>([]);
@@ -327,6 +331,7 @@ const voteDialog = ref<{
   countByCellKey: {},
 });
 let fetchSequence = 0;
+let tableLayoutTimer: ReturnType<typeof window.setTimeout> | null = null;
 
 const hasAccessibleSession = computed(() => {
   const sessionID = contextStore.sessionId;
@@ -1054,6 +1059,24 @@ function handleOverviewKeydown(event: KeyboardEvent): void {
   void saveModuleScores();
 }
 
+function scheduleTableLayout(): void {
+  if (tableLayoutTimer !== null) {
+    window.clearTimeout(tableLayoutTimer);
+  }
+  tableLayoutTimer = window.setTimeout(() => {
+    tableLayoutTimer = null;
+    void nextTick(() => {
+      summaryTableRef.value?.doLayout();
+      entryTableRef.value?.doLayout();
+      voteMatrixTableRef.value?.doLayout();
+    });
+  }, 0);
+}
+
+function handleOverviewResize(): void {
+  scheduleTableLayout();
+}
+
 async function loadAssessmentTableData(): Promise<void> {
   scoreDecimalPlaces.value = readScoreDecimalPlaces();
   const currentSeq = ++fetchSequence;
@@ -1061,6 +1084,7 @@ async function loadAssessmentTableData(): Promise<void> {
     moduleColumns.value = [];
     assessmentRows.value = [];
     clearPendingScores();
+    scheduleTableLayout();
     return;
   }
 
@@ -1114,22 +1138,31 @@ async function loadAssessmentTableData(): Promise<void> {
   } finally {
     if (currentSeq === fetchSequence) {
       loadingTable.value = false;
+      scheduleTableLayout();
     }
   }
 }
 
 onMounted(async () => {
   window.addEventListener("keydown", handleOverviewKeydown);
+  window.addEventListener("resize", handleOverviewResize);
   try {
     await contextStore.ensureInitialized();
   } catch (error) {
     const message = error instanceof Error ? error.message : "加载上下文失败";
     ElMessage.error(message);
+  } finally {
+    scheduleTableLayout();
   }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleOverviewKeydown);
+  window.removeEventListener("resize", handleOverviewResize);
+  if (tableLayoutTimer !== null) {
+    window.clearTimeout(tableLayoutTimer);
+    tableLayoutTimer = null;
+  }
 });
 
 watch(
@@ -1138,6 +1171,14 @@ watch(
     void loadAssessmentTableData();
   },
   { immediate: true },
+);
+
+watch(
+  () => [activeTab.value, moduleColumns.value.length, assessmentRows.value.length, voteDialogVisible.value],
+  () => {
+    scheduleTableLayout();
+  },
+  { flush: "post" },
 );
 </script>
 
