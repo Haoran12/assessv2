@@ -163,6 +163,10 @@ func (a *App) SetPreferredDataYear(year int) error {
 	return fmt.Errorf("preferred data year is deprecated in session-based mode")
 }
 
+func (a *App) SwitchToEnglishInputMethod() error {
+	return switchToEnglishInputMethod()
+}
+
 func (a *App) SaveXlsxFileWithDialog(defaultFileName string, contentBase64 string) (string, error) {
 	a.mu.RLock()
 	ctx := a.ctx

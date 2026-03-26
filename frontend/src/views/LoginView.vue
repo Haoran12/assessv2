@@ -15,7 +15,7 @@
 
       <el-form :model="form" label-position="top" @submit.prevent>
         <el-form-item label="用户名">
-          <el-input v-model="form.username" placeholder="请输入用户名" />
+          <el-input v-model="form.username" placeholder="请输入用户名" @focus="switchDesktopImeToEnglish" />
         </el-form-item>
 
         <el-form-item label="密码">
@@ -25,6 +25,7 @@
             placeholder="请输入密码"
             show-password
             @keyup.enter="handleLogin"
+            @focus="switchDesktopImeToEnglish"
           />
         </el-form-item>
 
@@ -37,13 +38,15 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { AxiosError } from "axios";
 import { useAppStore } from "@/stores/app";
+import { SwitchToEnglishInputMethod } from "../../wailsjs/go/main/App";
 
 const SESSION_EXPIRED_KEY = "assessv2_session_expired";
+const isDesktopRuntime = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("wails");
 
 const route = useRoute();
 const router = useRouter();
@@ -58,6 +61,21 @@ const form = reactive({
 
 if (sessionExpired.value) {
   sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+}
+
+onMounted(() => {
+  void switchDesktopImeToEnglish();
+});
+
+async function switchDesktopImeToEnglish(): Promise<void> {
+  if (!isDesktopRuntime) {
+    return;
+  }
+  try {
+    await SwitchToEnglishInputMethod();
+  } catch {
+    // No-op: web environment or unsupported platform.
+  }
 }
 
 async function handleLogin(): Promise<void> {
