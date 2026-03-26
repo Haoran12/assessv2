@@ -52,8 +52,8 @@ const appStore = useAppStore();
 const loading = ref(false);
 const sessionExpired = ref(sessionStorage.getItem(SESSION_EXPIRED_KEY) === "1");
 const form = reactive({
-  username: "root",
-  password: "#AssessV2@Init",
+  username: "",
+  password: "",
 });
 
 if (sessionExpired.value) {
