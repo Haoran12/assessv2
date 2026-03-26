@@ -44,15 +44,15 @@
                   :row-class-name="moduleRowClassName"
                 >
                   <el-table-column label="拖动排序" width="76" align="center">
-                    <template #default="{ $index }">
+                    <template #default="{ row, $index }">
                       <div
                         class="drag-handle"
                         :class="{
-                          'is-disabled': !canEditRule,
+                          'is-disabled': !canEditRule || isExtraAdjustModule(row),
                           'is-dragging': draggingModuleIndex === $index,
                           'is-drop-target': moduleDropTargetIndex === $index && draggingModuleIndex !== $index,
                         }"
-                        :draggable="canEditRule"
+                        :draggable="canEditRule && !isExtraAdjustModule(row)"
                         @dragstart="onModuleDragStart($index, $event)"
                         @dragover="onModuleDragOver($event)"
                         @dragenter.prevent="onModuleDragEnter($index, $event)"
@@ -65,7 +65,7 @@
                   </el-table-column>
                   <el-table-column label="模块名称" min-width="200">
                     <template #default="{ row }">
-                      <el-input v-model="row.moduleName" :disabled="!canEditRule" />
+                      <el-input v-model="row.moduleName" :disabled="!canEditRule || isExtraAdjustModule(row)" />
                     </template>
                   </el-table-column>
                   <el-table-column label="权重" min-width="118">
@@ -73,7 +73,7 @@
                       <el-input-number
                         v-model="row.weight"
                         class="module-weight-input"
-                        :disabled="!canEditRule"
+                        :disabled="!canEditRule || isExtraAdjustModule(row)"
                         :min="0"
                         :step="1"
                       />
@@ -84,7 +84,7 @@
                       <el-select
                         v-model="row.calculationMethod"
                         class="module-method-select"
-                        :disabled="!canEditRule"
+                        :disabled="!canEditRule || isExtraAdjustModule(row)"
                         @change="handleMethodChange(row)"
                       >
                         <el-option label="直接录入" value="direct_input" />
@@ -96,8 +96,8 @@
                   <el-table-column label="操作" width="160" fixed="right">
                     <template #default="{ row }">
                       <div class="table-row-actions">
-                        <el-button size="small" type="primary" plain @click="openModuleDetail(row)">详情</el-button>
-                        <el-button size="small" type="danger" plain :disabled="!canEditRule" @click="removeScoreModule(row)">删除</el-button>
+                        <el-button size="small" type="primary" plain :disabled="isExtraAdjustModule(row)" @click="openModuleDetail(row)">详情</el-button>
+                        <el-button size="small" type="danger" plain :disabled="!canEditRule || isExtraAdjustModule(row)" @click="removeScoreModule(row)">删除</el-button>
                       </div>
                     </template>
                   </el-table-column>
@@ -634,6 +634,9 @@ type UpperOperator = "<" | "<=";
 type LowerOperator = ">" | ">=";
 type MaxRatioRoundingMode = "real" | "floor" | "ceil";
 
+const EXTRA_ADJUST_MODULE_KEY = "__extra_adjust__";
+const EXTRA_ADJUST_MODULE_NAME = "额外加减分";
+
 interface ScoreModule {
   id: string;
   moduleKey: string;
@@ -789,7 +792,9 @@ const activeScopedRule = computed(() =>
 );
 
 const totalWeight = computed(() =>
-  (activeScopedRule.value?.scoreModules || []).reduce((sum, item) => sum + asNumber(item.weight, 0), 0),
+  (activeScopedRule.value?.scoreModules || [])
+    .filter((item) => !isExtraAdjustModule(item))
+    .reduce((sum, item) => sum + asNumber(item.weight, 0), 0),
 );
 
 const structuredJsonPreview = computed(() => JSON.stringify(normalizeRuleContent(cloneDeep(ruleContent)), null, 2));
@@ -1439,6 +1444,43 @@ function newScoreModule(seed = "模块", weight = 100): ScoreModule {
   };
 }
 
+function isExtraAdjustModule(module: Pick<ScoreModule, "moduleKey" | "id"> | null | undefined): boolean {
+  if (!module) {
+    return false;
+  }
+  const moduleKey = String(module.moduleKey || "").trim();
+  const moduleID = String(module.id || "").trim();
+  return moduleKey === EXTRA_ADJUST_MODULE_KEY || moduleID === EXTRA_ADJUST_MODULE_KEY;
+}
+
+function normalizeExtraAdjustModule(module?: Partial<ScoreModule>): ScoreModule {
+  return {
+    id: String(module?.id || EXTRA_ADJUST_MODULE_KEY).trim() || EXTRA_ADJUST_MODULE_KEY,
+    moduleKey: EXTRA_ADJUST_MODULE_KEY,
+    moduleName: EXTRA_ADJUST_MODULE_NAME,
+    weight: 0,
+    calculationMethod: "direct_input",
+    customScript: "",
+    voteConfigJson: "",
+  };
+}
+
+function ensureScoreModulesWithExtraAdjust(modules: ScoreModule[]): ScoreModule[] {
+  const normalized: ScoreModule[] = [];
+  let extraModule: ScoreModule | null = null;
+  for (const module of modules) {
+    if (isExtraAdjustModule(module)) {
+      if (!extraModule) {
+        extraModule = normalizeExtraAdjustModule(module);
+      }
+      continue;
+    }
+    normalized.push(module);
+  }
+  normalized.push(extraModule || normalizeExtraAdjustModule());
+  return normalized;
+}
+
 function newGrade(seed = "A"): GradeRule {
   return {
     id: uuid("grade"),
@@ -1464,7 +1506,7 @@ function defaultScopedRule(withContext: boolean): ScopedRule {
     id: uuid("scoped"),
     applicablePeriods: withContext && contextStore.periodCode ? [contextStore.periodCode] : [],
     applicableObjectGroups: withContext && contextStore.objectGroupCode ? [contextStore.objectGroupCode] : [],
-    scoreModules: [newScoreModule("基础绩效", 100)],
+    scoreModules: ensureScoreModulesWithExtraAdjust([newScoreModule("基础绩效", 100)]),
     grades: [
       newGrade("A"),
       {
@@ -1571,7 +1613,7 @@ function normalizeScopedRule(raw: any, index: number): ScopedRule {
     id: String(raw?.id || `scoped_${index + 1}`) || uuid("scoped"),
     applicablePeriods: normalizedCodeList(raw?.applicablePeriods ?? raw?.periodCodes, true),
     applicableObjectGroups: normalizedCodeList(raw?.applicableObjectGroups ?? raw?.objectGroupCodes, false),
-    scoreModules: modules.length > 0 ? modules : [newScoreModule(`模块${index + 1}`, 100)],
+    scoreModules: ensureScoreModulesWithExtraAdjust(modules.length > 0 ? modules : [newScoreModule(`模块${index + 1}`, 100)]),
     grades: grades.length > 0 ? grades : [newGrade("A")],
   };
 }
@@ -1789,6 +1831,12 @@ function insertGradeSelectedExpression(): void {
 }
 
 function handleMethodChange(module: ScoreModule): void {
+  if (isExtraAdjustModule(module)) {
+    module.calculationMethod = "direct_input";
+    module.customScript = "";
+    module.voteConfigJson = "";
+    return;
+  }
   module.calculationMethod = normalizeMethod(module.calculationMethod);
   if (module.calculationMethod !== "custom_script") {
     module.customScript = "";
@@ -1846,8 +1894,13 @@ function onModuleDragStart(index: number, event: DragEvent): void {
     event.preventDefault();
     return;
   }
+  const targetModule = activeScopedRule.value.scoreModules[index];
+  if (isExtraAdjustModule(targetModule)) {
+    event.preventDefault();
+    return;
+  }
   draggingModuleIndex.value = index;
-  draggingModuleId.value = activeScopedRule.value.scoreModules[index]?.id || "";
+  draggingModuleId.value = targetModule?.id || "";
   moduleDropTargetIndex.value = index;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
@@ -2191,14 +2244,16 @@ async function applyCopyFromSource(): Promise<void> {
       },
     );
 
-    activeScopedRule.value.scoreModules = sourceScopedRule.scoreModules.map((item, index) =>
-      normalizeScoreModule(
-        {
-          ...cloneDeep(item),
-          id: uuid("module"),
-          moduleKey: String(item.moduleKey || `module_${index + 1}`).trim() || `module_${index + 1}`,
-        },
-        index,
+    activeScopedRule.value.scoreModules = ensureScoreModulesWithExtraAdjust(
+      sourceScopedRule.scoreModules.map((item, index) =>
+        normalizeScoreModule(
+          {
+            ...cloneDeep(item),
+            id: uuid("module"),
+            moduleKey: String(item.moduleKey || `module_${index + 1}`).trim() || `module_${index + 1}`,
+          },
+          index,
+        ),
       ),
     );
     activeScopedRule.value.grades = sourceScopedRule.grades.map((item, index) =>
@@ -2229,11 +2284,17 @@ function addScoreModule(): void {
   if (!canEditRule.value || !activeScopedRule.value) {
     return;
   }
-  activeScopedRule.value.scoreModules.push(newScoreModule(`模块${activeScopedRule.value.scoreModules.length + 1}`, 0));
+  const editableModules = activeScopedRule.value.scoreModules.filter((item) => !isExtraAdjustModule(item));
+  editableModules.push(newScoreModule(`模块${editableModules.length + 1}`, 0));
+  activeScopedRule.value.scoreModules = ensureScoreModulesWithExtraAdjust(editableModules);
 }
 
 async function removeScoreModule(module: ScoreModule): Promise<void> {
   if (!canEditRule.value || !activeScopedRule.value) {
+    return;
+  }
+  if (isExtraAdjustModule(module)) {
+    ElMessage.warning("额外加减分模块为系统固定项，不可删除");
     return;
   }
   const moduleName = module.moduleName.trim() || "未命名模块";
@@ -2243,7 +2304,9 @@ async function removeScoreModule(module: ScoreModule): Promise<void> {
       confirmButtonText: "删除",
       cancelButtonText: "取消",
     });
-    activeScopedRule.value.scoreModules = activeScopedRule.value.scoreModules.filter((item) => item.id !== module.id);
+    activeScopedRule.value.scoreModules = ensureScoreModulesWithExtraAdjust(
+      activeScopedRule.value.scoreModules.filter((item) => item.id !== module.id),
+    );
   } catch (error) {
     if (isDialogCancel(error)) {
       return;
@@ -2283,7 +2346,8 @@ async function removeGrade(grade: GradeRule): Promise<void> {
 }
 
 function normalizeRuleForSave(row: ScopedRule): ScopedRule {
-  const normalizedModules = row.scoreModules.map((module, index) => {
+  const editableModules = row.scoreModules.filter((item) => !isExtraAdjustModule(item));
+  const normalizedModules = editableModules.map((module, index) => {
     const normalized: any = {
       id: module.id || uuid("module"),
       moduleKey: String(module.moduleKey || module.id || `module_${index + 1}`).trim() || `module_${index + 1}`,
@@ -2300,6 +2364,14 @@ function normalizeRuleForSave(row: ScopedRule): ScopedRule {
     }
 
     return normalized;
+  });
+  normalizedModules.push({
+    id: EXTRA_ADJUST_MODULE_KEY,
+    moduleKey: EXTRA_ADJUST_MODULE_KEY,
+    moduleName: EXTRA_ADJUST_MODULE_NAME,
+    weight: 0,
+    calculationMethod: "direct_input",
+    customScript: "",
   });
 
   const normalizedGrades = row.grades.map((grade) => ({
@@ -2340,16 +2412,17 @@ function validateRuleContent(content: StructuredRuleContent): string {
   for (let index = 0; index < effectiveScopedRules.length; index += 1) {
     const scoped = effectiveScopedRules[index];
     const title = `第${index + 1}条具体规则`;
+    const editableModules = scoped.scoreModules.filter((item) => !isExtraAdjustModule(item));
 
-    if (scoped.scoreModules.length === 0) {
+    if (editableModules.length === 0) {
       return `${title}至少需要一个分数模块`;
     }
-    const total = scoped.scoreModules.reduce((sum, item) => sum + item.weight, 0);
+    const total = editableModules.reduce((sum, item) => sum + item.weight, 0);
     if (total <= 0) {
       return `${title}的模块总权重必须大于 0`;
     }
 
-    for (const module of scoped.scoreModules) {
+    for (const module of editableModules) {
       if (!module.moduleName.trim()) {
         return `${title}存在空模块名称`;
       }

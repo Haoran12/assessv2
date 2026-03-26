@@ -61,6 +61,7 @@ func normalizeRuleContentByPeriodBindings(contentJSON string, periods []model.As
 		if !ok {
 			continue
 		}
+		row["scoreModules"] = ensureExtraAdjustModuleRows(row["scoreModules"])
 		periodCodes := normalizeUpperCodeList(anyToStringSlice(row["applicablePeriods"]))
 		if len(periodCodes) == 0 {
 			continue

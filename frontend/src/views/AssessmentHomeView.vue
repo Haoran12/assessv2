@@ -1,12 +1,12 @@
 ﻿<template>
   <div ref="overviewViewRef" class="overview-view">
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="结果概览" name="summary">
+      <el-tab-pane label="考核主页" name="summary">
         <el-card>
           <template #header>
             <div class="card-header">
               <div class="header-left">
-                <strong>考核结果</strong>
+                <strong>考核主页</strong>
                 <span class="context-text">{{ contextSummaryText }}</span>
               </div>
               <div class="header-actions">
@@ -107,6 +107,7 @@
                     <span>{{ module.moduleName }}</span>
                     <el-tag v-if="module.calculationMethod === 'vote'" size="small" type="warning">票决(线下)</el-tag>
                     <el-tag v-else-if="module.calculationMethod === 'custom_script'" size="small">脚本</el-tag>
+                    <el-tag v-else-if="isExtraAdjustModule(module)" size="small" type="info">额外加减</el-tag>
                     <el-tag v-else size="small" type="success">直录</el-tag>
                   </div>
                 </template>
@@ -114,8 +115,8 @@
                   <template v-if="module.calculationMethod === 'direct_input'">
                     <el-input-number
                       :model-value="toInputNumberValue(row.moduleScores[module.moduleKey])"
-                      :min="0"
-                      :max="100"
+                      :min="moduleInputMin(module)"
+                      :max="moduleInputMax(module)"
                       :step="scoreInputStep"
                       :precision="scoreDecimalPlaces"
                       :controls="false"
@@ -248,6 +249,10 @@ import {
 } from "@/utils/score-decimal";
 
 type ScoreMethod = "direct_input" | "vote" | "custom_script";
+const EXTRA_ADJUST_MODULE_KEY = "__extra_adjust__";
+const EXTRA_ADJUST_MODULE_NAME = "额外加减分";
+const EXTRA_ADJUST_SCORE_MIN = -20;
+const EXTRA_ADJUST_SCORE_MAX = 20;
 
 interface VoteGradeConfig {
   id: string;
@@ -360,6 +365,27 @@ const contextSummaryText = computed(() => {
   const groupName = contextStore.currentObjectGroup?.groupName || contextStore.objectGroupCode || "-";
   return `场次：${sessionName} / 周期：${periodName} / 对象分组：${groupName}`;
 });
+
+function isExtraAdjustModule(module: Pick<TableModuleColumn, "moduleKey"> | null | undefined): boolean {
+  if (!module) {
+    return false;
+  }
+  return String(module.moduleKey || "").trim() === EXTRA_ADJUST_MODULE_KEY;
+}
+
+function moduleInputMin(module: TableModuleColumn): number {
+  if (isExtraAdjustModule(module)) {
+    return EXTRA_ADJUST_SCORE_MIN;
+  }
+  return 0;
+}
+
+function moduleInputMax(module: TableModuleColumn): number {
+  if (isExtraAdjustModule(module)) {
+    return EXTRA_ADJUST_SCORE_MAX;
+  }
+  return 100;
+}
 
 function toNumberOrNull(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -599,9 +625,39 @@ function normalizeMethod(value: unknown): ScoreMethod {
   return "direct_input";
 }
 
+function normalizeExtraAdjustModuleColumn(module?: Partial<TableModuleColumn>): TableModuleColumn {
+  return {
+    moduleKey: EXTRA_ADJUST_MODULE_KEY,
+    moduleName: EXTRA_ADJUST_MODULE_NAME,
+    calculationMethod: "direct_input",
+    voteConfig: null,
+    ...module,
+    moduleKey: EXTRA_ADJUST_MODULE_KEY,
+    moduleName: EXTRA_ADJUST_MODULE_NAME,
+    calculationMethod: "direct_input",
+    voteConfig: null,
+  };
+}
+
+function ensureExtraAdjustModuleColumn(modules: TableModuleColumn[]): TableModuleColumn[] {
+  const normalized: TableModuleColumn[] = [];
+  let extraModule: TableModuleColumn | null = null;
+  for (const module of modules) {
+    if (isExtraAdjustModule(module)) {
+      if (!extraModule) {
+        extraModule = normalizeExtraAdjustModuleColumn(module);
+      }
+      continue;
+    }
+    normalized.push(module);
+  }
+  normalized.push(extraModule || normalizeExtraAdjustModuleColumn());
+  return normalized;
+}
+
 function normalizeScoreModules(raw: unknown): TableModuleColumn[] {
   if (!Array.isArray(raw)) {
-    return [];
+    return ensureExtraAdjustModuleColumn([]);
   }
   const seen = new Set<string>();
   const normalized: TableModuleColumn[] = [];
@@ -627,7 +683,7 @@ function normalizeScoreModules(raw: unknown): TableModuleColumn[] {
       voteConfig: calculationMethod === "vote" ? normalizeVoteModuleConfig(voteConfigRaw) : null,
     });
   });
-  return normalized;
+  return ensureExtraAdjustModuleColumn(normalized);
 }
 
 function resolveModulesByContext(
@@ -666,7 +722,7 @@ function resolveModulesByContext(
       continue;
     }
   }
-  return [];
+  return ensureExtraAdjustModuleColumn([]);
 }
 
 function compareObjectOrder(left: AssessmentSessionObjectItem, right: AssessmentSessionObjectItem): number {
@@ -907,6 +963,11 @@ function setPendingScore(
 
 function onDirectScoreChange(row: TableRow, module: TableModuleColumn, value: number | string | undefined): void {
   const score = toNumberOrNull(value);
+  if (score !== null && (score < moduleInputMin(module) || score > moduleInputMax(module))) {
+    const rangeText = `${moduleInputMin(module)} ~ ${moduleInputMax(module)}`;
+    ElMessage.warning(`模块「${module.moduleName}」分值必须在 ${rangeText} 范围内`);
+    return;
+  }
   row.moduleScores[module.moduleKey] = score;
   setPendingScore(row.objectId, module.moduleKey, score, undefined);
 }

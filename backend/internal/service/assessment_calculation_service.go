@@ -18,8 +18,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const extraAdjustModuleKey = "__extra_adjust__"
-
 type CalculatedAssessmentObject struct {
 	model.AssessmentSessionObject
 	ModuleScores map[string]*float64 `json:"moduleScores,omitempty"`
@@ -198,9 +196,11 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		scoreModules := toScoreModules(scoped.ScoreModules)
 		rawModuleScores := rawScoresByNode[node]
 		extraAdjust := 0.0
+		extraAdjustExists := false
 		if rawModuleScores != nil {
 			if value, exists := rawModuleScores[extraAdjustModuleKey]; exists {
 				extraAdjust = value
+				extraAdjustExists = true
 			}
 		}
 		moduleScoreMap, hasModuleInput, err := evaluateRuleModuleScores(
@@ -214,14 +214,15 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		if err != nil {
 			return nil, mapToCalculationEvalError(err)
 		}
+		if extraAdjustExists {
+			moduleScoreMap[extraAdjustModuleKey] = extraAdjust
+		}
 		calculatedModuleScoresByNode[node] = moduleScoreMap
 		lookup.setNodeModuleScores(period, object.ID, moduleScoreMap)
 		extraAdjustByNode[node] = extraAdjust
 		hasBaseInput := hasModuleInput
-		if rawModuleScores != nil {
-			if _, exists := rawModuleScores[extraAdjustModuleKey]; exists {
-				hasBaseInput = true
-			}
+		if extraAdjustExists {
+			hasBaseInput = true
 		}
 		if hasBaseInput {
 			value := CalculateTotalScore(moduleScoreMap, scoreModules, extraAdjust)
@@ -451,21 +452,30 @@ func (s *AssessmentSessionService) UpsertModuleScores(
 			scoped = matchScopedRule(ruleContent, periodCode, object.GroupCode)
 			scopedCache[scopedKey] = scoped
 		}
-		if scoped != nil {
-			moduleNode := findCalculationScoreModule(scoped, moduleKey)
-			if moduleNode != nil && normalizeCalculationMethod(moduleNode.CalculationMethod) == "vote" {
-				voteConfig := resolveVoteModuleConfig(*moduleNode)
-				calculatedVoteScore, voteDetail, voteErr := calculateVoteModuleScore(voteConfig, item.VoteInput)
-				if voteErr != nil {
-					return nil, fmt.Errorf("%w: %v", ErrInvalidParam, voteErr)
-				}
-				score = calculatedVoteScore
-				detailRaw, marshalErr := json.Marshal(voteDetail)
-				if marshalErr != nil {
-					return nil, fmt.Errorf("failed to marshal vote detail json: %w", marshalErr)
-				}
-				detailJSON = string(detailRaw)
+		if scoped == nil {
+			return nil, ErrInvalidScoreModule
+		}
+		moduleNode := findCalculationScoreModule(scoped, moduleKey)
+		if moduleNode == nil && !isExtraAdjustModuleKey(moduleKey) {
+			return nil, ErrInvalidScoreModule
+		}
+		if isExtraAdjustModuleKey(moduleKey) {
+			if score < extraAdjustScoreMin || score > extraAdjustScoreMax {
+				return nil, ErrInvalidExtraPointValue
 			}
+			detailJSON = ""
+		} else if moduleNode != nil && normalizeCalculationMethod(moduleNode.CalculationMethod) == "vote" {
+			voteConfig := resolveVoteModuleConfig(*moduleNode)
+			calculatedVoteScore, voteDetail, voteErr := calculateVoteModuleScore(voteConfig, item.VoteInput)
+			if voteErr != nil {
+				return nil, fmt.Errorf("%w: %v", ErrInvalidParam, voteErr)
+			}
+			score = calculatedVoteScore
+			detailRaw, marshalErr := json.Marshal(voteDetail)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("failed to marshal vote detail json: %w", marshalErr)
+			}
+			detailJSON = string(detailRaw)
 		}
 		seen[key] = struct{}{}
 		normalized = append(normalized, model.AssessmentObjectModuleScore{

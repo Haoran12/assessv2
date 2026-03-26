@@ -1481,6 +1481,14 @@ func buildDefaultRuleTemplateJSON() string {
 						"calculationMethod": "direct_input",
 						"customScript":      "",
 					},
+					{
+						"id":                extraAdjustModuleKey,
+						"moduleKey":         extraAdjustModuleKey,
+						"moduleName":        extraAdjustModuleName,
+						"weight":            0,
+						"calculationMethod": "direct_input",
+						"customScript":      "",
+					},
 				},
 				"grades": []map[string]any{
 					{
@@ -1497,6 +1505,7 @@ func buildDefaultRuleTemplateJSON() string {
 						"extraConditionScript": "",
 						"conditionLogic":       "and",
 						"maxRatioPercent":      nil,
+						"maxRatioRoundingMode": MaxRatioRoundingModeReal,
 					},
 					{
 						"id":    "grade_b",
@@ -1512,6 +1521,7 @@ func buildDefaultRuleTemplateJSON() string {
 						"extraConditionScript": "",
 						"conditionLogic":       "and",
 						"maxRatioPercent":      nil,
+						"maxRatioRoundingMode": MaxRatioRoundingModeReal,
 					},
 					{
 						"id":    "grade_c",
@@ -1527,6 +1537,7 @@ func buildDefaultRuleTemplateJSON() string {
 						"extraConditionScript": "",
 						"conditionLogic":       "and",
 						"maxRatioPercent":      nil,
+						"maxRatioRoundingMode": MaxRatioRoundingModeReal,
 					},
 				},
 			},

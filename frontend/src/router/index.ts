@@ -8,7 +8,7 @@ const ChangePasswordView = () => import("@/views/ChangePasswordView.vue");
 const SystemUsersView = () => import("@/views/SystemUsersView.vue");
 const ForbiddenView = () => import("@/views/ForbiddenView.vue");
 const OrganizationView = () => import("@/views/OrganizationView.vue");
-const SystemOverviewView = () => import("@/views/SystemOverviewView.vue");
+const AssessmentHomeView = () => import("@/views/AssessmentHomeView.vue");
 const AssessmentView = () => import("@/views/AssessmentView.vue");
 const BackupManageView = () => import("@/views/BackupManageView.vue");
 const AuditLogsView = () => import("@/views/AuditLogsView.vue");
@@ -18,7 +18,7 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: "overview",
     name: "overview",
-    component: SystemOverviewView,
+    component: AssessmentHomeView,
     meta: { requiresAuth: true },
   },
   {
