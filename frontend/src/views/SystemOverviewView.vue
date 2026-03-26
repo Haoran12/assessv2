@@ -33,19 +33,19 @@
           />
           <template v-else>
             <el-table ref="summaryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
-              <el-table-column prop="rank" label="排名" width="88" />
-              <el-table-column prop="objectName" label="考核对象名称" min-width="220" />
-              <el-table-column label="总分" width="120">
+              <el-table-column prop="rank" label="排名" width="72" />
+              <el-table-column prop="objectName" label="考核对象名称" min-width="190" />
+              <el-table-column label="总分" width="96">
                 <template #default="{ row }">
                   {{ formatScore(row.totalScore) }}
                 </template>
               </el-table-column>
-              <el-table-column prop="grade" label="等第" width="120" />
+              <el-table-column prop="grade" label="等第" width="88" />
               <el-table-column
                 v-for="module in moduleColumns"
                 :key="module.moduleKey"
                 :label="module.moduleName"
-                min-width="140"
+                min-width="120"
               >
                 <template #default="{ row }">
                   {{ formatScore(row.moduleScores[module.moduleKey]) }}
@@ -96,11 +96,11 @@
               class="entry-readonly-alert"
             />
             <el-table ref="entryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
-              <el-table-column prop="objectName" label="考核对象名称" min-width="220" fixed="left" />
+              <el-table-column prop="objectName" label="考核对象名称" min-width="190" fixed="left" />
               <el-table-column
                 v-for="module in moduleColumns"
                 :key="`entry_${module.moduleKey}`"
-                min-width="180"
+                min-width="150"
               >
                 <template #header>
                   <div class="entry-header">
@@ -175,7 +175,7 @@
         </el-form-item>
         <el-form-item label="纸质票数">
           <el-table ref="voteMatrixTableRef" :data="voteDialog.voterSubjects" border size="small" class="vote-matrix-table">
-            <el-table-column label="投票主体" min-width="160" fixed>
+            <el-table-column label="投票主体" min-width="140" fixed>
               <template #default="{ row }">
                 <div class="vote-subject-cell">
                   <span>{{ row.label }}</span>
@@ -187,7 +187,7 @@
               v-for="grade in voteDialog.gradeScores"
               :key="`vote-grade-col-${grade.id}`"
               :label="`${grade.label}(${formatScore(grade.score)})`"
-              min-width="140"
+              min-width="120"
               align="center"
             >
               <template #default="{ row: subject }">
@@ -201,7 +201,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="主体总票数" width="120" align="center">
+            <el-table-column label="主体总票数" width="100" align="center">
               <template #default="{ row }">
                 {{ voteSubjectTotal(row.id) }}
               </template>

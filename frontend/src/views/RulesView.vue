@@ -43,7 +43,7 @@
                   class="rules-table module-table"
                   :row-class-name="moduleRowClassName"
                 >
-                  <el-table-column label="拖动排序" width="96" align="center">
+                  <el-table-column label="拖动排序" width="76" align="center">
                     <template #default="{ $index }">
                       <div
                         class="drag-handle"
@@ -63,12 +63,12 @@
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="模块名称" min-width="240">
+                  <el-table-column label="模块名称" min-width="200">
                     <template #default="{ row }">
                       <el-input v-model="row.moduleName" :disabled="!canEditRule" />
                     </template>
                   </el-table-column>
-                  <el-table-column label="权重" min-width="160">
+                  <el-table-column label="权重" min-width="118">
                     <template #default="{ row }">
                       <el-input-number
                         v-model="row.weight"
@@ -79,7 +79,7 @@
                       />
                     </template>
                   </el-table-column>
-                  <el-table-column label="计分方式" min-width="200">
+                  <el-table-column label="计分方式" min-width="150">
                     <template #default="{ row }">
                       <el-select
                         v-model="row.calculationMethod"
@@ -93,7 +93,7 @@
                       </el-select>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="190" fixed="right">
+                  <el-table-column label="操作" width="160" fixed="right">
                     <template #default="{ row }">
                       <div class="table-row-actions">
                         <el-button size="small" type="primary" plain @click="openModuleDetail(row)">详情</el-button>
@@ -136,12 +136,12 @@
                   <strong>等第划分规则</strong>
                 </div>
                 <el-table :data="activeScopedRule.grades" class="rules-table">
-                  <el-table-column label="等第标题" min-width="170">
+                  <el-table-column label="等第标题" min-width="138">
                     <template #default="{ row }">
                       <el-input v-model="row.title" :disabled="!canEditRule" />
                     </template>
                   </el-table-column>
-                  <el-table-column label="上限" min-width="300">
+                  <el-table-column label="上限" min-width="240">
                     <template #default="{ row }">
                       <div class="grade-node-cell">
                         <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
@@ -162,7 +162,7 @@
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="下限" min-width="300">
+                  <el-table-column label="下限" min-width="240">
                     <template #default="{ row }">
                       <div class="grade-node-cell">
                         <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
@@ -183,7 +183,7 @@
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="区间/条件" min-width="150">
+                  <el-table-column label="区间/条件" min-width="120">
                     <template #default="{ row }">
                       <el-select v-model="row.conditionLogic" class="grade-logic-select" :disabled="!canEditRule">
                         <el-option label="AND" value="and" />
@@ -191,20 +191,37 @@
                       </el-select>
                     </template>
                   </el-table-column>
-                  <el-table-column label="人数上限比例(%)" min-width="180">
+                  <el-table-column label="人数上限" min-width="166">
                     <template #default="{ row }">
-                      <el-input-number
-                        v-model="row.maxRatioPercent"
-                        class="grade-ratio-input"
-                        :disabled="!canEditRule"
-                        :min="0"
-                        :max="100"
-                        :step="0.1"
-                        placeholder="不限制"
-                      />
+                      <div class="grade-ratio-inline">
+                        <el-input-number
+                          v-model="row.maxRatioPercent"
+                          class="grade-ratio-input"
+                          :disabled="!canEditRule"
+                          :min="0"
+                          :max="100"
+                          :step="0.1"
+                          size="small"
+                          placeholder="不限"
+                        />
+                        <span class="grade-ratio-unit">%</span>
+                        <el-select
+                          v-model="row.maxRatioRoundingMode"
+                          class="grade-ratio-mode-select"
+                          :disabled="!canEditRule"
+                          size="small"
+                        >
+                          <el-option
+                            v-for="item in maxRatioRoundingModeOptions"
+                            :key="item.value"
+                            :label="item.label"
+                            :value="item.value"
+                          />
+                        </el-select>
+                      </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="190" fixed="right">
+                  <el-table-column label="操作" width="160" fixed="right">
                     <template #default="{ row }">
                       <div class="table-row-actions">
                         <el-button size="small" type="primary" plain @click="openGradeDetail(row)">详情</el-button>
@@ -397,13 +414,13 @@
 
         <template v-else-if="moduleDetailTarget.calculationMethod === 'vote'">
           <div class="field-label">投票挡位与分值</div>
-          <el-table :data="moduleVoteGradeRows" border class="rules-table vote-grade-table">
-            <el-table-column label="挡位名称" min-width="220">
+            <el-table :data="moduleVoteGradeRows" border class="rules-table vote-grade-table">
+            <el-table-column label="挡位名称" min-width="180">
               <template #default="{ row }">
                 <el-input v-model="row.label" :disabled="!canEditRule" placeholder="例如：优秀" />
               </template>
             </el-table-column>
-            <el-table-column label="分值" width="180">
+            <el-table-column label="分值" width="130">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.score"
@@ -416,7 +433,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="110" align="center">
+            <el-table-column label="操作" width="96" align="center">
               <template #default="{ $index }">
                 <el-button
                   link
@@ -435,12 +452,12 @@
 
           <div class="field-label">投票主体与权重</div>
           <el-table :data="moduleVoteSubjectRows" border class="rules-table vote-subject-table">
-            <el-table-column label="主体名称" min-width="220">
+            <el-table-column label="主体名称" min-width="180">
               <template #default="{ row }">
                 <el-input v-model="row.label" :disabled="!canEditRule" placeholder="例如：干部评议组" />
               </template>
             </el-table-column>
-            <el-table-column label="权重" width="180">
+            <el-table-column label="权重" width="130">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.weight"
@@ -452,7 +469,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="110" align="center">
+            <el-table-column label="操作" width="96" align="center">
               <template #default="{ $index }">
                 <el-button
                   link
@@ -615,6 +632,7 @@ type ScoreMethod = "direct_input" | "vote" | "custom_script";
 type ConditionLogic = "and" | "or";
 type UpperOperator = "<" | "<=";
 type LowerOperator = ">" | ">=";
+type MaxRatioRoundingMode = "real" | "floor" | "ceil";
 
 interface ScoreModule {
   id: string;
@@ -655,6 +673,7 @@ interface GradeRule {
   extraConditionEnabled: boolean;
   conditionLogic: ConditionLogic;
   maxRatioPercent: number | null;
+  maxRatioRoundingMode: MaxRatioRoundingMode;
 }
 
 interface ScopedRule {
@@ -701,6 +720,11 @@ const displayTitle = computed(() => {
   const custom = String(props.headerTitle || "").trim();
   return custom || "规则管理";
 });
+const maxRatioRoundingModeOptions: Array<{ value: MaxRatioRoundingMode; label: string }> = [
+  { value: "real", label: "实数" },
+  { value: "floor", label: "去尾" },
+  { value: "ceil", label: "进一" },
+];
 
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
@@ -1102,6 +1126,19 @@ function normalizeLowerOperator(value: unknown): LowerOperator {
   return String(value || "").trim() === ">" ? ">" : ">=";
 }
 
+function normalizeMaxRatioRoundingMode(value: unknown): MaxRatioRoundingMode {
+  const text = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (text === "floor") {
+    return "floor";
+  }
+  if (text === "ceil") {
+    return "ceil";
+  }
+  return "real";
+}
+
 function normalizedCodeList(value: unknown, uppercase = false): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -1418,6 +1455,7 @@ function newGrade(seed = "A"): GradeRule {
     extraConditionEnabled: false,
     conditionLogic: "and",
     maxRatioPercent: null,
+    maxRatioRoundingMode: "real",
   };
 }
 
@@ -1506,6 +1544,7 @@ function normalizeGrade(raw: any, index: number): GradeRule {
         : String(raw?.extraConditionScript || "").trim().length > 0,
     conditionLogic: normalizeLogic(raw?.conditionLogic || "and"),
     maxRatioPercent: maxRatio,
+    maxRatioRoundingMode: normalizeMaxRatioRoundingMode(raw?.maxRatioRoundingMode),
   };
 }
 
@@ -2278,6 +2317,7 @@ function normalizeRuleForSave(row: ScopedRule): ScopedRule {
     extraConditionScript: String(grade.extraConditionScript || "").trim(),
     conditionLogic: normalizeLogic(grade.conditionLogic),
     maxRatioPercent: toNullableNumber(grade.maxRatioPercent),
+    maxRatioRoundingMode: normalizeMaxRatioRoundingMode(grade.maxRatioRoundingMode),
   }));
 
   return {
@@ -2354,6 +2394,9 @@ function validateRuleContent(content: StructuredRuleContent): string {
       }
       if (grade.maxRatioPercent !== null && (grade.maxRatioPercent <= 0 || grade.maxRatioPercent > 100)) {
         return `${title}中等第「${grade.title}」人数上限比例必须在 (0, 100] 之间`;
+      }
+      if (!["real", "floor", "ceil"].includes(grade.maxRatioRoundingMode)) {
+        return `${title}中等第「${grade.title}」人数比例取整模式不合法`;
       }
     }
   }
@@ -2886,9 +2929,28 @@ onBeforeUnmount(() => {
 
 .rules-table :deep(.module-weight-input),
 .rules-table :deep(.module-method-select),
-.rules-table :deep(.grade-logic-select),
-.rules-table :deep(.grade-ratio-input) {
+.rules-table :deep(.grade-logic-select) {
   width: 100%;
+}
+
+.grade-ratio-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.grade-ratio-unit {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rules-table :deep(.grade-ratio-input) {
+  width: 92px;
+}
+
+.rules-table :deep(.grade-ratio-mode-select) {
+  width: 96px;
 }
 
 .rules-table :deep(.grade-operator-select) {

@@ -1,6 +1,6 @@
 <template>
   <el-container class="app-shell">
-    <el-aside width="250px" class="app-sidebar">
+    <el-aside width="220px" class="app-sidebar">
       <div class="brand">
         <div class="brand-title">{{ appBrandName }}</div>
       </div>
@@ -256,11 +256,11 @@ function roleLabel(roleCode: string): string {
 }
 
 .context-select {
-  width: 170px;
+  width: 160px;
 }
 
 .context-session {
-  width: 280px;
+  width: 250px;
 }
 
 .username-trigger {
@@ -297,6 +297,11 @@ function roleLabel(roleCode: string): string {
   min-height: 0;
   overflow: auto;
   background: #f5f7fa;
+  padding: 12px;
+}
+
+.app-main :deep(.el-card__body) {
+  padding: 14px;
 }
 
 @media (max-width: 1280px) {
@@ -310,11 +315,11 @@ function roleLabel(roleCode: string): string {
   }
 
   .context-select {
-    width: 145px;
+    width: 132px;
   }
 
   .context-session {
-    width: 240px;
+    width: 210px;
   }
 }
 </style>

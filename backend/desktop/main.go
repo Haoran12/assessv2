@@ -18,9 +18,11 @@ func main() {
 	app := NewApp()
 
 	err = wails.Run(&options.App{
-		Title:  "AssessV2",
-		Width:  1280,
-		Height: 800,
+		Title:     "AssessV2",
+		Width:     1600,
+		Height:    960,
+		MinWidth:  1366,
+		MinHeight: 768,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "assessv2.desktop.singleinstance",
 			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,
