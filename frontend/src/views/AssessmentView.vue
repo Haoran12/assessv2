@@ -73,7 +73,7 @@
                 </div>
               </div>
               <el-table :data="periodDrafts" border>
-                <el-table-column label="#" width="52">
+                <el-table-column label="#" width="66" class-name="period-index-column">
                   <template #default="{ row, $index }">
                     <span
                       class="period-index-tag"
@@ -1698,6 +1698,13 @@ onBeforeUnmount(() => {
   min-width: 28px;
   height: 24px;
   border-radius: 4px;
+}
+
+.assessment-view :deep(.period-index-column .cell) {
+  overflow: visible;
+  text-overflow: clip;
+  display: flex;
+  justify-content: center;
 }
 
 .period-index-tag.is-shared {
