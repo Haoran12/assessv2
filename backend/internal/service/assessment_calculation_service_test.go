@@ -433,6 +433,82 @@ func TestUpsertModuleScores_VoteModuleRequiresVoteInput(t *testing.T) {
 	}
 }
 
+func TestUpsertModuleScores_ExtraAdjustRangeValidation(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+
+	_, err := fixture.service.UpsertModuleScores(
+		context.Background(),
+		fixture.claims,
+		1,
+		fixture.sessionID,
+		[]SessionObjectModuleScoreUpsertItem{
+			{
+				PeriodCode: "Q1",
+				ObjectID:   fixture.individualObjectID,
+				ModuleKey:  extraAdjustModuleKey,
+				Score:      extraAdjustScoreMax + 0.01,
+			},
+		},
+		"",
+		"",
+	)
+	if !errors.Is(err, ErrInvalidExtraPointValue) {
+		t.Fatalf("expected ErrInvalidExtraPointValue, got=%v", err)
+	}
+}
+
+func TestListCalculatedObjects_IncludesExtraAdjustModuleScore(t *testing.T) {
+	fixture := setupCalculationFixture(t)
+
+	_, err := fixture.service.UpsertModuleScores(
+		context.Background(),
+		fixture.claims,
+		1,
+		fixture.sessionID,
+		[]SessionObjectModuleScoreUpsertItem{
+			{
+				PeriodCode: "Q1",
+				ObjectID:   fixture.individualObjectID,
+				ModuleKey:  "base_performance",
+				Score:      80,
+			},
+			{
+				PeriodCode: "Q1",
+				ObjectID:   fixture.individualObjectID,
+				ModuleKey:  extraAdjustModuleKey,
+				Score:      5,
+			},
+		},
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("upsert module scores failed: %v", err)
+	}
+
+	rows, err := fixture.service.ListCalculatedObjects(
+		context.Background(),
+		fixture.claims,
+		fixture.sessionID,
+		"Q1",
+		"dept_main",
+	)
+	if err != nil {
+		t.Fatalf("list calculated objects failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got=%d", len(rows))
+	}
+	row := rows[0]
+	if row.TotalScore == nil || !almostEqual(*row.TotalScore, 85) {
+		t.Fatalf("expected totalScore=85, got=%v", row.TotalScore)
+	}
+	extraScore := row.ModuleScores[extraAdjustModuleKey]
+	if extraScore == nil || !almostEqual(*extraScore, 5) {
+		t.Fatalf("expected %s=5, got=%v", extraAdjustModuleKey, extraScore)
+	}
+}
+
 type calculationFixture struct {
 	db                 *gorm.DB
 	service            *AssessmentSessionService

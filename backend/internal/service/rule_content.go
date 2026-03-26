@@ -39,6 +39,7 @@ type calculationGradeRule struct {
 	ExtraConditionEnabled *bool                     `json:"extraConditionEnabled,omitempty"`
 	ConditionLogic        string                    `json:"conditionLogic"`
 	MaxRatioPercent       *float64                  `json:"maxRatioPercent"`
+	MaxRatioRoundingMode  string                    `json:"maxRatioRoundingMode,omitempty"`
 }
 
 type calculationGradeScoreNode struct {
@@ -62,6 +63,9 @@ func parseCalculationRuleContent(raw string) (*calculationRuleContent, error) {
 	content := &calculationRuleContent{}
 	if err := json.Unmarshal([]byte(text), content); err != nil {
 		return nil, err
+	}
+	for index := range content.ScopedRules {
+		content.ScopedRules[index].ScoreModules = ensureExtraAdjustModuleNodes(content.ScopedRules[index].ScoreModules)
 	}
 	content.Raw = contentRaw
 	return content, nil
@@ -153,7 +157,8 @@ func toGradeRules(grades []calculationGradeRule) []RuleEngineGradeRule {
 				LowerScore:    item.ScoreNode.LowerScore,
 				LowerOperator: normalizeLowerOperator(item.ScoreNode.LowerOperator),
 			},
-			ConditionLogic: normalizeConditionLogic(item.ConditionLogic),
+			ConditionLogic:       normalizeConditionLogic(item.ConditionLogic),
+			MaxRatioRoundingMode: normalizeMaxRatioRoundingMode(item.MaxRatioRoundingMode),
 		}
 		if item.MaxRatioPercent != nil {
 			percent := *item.MaxRatioPercent

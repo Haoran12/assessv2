@@ -442,6 +442,8 @@ func (h *AssessmentHandler) ResetObjects(c *gin.Context) {
 func (h *AssessmentHandler) handleAssessmentError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, service.ErrInvalidParam),
+		errors.Is(err, service.ErrInvalidScoreModule),
+		errors.Is(err, service.ErrInvalidExtraPointValue),
 		errors.Is(err, service.ErrInvalidSessionStatus),
 		errors.Is(err, service.ErrInvalidPeriodTemplate),
 		errors.Is(err, service.ErrInvalidRuleObjectType),

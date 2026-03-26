@@ -12,11 +12,11 @@
             </div>
           </div>
 
-                    <el-table v-loading="loadingSessions" :data="sessions" border>
-            <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="displayName" label="场次名称" min-width="260" />
-            <el-table-column prop="year" label="年度" width="100" />
-            <el-table-column label="状态" width="220">
+          <el-table v-loading="loadingSessions" :data="sessions" border>
+            <el-table-column prop="id" label="ID" width="70" />
+            <el-table-column prop="displayName" label="场次名称" min-width="220" />
+            <el-table-column prop="year" label="年度" width="86" />
+            <el-table-column label="状态" width="190">
               <template #default="{ row }">
                 <div class="session-status-cell">
                   <el-tag :type="sessionStatusTagType(row.status)" effect="light">
@@ -39,8 +39,8 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="assessmentName" label="目录名" min-width="220" />
-            <el-table-column label="操作" width="120" fixed="right">
+            <el-table-column prop="assessmentName" label="目录名" min-width="180" />
+            <el-table-column label="操作" width="100" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="selectSession(row.id)">管理</el-button>
               </template>
@@ -73,7 +73,7 @@
                 </div>
               </div>
               <el-table :data="periodDrafts" border>
-                <el-table-column label="#" width="60">
+                <el-table-column label="#" width="66" class-name="period-index-column">
                   <template #default="{ row, $index }">
                     <span
                       class="period-index-tag"
@@ -85,17 +85,17 @@
                     </span>
                   </template>
                 </el-table-column>
-                <el-table-column label="编码" width="160">
+                <el-table-column label="编码" width="128">
                   <template #default="{ row }">
                     <el-input v-model="row.periodCode" @blur="onPeriodCodeBlur(row)" />
                   </template>
                 </el-table-column>
-                <el-table-column label="名称" min-width="180">
+                <el-table-column label="名称" min-width="160">
                   <template #default="{ row }">
                     <el-input v-model="row.periodName" />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="100">
+                <el-table-column label="操作" width="88">
                   <template #default="{ $index }">
                     <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removePeriod($index)">删除</el-button>
                   </template>
@@ -182,8 +182,8 @@
                 </div>
               </div>
               <el-table :data="groupDrafts" border>
-                <el-table-column type="index" label="#" width="60" />
-                <el-table-column label="类型" width="120">
+                <el-table-column type="index" label="#" width="52" />
+                <el-table-column label="类型" width="100">
                   <template #default="{ row }">
                     <el-select v-model="row.objectType">
                       <el-option label="团体" value="team" />
@@ -191,17 +191,17 @@
                     </el-select>
                   </template>
                 </el-table-column>
-                <el-table-column label="编码" width="180">
+                <el-table-column label="编码" width="150">
                   <template #default="{ row }">
                     <el-input v-model="row.groupCode" />
                   </template>
                 </el-table-column>
-                <el-table-column label="名称" min-width="180">
+                <el-table-column label="名称" min-width="160">
                   <template #default="{ row }">
                     <el-input v-model="row.groupName" />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="100">
+                <el-table-column label="操作" width="88">
                   <template #default="{ $index }">
                     <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removeGroup($index)">删除</el-button>
                   </template>
@@ -260,26 +260,26 @@
                 </div>
               </div>
               <el-table v-loading="loadingObjects" :data="objectDrafts" border>
-                <el-table-column prop="id" label="ID" width="80" />
-                <el-table-column label="类型" width="100">
+                <el-table-column prop="id" label="ID" width="70" />
+                <el-table-column label="类型" width="88">
                   <template #default="{ row }">
                     {{ row.objectType === "team" ? "团体" : "个人" }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="groupCode" label="分组编码" width="180" />
-                <el-table-column label="分组名称" width="180">
+                <el-table-column prop="groupCode" label="分组编码" width="150" />
+                <el-table-column label="分组名称" width="150">
                   <template #default="{ row }">
                     {{ groupNameByCode[row.groupCode] || row.groupCode }}
                   </template>
                 </el-table-column>
-                <el-table-column label="来源类型" width="140">
+                <el-table-column label="来源类型" width="120">
                   <template #default="{ row }">
                     {{ row.targetType === "department" ? "部门" : row.targetType === "organization" ? "组织" : "人员" }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="objectName" label="对象名称" min-width="220" />
-                <el-table-column prop="targetId" label="来源ID" width="100" />
-                <el-table-column label="操作" width="100">
+                <el-table-column prop="objectName" label="对象名称" min-width="180" />
+                <el-table-column prop="targetId" label="来源ID" width="88" />
+                <el-table-column label="操作" width="88">
                   <template #default="{ $index }">
                     <el-button link type="danger" :disabled="!canEditCurrentSession" @click="removeObject($index)">删除</el-button>
                   </template>
@@ -338,7 +338,7 @@
         </el-form-item>
         <el-form-item label="候选对象" required>
           <el-table v-loading="loadingCandidates" :data="filteredCandidates" border height="280">
-            <el-table-column label="选择" width="90">
+            <el-table-column label="选择" width="78">
               <template #default="{ row }">
                 <el-button
                   link
@@ -349,14 +349,14 @@
                 </el-button>
               </template>
             </el-table-column>
-            <el-table-column label="类型" width="110">
+            <el-table-column label="类型" width="92">
               <template #default="{ row }">
                 {{ row.targetType === "department" ? "部门" : row.targetType === "organization" ? "次级组织" : "人员" }}
               </template>
             </el-table-column>
-            <el-table-column prop="objectName" label="对象" min-width="160" />
-            <el-table-column prop="organizationName" label="所属组织" min-width="160" />
-            <el-table-column prop="departmentName" label="所属部门" min-width="160" />
+            <el-table-column prop="objectName" label="对象" min-width="140" />
+            <el-table-column prop="organizationName" label="所属组织" min-width="140" />
+            <el-table-column prop="departmentName" label="所属部门" min-width="140" />
           </el-table>
         </el-form-item>
         <el-form-item label="对象分组" required>
@@ -1698,6 +1698,13 @@ onBeforeUnmount(() => {
   min-width: 28px;
   height: 24px;
   border-radius: 4px;
+}
+
+.assessment-view :deep(.period-index-column .cell) {
+  overflow: visible;
+  text-overflow: clip;
+  display: flex;
+  justify-content: center;
 }
 
 .period-index-tag.is-shared {
