@@ -157,8 +157,7 @@ func toGradeRules(grades []calculationGradeRule) []RuleEngineGradeRule {
 				LowerScore:    item.ScoreNode.LowerScore,
 				LowerOperator: normalizeLowerOperator(item.ScoreNode.LowerOperator),
 			},
-			ConditionLogic:       normalizeConditionLogic(item.ConditionLogic),
-			MaxRatioRoundingMode: normalizeMaxRatioRoundingMode(item.MaxRatioRoundingMode),
+			ConditionLogic: normalizeConditionLogic(item.ConditionLogic),
 		}
 		if item.MaxRatioPercent != nil {
 			percent := *item.MaxRatioPercent

@@ -1505,7 +1505,7 @@ func buildDefaultRuleTemplateJSON() string {
 						"extraConditionScript": "",
 						"conditionLogic":       "and",
 						"maxRatioPercent":      nil,
-						"maxRatioRoundingMode": MaxRatioRoundingModeReal,
+						"maxRatioRoundingMode": "real",
 					},
 					{
 						"id":    "grade_b",
@@ -1521,7 +1521,7 @@ func buildDefaultRuleTemplateJSON() string {
 						"extraConditionScript": "",
 						"conditionLogic":       "and",
 						"maxRatioPercent":      nil,
-						"maxRatioRoundingMode": MaxRatioRoundingModeReal,
+						"maxRatioRoundingMode": "real",
 					},
 					{
 						"id":    "grade_c",
@@ -1537,7 +1537,7 @@ func buildDefaultRuleTemplateJSON() string {
 						"extraConditionScript": "",
 						"conditionLogic":       "and",
 						"maxRatioPercent":      nil,
-						"maxRatioRoundingMode": MaxRatioRoundingModeReal,
+						"maxRatioRoundingMode": "real",
 					},
 				},
 			},

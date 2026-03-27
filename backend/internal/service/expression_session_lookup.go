@@ -17,7 +17,6 @@ type expressionScoreLookup struct {
 }
 
 func newExpressionScoreLookup(
-	periods []model.AssessmentSessionPeriod,
 	objects []model.AssessmentSessionObject,
 	rawScoresByNode map[string]map[string]float64,
 ) *expressionScoreLookup {

@@ -174,7 +174,7 @@ func (s *AssessmentSessionService) ListCalculatedObjects(
 		}
 		rawScoresByNode[key][strings.TrimSpace(row.ModuleKey)] = row.Score
 	}
-	lookup := newExpressionScoreLookup(periods, activeObjects, rawScoresByNode)
+	lookup := newExpressionScoreLookup(activeObjects, rawScoresByNode)
 
 	states := make(map[string]*calculationNodeState, len(nodes))
 	calculatedModuleScoresByNode := make(map[string]map[string]float64, len(nodes))
