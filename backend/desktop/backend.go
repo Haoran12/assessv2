@@ -9,8 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,8 +19,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
-
-const preferredDataYearFileName = ".assessment_year"
 
 func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 	if err := prepareDesktopEnv(); err != nil {
@@ -234,92 +230,6 @@ func prepareDesktopEnv() error {
 	return nil
 }
 
-func ensureDesktopDataLayoutCompatibility(exeDir, dataRoot string) error {
-	if err := migrateLegacyFlatAssessmentDB(exeDir, dataRoot); err != nil {
-		return err
-	}
-	if err := migrateLegacyAccountsDB(exeDir, dataRoot); err != nil {
-		return err
-	}
-	return nil
-}
-
-func migrateLegacyFlatAssessmentDB(exeDir, dataRoot string) error {
-	flatMain := filepath.Join(dataRoot, "assess.db")
-	if fileExists(flatMain) {
-		return nil
-	}
-
-	preferredYear := resolvePreferredDataYear(exeDir)
-	preferredYearMain := filepath.Join(dataRoot, strconv.Itoa(preferredYear), "assess.db")
-	if fileExists(preferredYearMain) {
-		if err := moveSQLiteWithSidecars(preferredYearMain, flatMain); err != nil {
-			return fmt.Errorf("migrate preferred yearly assessment db to flat layout: %w", err)
-		}
-		return nil
-	}
-
-	if latestYear, ok := detectLatestDataYearDir(exeDir); ok {
-		latestYearMain := filepath.Join(dataRoot, strconv.Itoa(latestYear), "assess.db")
-		if fileExists(latestYearMain) {
-			if err := moveSQLiteWithSidecars(latestYearMain, flatMain); err != nil {
-				return fmt.Errorf("migrate latest yearly assessment db to flat layout: %w", err)
-			}
-			return nil
-		}
-	}
-
-	return nil
-}
-
-func migrateLegacyAccountsDB(exeDir, dataRoot string) error {
-	accountsMain := filepath.Join(dataRoot, "accounts", "accounts.db")
-	if fileExists(accountsMain) {
-		return nil
-	}
-
-	if err := os.MkdirAll(filepath.Dir(accountsMain), 0o755); err != nil {
-		return fmt.Errorf("create accounts dir for legacy migration: %w", err)
-	}
-
-	legacyAccountsMain := filepath.Join(dataRoot, "accounts.db")
-	if fileExists(legacyAccountsMain) {
-		if err := moveSQLiteWithSidecars(legacyAccountsMain, accountsMain); err != nil {
-			return fmt.Errorf("migrate legacy flat accounts db: %w", err)
-		}
-		return nil
-	}
-
-	flatAssessmentMain := filepath.Join(dataRoot, "assess.db")
-	if fileExists(flatAssessmentMain) {
-		if err := copySQLiteWithSidecars(flatAssessmentMain, accountsMain); err != nil {
-			return fmt.Errorf("bootstrap accounts db from flat assessment db: %w", err)
-		}
-		return nil
-	}
-
-	preferredYear := resolvePreferredDataYear(exeDir)
-	preferredYearMain := filepath.Join(dataRoot, strconv.Itoa(preferredYear), "assess.db")
-	if fileExists(preferredYearMain) {
-		if err := copySQLiteWithSidecars(preferredYearMain, accountsMain); err != nil {
-			return fmt.Errorf("bootstrap accounts db from preferred year db: %w", err)
-		}
-		return nil
-	}
-
-	if latestYear, ok := detectLatestDataYearDir(exeDir); ok {
-		latestYearMain := filepath.Join(dataRoot, strconv.Itoa(latestYear), "assess.db")
-		if fileExists(latestYearMain) {
-			if err := copySQLiteWithSidecars(latestYearMain, accountsMain); err != nil {
-				return fmt.Errorf("bootstrap accounts db from latest year db: %w", err)
-			}
-			return nil
-		}
-	}
-
-	return nil
-}
-
 func moveSQLiteWithSidecars(srcMain, dstMain string) error {
 	if err := os.MkdirAll(filepath.Dir(dstMain), 0o755); err != nil {
 		return err
@@ -427,77 +337,6 @@ func defaultAccountsSQLitePath() (string, error) {
 		return "", fmt.Errorf("create accounts data dir: %w", err)
 	}
 	return filepath.Join(accountsDir, "accounts.db"), nil
-}
-
-func resolvePreferredDataYear(exeDir string) int {
-	if value := strings.TrimSpace(os.Getenv("ASSESS_DATA_YEAR")); value != "" {
-		if parsed, ok := parseAssessmentYear(value); ok {
-			return parsed
-		}
-	}
-
-	if fromFile, ok := loadPreferredDataYearFromFile(exeDir); ok {
-		return fromFile
-	}
-
-	if fromDataDir, ok := detectLatestDataYearDir(exeDir); ok {
-		return fromDataDir
-	}
-
-	return time.Now().Year()
-}
-
-func parseAssessmentYear(text string) (int, bool) {
-	year, err := strconv.Atoi(strings.TrimSpace(text))
-	if err != nil {
-		return 0, false
-	}
-	if year < 2000 || year > 3000 {
-		return 0, false
-	}
-	return year, true
-}
-
-func preferredDataYearFilePath(exeDir string) string {
-	return filepath.Join(exeDir, "data", preferredDataYearFileName)
-}
-
-func loadPreferredDataYearFromFile(exeDir string) (int, bool) {
-	content, err := os.ReadFile(preferredDataYearFilePath(exeDir))
-	if err != nil {
-		return 0, false
-	}
-	return parseAssessmentYear(string(content))
-}
-
-func detectLatestDataYearDir(exeDir string) (int, bool) {
-	dataRoot := filepath.Join(exeDir, "data")
-	entries, err := os.ReadDir(dataRoot)
-	if err != nil {
-		return 0, false
-	}
-
-	years := make([]int, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		year, ok := parseAssessmentYear(entry.Name())
-		if !ok {
-			continue
-		}
-		years = append(years, year)
-	}
-
-	if len(years) == 0 {
-		return 0, false
-	}
-	sort.Ints(years)
-	return years[len(years)-1], true
-}
-
-func persistPreferredDataYear(year int) error {
-	return fmt.Errorf("preferred data year is deprecated in session-based mode")
 }
 
 func ensureEmbeddedMigrationsDir() (string, error) {

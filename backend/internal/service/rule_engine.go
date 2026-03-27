@@ -1,8 +1,16 @@
 package service
 
 import (
+	"math"
 	"sort"
 	"strings"
+)
+
+const (
+	MaxRatioRoundingModeReal  = "real"
+	MaxRatioRoundingModeFloor = "floor"
+	MaxRatioRoundingModeCeil  = "ceil"
+	quotaLimitEpsilon         = 1e-9
 )
 
 type RuleEngineScoreModule struct {
@@ -29,6 +37,9 @@ type RuleEngineGradeRule struct {
 	ConditionLogic        string
 	// MaxRatio is in [0,1], nil means no limit.
 	MaxRatio *float64
+	// MaxRatioRoundingMode controls how quota (ratio * group size) is converted to an integer cap.
+	// Supported values: real, floor, ceil. Default is real.
+	MaxRatioRoundingMode string
 }
 
 type RuleEngineObject struct {
@@ -250,6 +261,9 @@ func quotaLimit(rule RuleEngineGradeRule, groupSize int) (int, bool) {
 	if rule.MaxRatio == nil {
 		return 0, false
 	}
+	if groupSize <= 0 {
+		return 0, true
+	}
 	ratio := *rule.MaxRatio
 	if ratio >= 1 {
 		return groupSize, true
@@ -257,7 +271,21 @@ func quotaLimit(rule RuleEngineGradeRule, groupSize int) (int, bool) {
 	if ratio <= 0 {
 		return 0, true
 	}
-	limit := int(float64(groupSize) * ratio)
+
+	rawLimit := float64(groupSize) * ratio
+	mode := normalizeMaxRatioRoundingMode(rule.MaxRatioRoundingMode)
+	limit := 0
+	switch mode {
+	case MaxRatioRoundingModeCeil:
+		limit = int(math.Ceil(rawLimit - quotaLimitEpsilon))
+	case MaxRatioRoundingModeFloor:
+		limit = int(math.Floor(rawLimit + quotaLimitEpsilon))
+	default:
+		// "real" compares against a real-number cap; for integer headcount this is equivalent
+		// to allowing at most floor(rawLimit) people.
+		limit = int(math.Floor(rawLimit + quotaLimitEpsilon))
+	}
+
 	if limit < 0 {
 		limit = 0
 	}
@@ -284,4 +312,15 @@ func hasQuotaViolation(items []RuleEngineObject, groupIndexes []int, gradeRules 
 		}
 	}
 	return false
+}
+
+func normalizeMaxRatioRoundingMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case MaxRatioRoundingModeFloor:
+		return MaxRatioRoundingModeFloor
+	case MaxRatioRoundingModeCeil:
+		return MaxRatioRoundingModeCeil
+	default:
+		return MaxRatioRoundingModeReal
+	}
 }

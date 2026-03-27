@@ -29,11 +29,11 @@ var (
 	ErrInvalidOrganizationStatus = errors.New("invalid organization status")
 	ErrOrganizationNotFound      = errors.New("organization not found")
 	ErrOrganizationInactive      = errors.New("organization is inactive")
-	ErrOrganizationInUse         = errors.New("organization still has child records")
+	ErrOrganizationInUse         = errors.New("删除失败：该组织下仍有下级组织、部门或人员，请先处理下属对象后再删除")
 
 	ErrInvalidDepartmentStatus = errors.New("invalid department status")
 	ErrDepartmentNotFound      = errors.New("department not found")
-	ErrDepartmentInUse         = errors.New("department still has child records")
+	ErrDepartmentInUse         = errors.New("删除失败：该部门下仍有下级部门或人员，请先处理下属对象后再删除")
 
 	ErrInvalidPositionLevelStatus = errors.New("invalid position level status")
 	ErrPositionLevelNotFound      = errors.New("position level not found")

@@ -110,3 +110,57 @@ func TestAssignGradesConditionLogic(t *testing.T) {
 		t.Fatalf("expected grade A, got=%s", result[0].Grade)
 	}
 }
+
+func TestAssignGradesByGroupQuotaRoundingMode(t *testing.T) {
+	baseItems := []RuleEngineObject{
+		{ObjectID: 1, GroupKey: "g1", TotalScore: 100},
+		{ObjectID: 2, GroupKey: "g1", TotalScore: 99},
+		{ObjectID: 3, GroupKey: "g1", TotalScore: 98},
+		{ObjectID: 4, GroupKey: "g1", TotalScore: 97},
+		{ObjectID: 5, GroupKey: "g1", TotalScore: 96},
+	}
+	ratio := 0.5 // 5 * 0.5 = 2.5
+
+	run := func(mode string) int {
+		items := make([]RuleEngineObject, len(baseItems))
+		copy(items, baseItems)
+		rules := []RuleEngineGradeRule{
+			{
+				Title:                "A",
+				MaxRatio:             &ratio,
+				MaxRatioRoundingMode: mode,
+				ScoreNode: RuleEngineGradeScoreNode{
+					HasLowerLimit: true,
+					LowerScore:    0,
+					LowerOperator: ">=",
+				},
+			},
+			{
+				Title: "B",
+				ScoreNode: RuleEngineGradeScoreNode{
+					HasLowerLimit: true,
+					LowerScore:    0,
+					LowerOperator: ">=",
+				},
+			},
+		}
+		result := AssignGradesByGroup(items, rules, nil)
+		countA := 0
+		for _, item := range result {
+			if item.Grade == "A" {
+				countA++
+			}
+		}
+		return countA
+	}
+
+	if got := run(MaxRatioRoundingModeReal); got != 2 {
+		t.Fatalf("real mode expected A count=2, got=%d", got)
+	}
+	if got := run(MaxRatioRoundingModeFloor); got != 2 {
+		t.Fatalf("floor mode expected A count=2, got=%d", got)
+	}
+	if got := run(MaxRatioRoundingModeCeil); got != 3 {
+		t.Fatalf("ceil mode expected A count=3, got=%d", got)
+	}
+}

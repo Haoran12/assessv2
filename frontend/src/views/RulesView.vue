@@ -93,7 +93,7 @@
                       </el-select>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="160" fixed="right">
+                  <el-table-column label="操作" width="160">
                     <template #default="{ row }">
                       <div class="table-row-actions">
                         <el-button size="small" type="primary" plain :disabled="isExtraAdjustModule(row)" @click="openModuleDetail(row)">详情</el-button>
@@ -135,67 +135,89 @@
                 <div v-if="!hideGradeInnerTitle" class="section-head">
                   <strong>等第划分规则</strong>
                 </div>
-                <el-table :data="activeScopedRule.grades" class="rules-table">
-                  <el-table-column label="等第标题" min-width="138">
+                <el-table
+                  :data="gradeTableRows"
+                  class="rules-table grade-rules-table"
+                  row-key="id"
+                  :row-class-name="gradeTableRowClassName"
+                  :span-method="gradeTableSpanMethod"
+                  table-layout="fixed"
+                >
+                  <el-table-column label="等第标题" :width="gradeTableColumnWidths.title">
                     <template #default="{ row }">
-                      <el-input v-model="row.title" :disabled="!canEditRule" />
+                      <template v-if="row.rowType === 'main'">
+                        <el-input v-model="row.grade.title" :disabled="!canEditRule" />
+                      </template>
+                      <template v-else>
+                        <div class="grade-condition-inline">
+                          <span class="grade-condition-label">条件</span>
+                          <el-select
+                            v-model="row.grade.conditionLogic"
+                            class="grade-condition-logic-select"
+                            :disabled="!canEditRule"
+                            size="small"
+                          >
+                            <el-option label="AND" value="and" />
+                            <el-option label="OR" value="or" />
+                          </el-select>
+                          <span class="grade-condition-script" :title="gradeConditionScriptText(row.grade)">
+                            {{ gradeConditionScriptText(row.grade) }}
+                          </span>
+                          <el-tag size="small" effect="plain" :type="row.grade.extraConditionEnabled ? 'success' : 'info'">
+                            {{ row.grade.extraConditionEnabled ? "脚本已启用" : "脚本未启用" }}
+                          </el-tag>
+                          <el-button size="small" link type="primary" @click="openGradeDetail(row.grade)">编辑脚本</el-button>
+                        </div>
+                      </template>
                     </template>
                   </el-table-column>
-                  <el-table-column label="上限" min-width="240">
+                  <el-table-column label="上限" :width="gradeTableColumnWidths.upper">
                     <template #default="{ row }">
-                      <div class="grade-node-cell">
-                        <el-switch v-model="row.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
+                      <div v-if="row.rowType === 'main'" class="grade-node-cell">
+                        <el-switch v-model="row.grade.scoreNode.hasUpperLimit" :disabled="!canEditRule" />
                         <el-select
-                          v-model="row.scoreNode.upperOperator"
+                          v-model="row.grade.scoreNode.upperOperator"
                           class="grade-operator-select"
-                          :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
+                          :disabled="!canEditRule || !row.grade.scoreNode.hasUpperLimit"
                         >
                           <el-option label="<" value="<" />
                           <el-option label="<=" value="<=" />
                         </el-select>
                         <el-input-number
-                          v-model="row.scoreNode.upperScore"
+                          v-model="row.grade.scoreNode.upperScore"
                           class="grade-score-input"
-                          :disabled="!canEditRule || !row.scoreNode.hasUpperLimit"
+                          :disabled="!canEditRule || !row.grade.scoreNode.hasUpperLimit"
                           :step="0.1"
                         />
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="下限" min-width="240">
+                  <el-table-column label="下限" :width="gradeTableColumnWidths.lower">
                     <template #default="{ row }">
-                      <div class="grade-node-cell">
-                        <el-switch v-model="row.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
+                      <div v-if="row.rowType === 'main'" class="grade-node-cell">
+                        <el-switch v-model="row.grade.scoreNode.hasLowerLimit" :disabled="!canEditRule" />
                         <el-select
-                          v-model="row.scoreNode.lowerOperator"
+                          v-model="row.grade.scoreNode.lowerOperator"
                           class="grade-operator-select"
-                          :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
+                          :disabled="!canEditRule || !row.grade.scoreNode.hasLowerLimit"
                         >
                           <el-option label=">" value=">" />
                           <el-option label=">=" value=">=" />
                         </el-select>
                         <el-input-number
-                          v-model="row.scoreNode.lowerScore"
+                          v-model="row.grade.scoreNode.lowerScore"
                           class="grade-score-input"
-                          :disabled="!canEditRule || !row.scoreNode.hasLowerLimit"
+                          :disabled="!canEditRule || !row.grade.scoreNode.hasLowerLimit"
                           :step="0.1"
                         />
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="区间/条件" min-width="120">
+                  <el-table-column label="人数上限" :width="gradeTableColumnWidths.ratio">
                     <template #default="{ row }">
-                      <el-select v-model="row.conditionLogic" class="grade-logic-select" :disabled="!canEditRule">
-                        <el-option label="AND" value="and" />
-                        <el-option label="OR" value="or" />
-                      </el-select>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="人数上限" min-width="166">
-                    <template #default="{ row }">
-                      <div class="grade-ratio-inline">
+                      <div v-if="row.rowType === 'main'" class="grade-ratio-inline">
                         <el-input-number
-                          v-model="row.maxRatioPercent"
+                          v-model="row.grade.maxRatioPercent"
                           class="grade-ratio-input"
                           :disabled="!canEditRule"
                           :min="0"
@@ -206,7 +228,7 @@
                         />
                         <span class="grade-ratio-unit">%</span>
                         <el-select
-                          v-model="row.maxRatioRoundingMode"
+                          v-model="row.grade.maxRatioRoundingMode"
                           class="grade-ratio-mode-select"
                           :disabled="!canEditRule"
                           size="small"
@@ -221,11 +243,10 @@
                       </div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="160" fixed="right">
+                  <el-table-column label="操作" :width="gradeTableColumnWidths.action">
                     <template #default="{ row }">
-                      <div class="table-row-actions">
-                        <el-button size="small" type="primary" plain @click="openGradeDetail(row)">详情</el-button>
-                        <el-button size="small" type="danger" plain :disabled="!canEditRule" @click="removeGrade(row)">删除</el-button>
+                      <div v-if="row.rowType === 'main'" class="table-row-actions">
+                        <el-button size="small" type="danger" plain :disabled="!canEditRule" @click="removeGrade(row.grade)">删除</el-button>
                       </div>
                     </template>
                   </el-table-column>
@@ -636,6 +657,17 @@ type MaxRatioRoundingMode = "real" | "floor" | "ceil";
 
 const EXTRA_ADJUST_MODULE_KEY = "__extra_adjust__";
 const EXTRA_ADJUST_MODULE_NAME = "额外加减分";
+const GRADE_TABLE_COLUMN_COUNT = 5;
+const GRADE_TITLE_MIN_WIDTH = 180;
+const GRADE_TITLE_MAX_WIDTH = 280;
+const GRADE_BOUND_MIN_WIDTH = 196;
+const GRADE_BOUND_MAX_WIDTH = 260;
+const GRADE_BOUND_BASE_WIDTH = 204;
+const GRADE_RATIO_MIN_WIDTH = 170;
+const GRADE_RATIO_MAX_WIDTH = 230;
+const GRADE_RATIO_BASE_WIDTH = 182;
+const GRADE_ACTION_MIN_WIDTH = 92;
+const GRADE_ACTION_MAX_WIDTH = 124;
 
 interface ScoreModule {
   id: string;
@@ -677,6 +709,12 @@ interface GradeRule {
   conditionLogic: ConditionLogic;
   maxRatioPercent: number | null;
   maxRatioRoundingMode: MaxRatioRoundingMode;
+}
+
+interface GradeTableRow {
+  id: string;
+  rowType: "main" | "condition";
+  grade: GradeRule;
 }
 
 interface ScopedRule {
@@ -781,6 +819,7 @@ const gradeInsertPicker = reactive<ExpressionInsertPicker>({
   objectId: undefined,
   dataKey: "",
 });
+let rulesTextMeasureContext: CanvasRenderingContext2D | null | undefined;
 
 const ruleContent = reactive<StructuredRuleContent>(defaultRuleContent(true));
 
@@ -909,6 +948,170 @@ const gradeDetailTitle = computed(() => {
   const gradeName = gradeDetailTarget.value?.title?.trim() || "等第";
   return `${gradeName}详情`;
 });
+
+const gradeTableRows = computed<GradeTableRow[]>(() => {
+  const grades = activeScopedRule.value?.grades || [];
+  const rows: GradeTableRow[] = [];
+  grades.forEach((grade, index) => {
+    rows.push({
+      id: `${grade.id || `grade_${index + 1}`}_main`,
+      rowType: "main",
+      grade,
+    });
+    rows.push({
+      id: `${grade.id || `grade_${index + 1}`}_condition`,
+      rowType: "condition",
+      grade,
+    });
+  });
+  return rows;
+});
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (value < min) {
+    return min;
+  }
+  if (value > max) {
+    return max;
+  }
+  return value;
+}
+
+function getRulesTextMeasureContext(): CanvasRenderingContext2D | null {
+  if (rulesTextMeasureContext !== undefined) {
+    return rulesTextMeasureContext;
+  }
+  if (typeof document === "undefined") {
+    rulesTextMeasureContext = null;
+    return rulesTextMeasureContext;
+  }
+  const canvas = document.createElement("canvas");
+  rulesTextMeasureContext = canvas.getContext("2d");
+  if (rulesTextMeasureContext) {
+    rulesTextMeasureContext.font = "13px \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
+  }
+  return rulesTextMeasureContext;
+}
+
+function measureRulesText(text: string): number {
+  const normalized = String(text || "");
+  if (!normalized) {
+    return 0;
+  }
+  const context = getRulesTextMeasureContext();
+  if (context) {
+    return context.measureText(normalized).width;
+  }
+  let width = 0;
+  for (const char of normalized) {
+    width += /[\u4e00-\u9fff]/u.test(char) ? 13 : 7;
+  }
+  return width;
+}
+
+function calcAdaptiveColumnWidth(
+  samples: string[],
+  minWidth: number,
+  maxWidth: number,
+  padding: number,
+  baseWidth = 0,
+): number {
+  const textWidth = samples.reduce((maxValue, sample) => Math.max(maxValue, measureRulesText(sample)), 0);
+  const preferredWidth = Math.ceil(Math.max(baseWidth, textWidth + padding));
+  return clampNumber(preferredWidth, minWidth, maxWidth);
+}
+
+function scoreNodePreviewText(
+  hasLimit: boolean,
+  operator: string,
+  score: number | null,
+  noLimitText: string,
+): string {
+  if (!hasLimit) {
+    return noLimitText;
+  }
+  const scoreText = score === null || !Number.isFinite(score) ? "-" : String(score);
+  return `${operator} ${scoreText}`;
+}
+
+function ratioPreviewText(grade: GradeRule): string {
+  const modeLabel = maxRatioRoundingModeOptions.find((item) => item.value === grade.maxRatioRoundingMode)?.label || "实数";
+  const ratioText = grade.maxRatioPercent === null || !Number.isFinite(grade.maxRatioPercent)
+    ? "不限"
+    : `${grade.maxRatioPercent}%`;
+  return `${ratioText} ${modeLabel}`;
+}
+
+const gradeTableColumnWidths = computed(() => {
+  const grades = activeScopedRule.value?.grades || [];
+  const titleSamples = [
+    "等第标题",
+    ...grades.map((grade) => String(grade.title || "").trim() || "未命名等第"),
+  ];
+  const upperSamples = [
+    "上限",
+    ...grades.map((grade) =>
+      scoreNodePreviewText(
+        grade.scoreNode.hasUpperLimit,
+        grade.scoreNode.upperOperator,
+        grade.scoreNode.upperScore,
+        "无上限",
+      )),
+  ];
+  const lowerSamples = [
+    "下限",
+    ...grades.map((grade) =>
+      scoreNodePreviewText(
+        grade.scoreNode.hasLowerLimit,
+        grade.scoreNode.lowerOperator,
+        grade.scoreNode.lowerScore,
+        "无下限",
+      )),
+  ];
+  const ratioSamples = [
+    "人数上限",
+    ...grades.map((grade) => ratioPreviewText(grade)),
+  ];
+  return {
+    title: calcAdaptiveColumnWidth(titleSamples, GRADE_TITLE_MIN_WIDTH, GRADE_TITLE_MAX_WIDTH, 44),
+    upper: calcAdaptiveColumnWidth(upperSamples, GRADE_BOUND_MIN_WIDTH, GRADE_BOUND_MAX_WIDTH, 36, GRADE_BOUND_BASE_WIDTH),
+    lower: calcAdaptiveColumnWidth(lowerSamples, GRADE_BOUND_MIN_WIDTH, GRADE_BOUND_MAX_WIDTH, 36, GRADE_BOUND_BASE_WIDTH),
+    ratio: calcAdaptiveColumnWidth(ratioSamples, GRADE_RATIO_MIN_WIDTH, GRADE_RATIO_MAX_WIDTH, 32, GRADE_RATIO_BASE_WIDTH),
+    action: calcAdaptiveColumnWidth(["操作", "删除"], GRADE_ACTION_MIN_WIDTH, GRADE_ACTION_MAX_WIDTH, 24, GRADE_ACTION_MIN_WIDTH),
+  };
+});
+
+function gradeConditionScriptText(grade: GradeRule): string {
+  const script = String(grade.extraConditionScript || "").trim();
+  return script || "未配置自定义脚本表达式";
+}
+
+function gradeTableRowClassName({
+  row,
+}: {
+  row: GradeTableRow;
+  rowIndex: number;
+}): string {
+  return row.rowType === "condition" ? "grade-condition-row" : "";
+}
+
+function gradeTableSpanMethod({
+  row,
+  columnIndex,
+}: {
+  row: GradeTableRow;
+  column: unknown;
+  rowIndex: number;
+  columnIndex: number;
+}): { rowspan: number; colspan: number } | undefined {
+  if (row.rowType !== "condition") {
+    return undefined;
+  }
+  if (columnIndex === 0) {
+    return { rowspan: 1, colspan: GRADE_TABLE_COLUMN_COUNT };
+  }
+  return { rowspan: 0, colspan: 0 };
+}
 
 function ruleEditorSignature(): string {
   return JSON.stringify({
@@ -3001,9 +3204,37 @@ onBeforeUnmount(() => {
 }
 
 .rules-table :deep(.module-weight-input),
-.rules-table :deep(.module-method-select),
-.rules-table :deep(.grade-logic-select) {
+.rules-table :deep(.module-method-select) {
   width: 100%;
+}
+
+.grade-condition-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  width: 100%;
+  font-size: 12px;
+}
+
+.grade-condition-label {
+  color: #909399;
+  white-space: nowrap;
+}
+
+.grade-condition-script {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #606266;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.grade-rules-table :deep(.grade-condition-logic-select) {
+  width: 96px;
+  flex: 0 0 96px;
 }
 
 .grade-ratio-inline {
@@ -3018,23 +3249,34 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
-.rules-table :deep(.grade-ratio-input) {
+.grade-rules-table :deep(.grade-ratio-input) {
   width: 92px;
 }
 
-.rules-table :deep(.grade-ratio-mode-select) {
+.grade-rules-table :deep(.grade-ratio-mode-select) {
   width: 96px;
 }
 
-.rules-table :deep(.grade-operator-select) {
+.grade-rules-table :deep(.grade-operator-select) {
   width: 72px;
   flex: 0 0 72px;
 }
 
-.rules-table :deep(.grade-score-input) {
+.grade-rules-table :deep(.grade-score-input) {
   width: auto;
   min-width: 0;
   flex: 1;
+}
+
+.grade-rules-table :deep(.grade-condition-row > td.el-table__cell) {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  background: #fafafa;
+}
+
+.grade-rules-table :deep(.grade-condition-row > td.el-table__cell .cell) {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .rules-table :deep(.el-table__row:hover > td.el-table__cell) {

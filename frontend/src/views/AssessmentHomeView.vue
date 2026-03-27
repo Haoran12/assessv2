@@ -32,7 +32,14 @@
             :closable="false"
           />
           <template v-else>
-            <el-table ref="summaryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
+            <el-table
+              ref="summaryTableRef"
+              :data="assessmentRows"
+              border
+              stripe
+              table-layout="fixed"
+              v-loading="loadingTable"
+            >
               <el-table-column prop="rank" label="排名" width="72" />
               <el-table-column prop="objectName" label="考核对象名称" min-width="190" />
               <el-table-column label="总分" width="96">
@@ -45,7 +52,8 @@
                 v-for="module in moduleColumns"
                 :key="module.moduleKey"
                 :label="module.moduleName"
-                min-width="120"
+                :width="module.autoWidth"
+                show-overflow-tooltip
               >
                 <template #default="{ row }">
                   {{ formatScore(row.moduleScores[module.moduleKey]) }}
@@ -95,16 +103,24 @@
               :closable="false"
               class="entry-readonly-alert"
             />
-            <el-table ref="entryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
+            <el-table
+              ref="entryTableRef"
+              :data="assessmentRows"
+              border
+              stripe
+              table-layout="fixed"
+              v-loading="loadingTable"
+            >
               <el-table-column prop="objectName" label="考核对象名称" min-width="190" fixed="left" />
               <el-table-column
                 v-for="module in moduleColumns"
                 :key="`entry_${module.moduleKey}`"
-                min-width="150"
+                :width="module.autoWidth"
+                show-overflow-tooltip
               >
                 <template #header>
                   <div class="entry-header">
-                    <span>{{ module.moduleName }}</span>
+                    <span class="entry-header-name">{{ module.moduleName }}</span>
                     <el-tag v-if="module.calculationMethod === 'vote'" size="small" type="warning">票决(线下)</el-tag>
                     <el-tag v-else-if="module.calculationMethod === 'custom_script'" size="small">脚本</el-tag>
                     <el-tag v-else-if="isExtraAdjustModule(module)" size="small" type="info">额外加减</el-tag>
@@ -253,6 +269,12 @@ const EXTRA_ADJUST_MODULE_KEY = "__extra_adjust__";
 const EXTRA_ADJUST_MODULE_NAME = "额外加减分";
 const EXTRA_ADJUST_SCORE_MIN = -20;
 const EXTRA_ADJUST_SCORE_MAX = 20;
+const MODULE_COLUMN_MIN_WIDTH = 96;
+const MODULE_COLUMN_MAX_WIDTH = 180;
+const MODULE_COLUMN_PADDING = 34;
+const MODULE_COLUMN_SAMPLE_LIMIT = 80;
+const MODULE_COLUMN_DIRECT_INPUT_MIN_WIDTH = 132;
+const MODULE_COLUMN_VOTE_MIN_WIDTH = 120;
 
 interface VoteGradeConfig {
   id: string;
@@ -276,6 +298,7 @@ interface TableModuleColumn {
   moduleName: string;
   calculationMethod: ScoreMethod;
   voteConfig: VoteModuleConfig | null;
+  autoWidth: number;
 }
 
 interface TableRow {
@@ -337,6 +360,7 @@ const voteDialog = ref<{
 });
 let fetchSequence = 0;
 let tableLayoutTimer: ReturnType<typeof window.setTimeout> | null = null;
+let textMeasureContext: CanvasRenderingContext2D | null | undefined;
 
 const hasAccessibleSession = computed(() => {
   const sessionID = contextStore.sessionId;
@@ -631,11 +655,13 @@ function normalizeExtraAdjustModuleColumn(module?: Partial<TableModuleColumn>): 
     moduleName: EXTRA_ADJUST_MODULE_NAME,
     calculationMethod: "direct_input",
     voteConfig: null,
+    autoWidth: MODULE_COLUMN_DIRECT_INPUT_MIN_WIDTH,
     ...module,
     moduleKey: EXTRA_ADJUST_MODULE_KEY,
     moduleName: EXTRA_ADJUST_MODULE_NAME,
     calculationMethod: "direct_input",
     voteConfig: null,
+    autoWidth: MODULE_COLUMN_DIRECT_INPUT_MIN_WIDTH,
   };
 }
 
@@ -681,9 +707,106 @@ function normalizeScoreModules(raw: unknown): TableModuleColumn[] {
       moduleName,
       calculationMethod,
       voteConfig: calculationMethod === "vote" ? normalizeVoteModuleConfig(voteConfigRaw) : null,
+      autoWidth: MODULE_COLUMN_MIN_WIDTH,
     });
   });
   return ensureExtraAdjustModuleColumn(normalized);
+}
+
+function clampWidth(width: number, minWidth: number, maxWidth: number): number {
+  if (width < minWidth) {
+    return minWidth;
+  }
+  if (width > maxWidth) {
+    return maxWidth;
+  }
+  return width;
+}
+
+function getModuleTagLabel(module: Pick<TableModuleColumn, "calculationMethod" | "moduleKey">): string {
+  if (module.calculationMethod === "vote") {
+    return "票决(线下)";
+  }
+  if (module.calculationMethod === "custom_script") {
+    return "脚本";
+  }
+  if (isExtraAdjustModule(module)) {
+    return "额外加减";
+  }
+  return "直录";
+}
+
+function getTextMeasureContext(): CanvasRenderingContext2D | null {
+  if (textMeasureContext !== undefined) {
+    return textMeasureContext;
+  }
+  if (typeof document === "undefined") {
+    textMeasureContext = null;
+    return textMeasureContext;
+  }
+  const canvas = document.createElement("canvas");
+  textMeasureContext = canvas.getContext("2d");
+  if (textMeasureContext) {
+    textMeasureContext.font = "13px \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
+  }
+  return textMeasureContext;
+}
+
+function estimateTextWidth(text: string): number {
+  const normalized = String(text || "");
+  if (!normalized) {
+    return 0;
+  }
+  const context = getTextMeasureContext();
+  if (context) {
+    return context.measureText(normalized).width;
+  }
+  let width = 0;
+  for (const char of normalized) {
+    width += /[\u4e00-\u9fff]/u.test(char) ? 13 : 7;
+  }
+  return width;
+}
+
+function moduleScorePreviewText(module: TableModuleColumn, value: number | null): string {
+  if (module.calculationMethod === "vote") {
+    return formatScoreAction(value);
+  }
+  return formatScore(value);
+}
+
+function moduleColumnMinWidth(module: TableModuleColumn): number {
+  if (module.calculationMethod === "direct_input") {
+    return MODULE_COLUMN_DIRECT_INPUT_MIN_WIDTH;
+  }
+  if (module.calculationMethod === "vote") {
+    return MODULE_COLUMN_VOTE_MIN_WIDTH;
+  }
+  return MODULE_COLUMN_MIN_WIDTH;
+}
+
+function estimateModuleColumnWidth(module: TableModuleColumn, rows: TableRow[]): number {
+  const headerTextWidth = Math.max(
+    estimateTextWidth(module.moduleName),
+    estimateTextWidth(getModuleTagLabel(module)),
+  );
+  const sampleRows = rows.slice(0, MODULE_COLUMN_SAMPLE_LIMIT);
+  let bodyTextWidth = estimateTextWidth(moduleScorePreviewText(module, null));
+  sampleRows.forEach((row) => {
+    bodyTextWidth = Math.max(
+      bodyTextWidth,
+      estimateTextWidth(moduleScorePreviewText(module, row.moduleScores[module.moduleKey] ?? null)),
+    );
+  });
+  const preferredWidth = Math.ceil(Math.max(headerTextWidth, bodyTextWidth) + MODULE_COLUMN_PADDING);
+  return clampWidth(preferredWidth, moduleColumnMinWidth(module), MODULE_COLUMN_MAX_WIDTH);
+}
+
+function withModuleAutoWidth(modules: TableModuleColumn[], rows: TableRow[]): TableModuleColumn[] {
+  return modules.map((module) => ({
+    ...module,
+    autoWidth: estimateModuleColumnWidth(module, rows),
+  }));
 }
 
 function resolveModulesByContext(
@@ -1162,8 +1285,7 @@ async function loadAssessmentTableData(): Promise<void> {
     const modules = resolveModulesByContext(ruleFiles, contextStore.periodCode, contextStore.objectGroupCode);
     const filteredObjects = objects.sort(compareObjectOrder);
 
-    moduleColumns.value = modules;
-    assessmentRows.value = filteredObjects.map((item, index) => {
+    const rows = filteredObjects.map((item, index) => {
       const source = item as unknown as Record<string, unknown>;
       const sourceModuleScores = source.moduleScores;
       const moduleScores: Record<string, number | null> = {};
@@ -1187,6 +1309,8 @@ async function loadAssessmentTableData(): Promise<void> {
         moduleScores,
       };
     });
+    assessmentRows.value = rows;
+    moduleColumns.value = withModuleAutoWidth(modules, rows);
     clearPendingScores();
   } catch (error) {
     if (currentSeq !== fetchSequence) {
@@ -1279,9 +1403,18 @@ watch(
 
 .entry-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+}
+
+.entry-header-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .readonly-score {

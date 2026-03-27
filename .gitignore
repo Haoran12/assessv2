@@ -51,3 +51,5 @@ backend/.env.*.local
 # Desktop runtime data
 data/
 assessv2-desktop.exe
+tmp/
+.tmp/
