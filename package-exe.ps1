@@ -69,6 +69,20 @@ function Resolve-WailsCommand {
     throw "Missing required command: wails (or `%GOPATH%\\bin\\wails.exe`)"
 }
 
+function Generate-DesktopIcons {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    $scriptPath = Join-Path $ProjectRoot "scripts/generate_desktop_icon.py"
+    if (-not (Test-FilePath $scriptPath)) {
+        throw "Desktop icon generator not found: $scriptPath"
+    }
+
+    Invoke-External "python" $scriptPath
+}
+
 function Test-FilePath {
     param([string]$Path)
     return (Test-Path -Path $Path -PathType Leaf)
@@ -241,6 +255,7 @@ $rootExe = Join-Path $projectRoot "assessv2-desktop.exe"
 Write-Step "Checking build toolchain"
 Require-Command "go"
 Require-Command "node"
+Require-Command "python"
 $npmCommand = Resolve-NpmCommand
 $wailsCommand = Resolve-WailsCommand
 
@@ -283,6 +298,9 @@ if (-not $SkipFrontendBuild) {
 
 Write-Step "Syncing embedded desktop runtime assets"
 Sync-DesktopEmbeddedAssets -ProjectRoot $projectRoot
+
+Write-Step "Generating desktop icon assets"
+Generate-DesktopIcons -ProjectRoot $projectRoot
 
 Write-Step "Building desktop release executable"
 Push-Location $desktopDir
