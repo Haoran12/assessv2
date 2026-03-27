@@ -43,42 +43,61 @@ def draw_background(size: int) -> Image.Image:
 
 
 def draw_symbol(size: int) -> Image.Image:
+    return draw_symbol_variant(size, compact=size <= 32)
+
+
+def draw_symbol_variant(size: int, compact: bool) -> Image.Image:
     symbol = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(symbol)
 
     def p(x: float, y: float) -> tuple[int, int]:
         return (int(size * x), int(size * y))
 
-    left_leg = [p(0.287, 0.768), p(0.426, 0.234), p(0.508, 0.234), p(0.369, 0.768)]
-    right_leg = [p(0.492, 0.234), p(0.574, 0.234), p(0.713, 0.768), p(0.631, 0.768)]
+    if compact:
+        left_leg = [p(0.19, 0.84), p(0.38, 0.19), p(0.53, 0.19), p(0.34, 0.84)]
+        right_leg = [p(0.47, 0.19), p(0.62, 0.19), p(0.81, 0.84), p(0.66, 0.84)]
+        crossbar = [*p(0.35, 0.53), *p(0.65, 0.67)]
+        crossbar_radius = max(2, int(size * 0.08))
+    else:
+        left_leg = [p(0.287, 0.768), p(0.426, 0.234), p(0.508, 0.234), p(0.369, 0.768)]
+        right_leg = [p(0.492, 0.234), p(0.574, 0.234), p(0.713, 0.768), p(0.631, 0.768)]
+        crossbar = [*p(0.418, 0.498), *p(0.592, 0.566)]
+        crossbar_radius = max(4, int(size * 0.012))
+
     draw.polygon(left_leg, fill=SYMBOL_COLOR)
     draw.polygon(right_leg, fill=SYMBOL_COLOR)
 
-    draw.rounded_rectangle(
-        [*p(0.418, 0.498), *p(0.592, 0.498 + 0.068)],
-        radius=max(4, int(size * 0.012)),
-        fill=SYMBOL_COLOR,
-    )
+    draw.rounded_rectangle(crossbar, radius=crossbar_radius, fill=SYMBOL_COLOR)
 
-    check_width = max(4, int(size * 0.055))
-    draw.line(
-        [p(0.553, 0.639), p(0.607, 0.694), p(0.729, 0.551)],
-        fill=CHECK_COLOR,
-        width=check_width,
-        joint="curve",
-    )
+    if size >= 24:
+        check_width = max(3, int(size * (0.085 if compact else 0.055)))
+        check_points = (
+            [p(0.56, 0.70), p(0.64, 0.79), p(0.82, 0.58)]
+            if compact
+            else [p(0.553, 0.639), p(0.607, 0.694), p(0.729, 0.551)]
+        )
+        draw.line(
+            check_points,
+            fill=CHECK_COLOR,
+            width=check_width,
+            joint="curve",
+        )
     return symbol
 
 
 def compose_icon(size: int = 1024) -> Image.Image:
     canvas = draw_background(size)
-    canvas.alpha_composite(draw_symbol(size))
+    canvas.alpha_composite(draw_symbol_variant(size, compact=size <= 32))
     return canvas
 
 
-def save_ico(img: Image.Image, path: Path, sizes: Iterable[tuple[int, int]]) -> None:
+def save_ico(path: Path, sizes: Iterable[int]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path, format="ICO", sizes=list(sizes))
+    size_list = list(sizes)
+    frames = [compose_icon(size) for size in size_list]
+    if not frames:
+        raise ValueError("icon sizes cannot be empty")
+    frames[0].save(path, format="ICO", append_images=frames[1:])
 
 
 def main() -> None:
@@ -87,11 +106,8 @@ def main() -> None:
 
     icon = compose_icon(1024)
     icon.save(APP_ICON_PNG, format="PNG")
-    save_ico(
-        icon,
-        WINDOWS_ICON_ICO,
-        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
-    )
+    # The ICO file uses dedicated renderings per size.
+    save_ico(WINDOWS_ICON_ICO, sizes=[256, 128, 64, 48, 32, 24, 16])
 
     print(f"Generated: {APP_ICON_PNG}")
     print(f"Generated: {WINDOWS_ICON_ICO}")
