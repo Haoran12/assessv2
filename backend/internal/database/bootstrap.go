@@ -53,7 +53,7 @@ func seedSystemSettings(db *gorm.DB) error {
 	seeds := []model.SystemSetting{
 		{
 			SettingKey:   "system.name",
-			SettingValue: "AssessV2",
+			SettingValue: "考核系统",
 			SettingType:  "string",
 			Description:  "System display name",
 			IsSystem:     true,

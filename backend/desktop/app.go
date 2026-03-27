@@ -47,7 +47,7 @@ func (a *App) startup(ctx context.Context) {
 		)
 		if _, dialogErr := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.ErrorDialog,
-			Title:         "AssessV2 Startup Failed",
+			Title:         "考核系统启动失败",
 			Message:       message,
 			Buttons:       []string{"OK"},
 			DefaultButton: "OK",
@@ -107,7 +107,7 @@ func (a *App) onSecondInstanceLaunch(secondInstanceData options.SecondInstanceDa
 	runtime.Show(ctx)
 	if _, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:    runtime.InfoDialog,
-		Title:   "AssessV2",
+		Title:   "考核系统",
 		Message: "The app is already running. Switched to the existing window.",
 	}); err != nil {
 		log.Printf("show single-instance message dialog failed: %v", err)

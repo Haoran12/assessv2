@@ -18,7 +18,7 @@ func main() {
 	app := NewApp()
 
 	err = wails.Run(&options.App{
-		Title:     "AssessV2",
+		Title:     "考核系统",
 		Width:     1600,
 		Height:    960,
 		MinWidth:  1366,

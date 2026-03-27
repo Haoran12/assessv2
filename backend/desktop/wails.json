@@ -1,19 +1,19 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "AssessV2",
+  "name": "考核系统",
   "outputfilename": "assessv2-desktop",
   "frontend:dir": "../../frontend",
   "frontend:install": "npm ci --include=dev",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run build -- --watch",
   "author": {
-    "name": "AssessV2 Team",
+    "name": "考核系统团队",
     "email": ""
   },
   "info": {
-    "companyName": "AssessV2",
-    "productName": "AssessV2",
+    "companyName": "考核系统",
+    "productName": "考核系统",
     "productVersion": "0.1.0",
-    "comments": "AssessV2 desktop application shell"
+    "comments": "考核系统 desktop application shell"
   }
 }

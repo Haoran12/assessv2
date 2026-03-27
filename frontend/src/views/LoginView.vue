@@ -2,7 +2,7 @@
   <div class="login-page">
     <el-card class="login-card">
       <template #header>
-        <strong>AssessV2 登录</strong>
+        <strong>考核系统登录</strong>
       </template>
 
       <el-alert

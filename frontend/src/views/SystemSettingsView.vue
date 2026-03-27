@@ -163,7 +163,7 @@ async function loadSettings(): Promise<void> {
 }
 
 function applySettings(result: SystemSettingsResponse): void {
-  form.systemName = settingString(result, "system.name", "AssessV2");
+  form.systemName = settingString(result, "system.name", "考核系统");
   form.systemLogo = settingString(result, "system.logo", "");
   form.systemTimezone = settingString(result, "system.timezone", "Asia/Shanghai");
   form.scoreDecimalPlaces = normalizeScoreDecimalPlaces(settingNumber(result, "score.decimal_places", 2), 2);
