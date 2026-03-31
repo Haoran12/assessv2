@@ -306,6 +306,25 @@
         <el-form-item label="年度" required>
           <el-input-number v-model="createForm.year" :min="2000" :max="9999" />
         </el-form-item>
+        <el-form-item label="复制配置">
+          <el-select
+            v-model="createForm.copyFromSessionId"
+            clearable
+            filterable
+            style="width: 100%"
+            placeholder="不复制，使用系统默认周期、分组和规则"
+          >
+            <el-option
+              v-for="item in sessions"
+              :key="item.id"
+              :label="item.displayName || item.assessmentName"
+              :value="item.id"
+            />
+          </el-select>
+          <div class="create-copy-hint">
+            仅复制来源场次的考核周期、对象分组和规则配置，不复制考核对象、评分数据；复制后仍独立存储在新场次目录。
+          </div>
+        </el-form-item>
         <el-form-item label="场次名称">
           <el-input
             v-model="createForm.displayName"
@@ -450,6 +469,7 @@ const createForm = reactive({
   organizationId: undefined as number | undefined,
   displayName: "",
   description: "",
+  copyFromSessionId: undefined as number | undefined,
 });
 
 const objectDialogVisible = ref(false);
@@ -1218,6 +1238,7 @@ function openCreateDialog(): void {
   createNameTouched.value = false;
   createForm.displayName = buildDefaultDisplayName(createForm.year, createForm.organizationId);
   createForm.description = "";
+  createForm.copyFromSessionId = undefined;
   createVisible.value = true;
 }
 
@@ -1233,6 +1254,7 @@ async function createSession(): Promise<void> {
       organizationId: createForm.organizationId,
       displayName: createForm.displayName.trim() || undefined,
       description: createForm.description.trim() || undefined,
+      copyFromSessionId: createForm.copyFromSessionId,
     });
     ElMessage.success("考核场次创建成功");
     createVisible.value = false;
@@ -1648,6 +1670,13 @@ onBeforeUnmount(() => {
 
 .section {
   margin-top: 16px;
+}
+
+.create-copy-hint {
+  margin-top: 6px;
+  line-height: 1.5;
+  color: #909399;
+  font-size: 12px;
 }
 
 .section-head {

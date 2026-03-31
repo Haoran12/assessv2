@@ -72,10 +72,11 @@ type AssessmentSessionDetail struct {
 }
 
 type CreateAssessmentSessionInput struct {
-	Year           int
-	OrganizationID uint
-	DisplayName    string
-	Description    string
+	Year              int
+	OrganizationID    uint
+	DisplayName       string
+	Description       string
+	CopyFromSessionID uint
 }
 
 type UpdateAssessmentSessionInput struct {
@@ -165,6 +166,15 @@ func (s *AssessmentSessionService) CreateSession(
 		return nil, err
 	}
 
+	var copyTemplate *sessionCopyTemplate
+	if input.CopyFromSessionID > 0 {
+		var err error
+		copyTemplate, err = s.loadSessionCopyTemplate(ctx, claims, input.CopyFromSessionID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	orgName, err := s.ensureActiveOrganization(ctx, input.OrganizationID)
 	if err != nil {
 		return nil, err
@@ -212,12 +222,16 @@ func (s *AssessmentSessionService) CreateSession(
 	}
 
 	targetID := createdSession.ID
-	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "assessment_sessions", &targetID, map[string]any{
+	auditDetail := map[string]any{
 		"event":          "create_assessment_session",
 		"assessmentName": createdSession.AssessmentName,
 		"organizationId": createdSession.OrganizationID,
 		"year":           createdSession.Year,
-	}, ipAddress, userAgent))
+	}
+	if input.CopyFromSessionID > 0 {
+		auditDetail["copyFromSessionId"] = input.CopyFromSessionID
+	}
+	_ = s.auditRepo.Create(ctx, buildAuditRecord(operatorRef, "create", "assessment_sessions", &targetID, auditDetail, ipAddress, userAgent))
 
 	createdSummary, err := s.loadSessionSummary(ctx, createdSession.ID)
 	if err != nil {
@@ -226,11 +240,21 @@ func (s *AssessmentSessionService) CreateSession(
 	if err := withSessionBusinessDB(ctx, createdSummary, func(sessionDB *gorm.DB) error {
 		return sessionDB.Transaction(func(tx *gorm.DB) error {
 			periods := defaultSessionPeriods(createdSession.ID, operatorRef)
+			if copyTemplate != nil {
+				if copiedPeriods := cloneSessionPeriodsForCopy(copyTemplate.Periods, createdSession.ID, operatorRef); len(copiedPeriods) > 0 {
+					periods = copiedPeriods
+				}
+			}
 			if err := tx.Create(&periods).Error; err != nil {
 				return fmt.Errorf("failed to create default periods: %w", err)
 			}
 
 			groups := defaultObjectGroups(createdSession.ID, operatorRef)
+			if copyTemplate != nil {
+				if copiedGroups := cloneObjectGroupsForCopy(copyTemplate.ObjectGroups, createdSession.ID, operatorRef); len(copiedGroups) > 0 {
+					groups = copiedGroups
+				}
+			}
 			if err := tx.Create(&groups).Error; err != nil {
 				return fmt.Errorf("failed to create default object groups: %w", err)
 			}
@@ -243,11 +267,167 @@ func (s *AssessmentSessionService) CreateSession(
 	}); err != nil {
 		return nil, err
 	}
+	if copyTemplate != nil {
+		targetPeriods, err := s.listPeriods(ctx, createdSession.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.createCopiedSessionRuleFile(ctx, createdSummary, operatorRef, targetPeriods, copyTemplate); err != nil {
+			return nil, err
+		}
+	}
 	if err := syncSessionBusinessDataFile(ctx, createdSummary); err != nil {
 		return nil, err
 	}
 
 	return s.GetSession(ctx, claims, createdSession.ID)
+}
+
+type sessionCopyTemplate struct {
+	Periods      []model.AssessmentSessionPeriod
+	ObjectGroups []model.AssessmentObjectGroup
+	RuleContent  string
+}
+
+func (s *AssessmentSessionService) loadSessionCopyTemplate(
+	ctx context.Context,
+	claims *auth.Claims,
+	sourceSessionID uint,
+) (*sessionCopyTemplate, error) {
+	if sourceSessionID == 0 {
+		return nil, ErrInvalidParam
+	}
+	sourceSummary, err := s.loadSessionSummary(ctx, sourceSessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureAssessmentOrganizationScope(claims, sourceSummary.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	periods, err := s.listPeriods(ctx, sourceSessionID)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := s.listObjectGroups(ctx, sourceSessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	ruleContent := buildDefaultRuleTemplateJSON()
+	ruleFile, err := s.pickSessionRuleFile(ctx, sourceSummary)
+	if err != nil {
+		if err != ErrRuleNotFound {
+			return nil, err
+		}
+	} else if strings.TrimSpace(ruleFile.ContentJSON) != "" {
+		ruleContent = ruleFile.ContentJSON
+	}
+
+	return &sessionCopyTemplate{
+		Periods:      periods,
+		ObjectGroups: groups,
+		RuleContent:  ruleContent,
+	}, nil
+}
+
+func cloneSessionPeriodsForCopy(
+	source []model.AssessmentSessionPeriod,
+	targetSessionID uint,
+	operatorRef *uint,
+) []model.AssessmentSessionPeriod {
+	result := make([]model.AssessmentSessionPeriod, 0, len(source))
+	for index, item := range source {
+		sortOrder := item.SortOrder
+		if sortOrder <= 0 {
+			sortOrder = index + 1
+		}
+		result = append(result, model.AssessmentSessionPeriod{
+			AssessmentID:   targetSessionID,
+			PeriodCode:     strings.ToUpper(strings.TrimSpace(item.PeriodCode)),
+			PeriodName:     strings.TrimSpace(item.PeriodName),
+			RuleBindingKey: strings.ToUpper(strings.TrimSpace(item.RuleBindingKey)),
+			SortOrder:      sortOrder,
+			CreatedBy:      operatorRef,
+			UpdatedBy:      operatorRef,
+		})
+	}
+	return result
+}
+
+func cloneObjectGroupsForCopy(
+	source []model.AssessmentObjectGroup,
+	targetSessionID uint,
+	operatorRef *uint,
+) []model.AssessmentObjectGroup {
+	result := make([]model.AssessmentObjectGroup, 0, len(source))
+	for index, item := range source {
+		sortOrder := item.SortOrder
+		if sortOrder <= 0 {
+			sortOrder = index + 1
+		}
+		result = append(result, model.AssessmentObjectGroup{
+			AssessmentID: targetSessionID,
+			ObjectType:   item.ObjectType,
+			GroupCode:    strings.TrimSpace(item.GroupCode),
+			GroupName:    strings.TrimSpace(item.GroupName),
+			SortOrder:    sortOrder,
+			IsSystem:     item.IsSystem,
+			CreatedBy:    operatorRef,
+			UpdatedBy:    operatorRef,
+		})
+	}
+	return result
+}
+
+func (s *AssessmentSessionService) createCopiedSessionRuleFile(
+	ctx context.Context,
+	targetSummary *AssessmentSessionSummary,
+	operatorRef *uint,
+	targetPeriods []model.AssessmentSessionPeriod,
+	template *sessionCopyTemplate,
+) error {
+	if targetSummary == nil || template == nil {
+		return ErrInvalidParam
+	}
+
+	contentJSON := strings.TrimSpace(template.RuleContent)
+	if contentJSON == "" {
+		contentJSON = buildDefaultRuleTemplateJSON()
+	}
+	normalizedContent, err := normalizeRuleContentByPeriodBindings(contentJSON, targetPeriods)
+	if err != nil {
+		return fmt.Errorf("failed to normalize copied rule content: %w", err)
+	}
+
+	ruleName := sessionRuleDefaultName(targetSummary)
+	filePath, err := ensureRuleFilePath(targetSummary.AssessmentName, buildRuleFileName(ruleName))
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filePath, []byte(normalizedContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write copied rule file content: %w", err)
+	}
+
+	record := model.RuleFile{
+		AssessmentID: targetSummary.ID,
+		RuleName:     ruleName,
+		Description:  "场次专属规则文件",
+		ContentJSON:  normalizedContent,
+		FilePath:     filePath,
+		IsCopy:       false,
+		CreatedBy:    operatorRef,
+		UpdatedBy:    operatorRef,
+	}
+	if err := withSessionBusinessDB(ctx, targetSummary, func(sessionDB *gorm.DB) error {
+		if err := sessionDB.Create(&record).Error; err != nil {
+			return fmt.Errorf("failed to create copied session rule file: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *AssessmentSessionService) UpdateSession(

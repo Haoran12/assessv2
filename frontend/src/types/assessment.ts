@@ -99,6 +99,7 @@ export interface CreateAssessmentSessionPayload {
   organizationId: number;
   displayName?: string;
   description?: string;
+  copyFromSessionId?: number;
 }
 
 export interface UpdateAssessmentSessionPayload {

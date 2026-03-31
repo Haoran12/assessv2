@@ -20,10 +20,11 @@ func NewAssessmentHandler(sessionService *service.AssessmentSessionService) *Ass
 }
 
 type createAssessmentSessionRequest struct {
-	Year           int    `json:"year"`
-	OrganizationID uint   `json:"organizationId"`
-	DisplayName    string `json:"displayName"`
-	Description    string `json:"description"`
+	Year              int    `json:"year"`
+	OrganizationID    uint   `json:"organizationId"`
+	DisplayName       string `json:"displayName"`
+	Description       string `json:"description"`
+	CopyFromSessionID uint   `json:"copyFromSessionId"`
 }
 
 type updateAssessmentSessionRequest struct {
@@ -85,10 +86,11 @@ func (h *AssessmentHandler) CreateSession(c *gin.Context) {
 		claims,
 		operatorID,
 		service.CreateAssessmentSessionInput{
-			Year:           req.Year,
-			OrganizationID: req.OrganizationID,
-			DisplayName:    strings.TrimSpace(req.DisplayName),
-			Description:    strings.TrimSpace(req.Description),
+			Year:              req.Year,
+			OrganizationID:    req.OrganizationID,
+			DisplayName:       strings.TrimSpace(req.DisplayName),
+			Description:       strings.TrimSpace(req.Description),
+			CopyFromSessionID: req.CopyFromSessionID,
 		},
 		c.ClientIP(),
 		c.GetHeader("User-Agent"),
