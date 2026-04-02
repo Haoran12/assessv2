@@ -496,7 +496,7 @@ func detectLatestDataYearDir(exeDir string) (int, bool) {
 	return years[len(years)-1], true
 }
 
-func persistPreferredDataYear(year int) error {
+func persistPreferredDataYear(_ int) error {
 	return fmt.Errorf("preferred data year is deprecated in session-based mode")
 }
 
