@@ -10,11 +10,11 @@
                 <span class="context-text">{{ contextSummaryText }}</span>
               </div>
               <div class="header-actions">
-                <el-button size="small" :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
+                <el-button :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
                 <el-button
                   type="primary"
                   plain
-                  size="small"
+                  
                   :loading="exportingSummary"
                   :disabled="!isContextReady || loadingTable || exportingSummary"
                   @click="exportAssessmentResults"
@@ -67,10 +67,10 @@
               </div>
               <div class="header-actions">
                 <el-tag type="info">待保存 {{ pendingScoreCount }} 项</el-tag>
-                <el-button size="small" :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
+                <el-button :loading="loadingTable" @click="loadAssessmentTableData">刷新</el-button>
                 <el-button
                   type="primary"
-                  size="small"
+                  
                   :disabled="!canEditScores || pendingScoreCount === 0 || savingScores"
                   :loading="savingScores"
                   @click="saveModuleScores"
@@ -627,10 +627,6 @@ function normalizeMethod(value: unknown): ScoreMethod {
 
 function normalizeExtraAdjustModuleColumn(module?: Partial<TableModuleColumn>): TableModuleColumn {
   return {
-    moduleKey: EXTRA_ADJUST_MODULE_KEY,
-    moduleName: EXTRA_ADJUST_MODULE_NAME,
-    calculationMethod: "direct_input",
-    voteConfig: null,
     ...module,
     moduleKey: EXTRA_ADJUST_MODULE_KEY,
     moduleName: EXTRA_ADJUST_MODULE_NAME,

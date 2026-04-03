@@ -8,7 +8,7 @@
   "frontend:dev:watcher": "npm run build -- --watch",
   "author": {
     "name": "考核系统团队",
-    "email": ""
+    "email": "zhr_xdu@outlook.com"
   },
   "info": {
     "companyName": "考核系统",

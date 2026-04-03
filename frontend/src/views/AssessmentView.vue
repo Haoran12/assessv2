@@ -54,6 +54,21 @@
           <div class="tool-row">
             <div class="header-actions">
               <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              <el-button
+                type="primary"
+                :disabled="!selectedDetail || !canEditCurrentSession"
+                @click="addPeriod"
+              >
+                新增周期
+              </el-button>
+              <el-button
+                type="primary"
+                :disabled="!selectedDetail || !canEditCurrentSession || savingPeriods"
+                :loading="savingPeriods"
+                @click="savePeriods"
+              >
+                保存周期
+              </el-button>
             </div>
           </div>
 
@@ -61,17 +76,6 @@
 
           <template v-else>
             <div class="section">
-              <div class="tool-row">
-                <div class="header-actions">
-                  <el-button
-                    type="primary"
-                    :disabled="!canEditCurrentSession"
-                    @click="addPeriod"
-                  >
-                    新增周期
-                  </el-button>
-                </div>
-              </div>
               <el-table :data="periodDrafts" border>
                 <el-table-column label="#" width="66" class-name="period-index-column">
                   <template #default="{ row, $index }">
@@ -143,16 +147,6 @@
                   <div class="period-hint">同组周期将共享规则配置；不在任何分组中的周期使用独立规则。仅绑定规则，不绑定评分数据。</div>
                 </div>
               </el-collapse-transition>
-              <div class="section-foot">
-                <el-button
-                  type="primary"
-                  :disabled="!canEditCurrentSession || savingPeriods"
-                  :loading="savingPeriods"
-                  @click="savePeriods"
-                >
-                  保存周期
-                </el-button>
-              </div>
             </div>
           </template>
         </el-card>
@@ -163,6 +157,21 @@
           <div class="tool-row">
             <div class="header-actions">
               <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              <el-button
+                type="primary"
+                :disabled="!selectedDetail || !canEditCurrentSession"
+                @click="addGroup"
+              >
+                新增分组
+              </el-button>
+              <el-button
+                type="primary"
+                :disabled="!selectedDetail || !canEditCurrentSession || savingGroups"
+                :loading="savingGroups"
+                @click="saveGroups"
+              >
+                保存分组
+              </el-button>
             </div>
           </div>
 
@@ -170,17 +179,6 @@
 
           <template v-else>
             <div class="section">
-              <div class="tool-row">
-                <div class="header-actions">
-                  <el-button
-                    type="primary"
-                    :disabled="!canEditCurrentSession"
-                    @click="addGroup"
-                  >
-                    新增分组
-                  </el-button>
-                </div>
-              </div>
               <el-table :data="groupDrafts" border>
                 <el-table-column type="index" label="#" width="52" />
                 <el-table-column label="类型" width="100">
@@ -207,16 +205,6 @@
                   </template>
                 </el-table-column>
               </el-table>
-              <div class="section-foot">
-                <el-button
-                  type="primary"
-                  :disabled="!canEditCurrentSession || savingGroups"
-                  :loading="savingGroups"
-                  @click="saveGroups"
-                >
-                  保存分组
-                </el-button>
-              </div>
             </div>
           </template>
         </el-card>
@@ -227,6 +215,28 @@
           <div class="tool-row">
             <div class="header-actions">
               <el-button :disabled="!selectedDetail" :loading="loadingDetail" @click="reloadCurrent">刷新</el-button>
+              <el-button
+                type="primary"
+                :disabled="!selectedDetail || !canEditCurrentSession"
+                @click="openObjectDialog"
+              >
+                新增对象
+              </el-button>
+              <el-button
+                type="primary"
+                :disabled="!selectedDetail || !canEditCurrentSession || savingObjects"
+                :loading="savingObjects"
+                @click="saveObjects"
+              >
+                保存对象
+              </el-button>
+              <el-button
+                :disabled="!selectedDetail || !canEditCurrentSession || resettingObjects"
+                :loading="resettingObjects"
+                @click="resetObjects"
+              >
+                重置为默认
+              </el-button>
             </div>
           </div>
 
@@ -234,31 +244,6 @@
 
           <template v-else>
             <div class="section">
-              <div class="tool-row">
-                <div class="header-actions">
-                  <el-button
-                    type="primary"
-                    :disabled="!canEditCurrentSession"
-                    @click="openObjectDialog"
-                  >
-                    新增对象
-                  </el-button>
-                  <el-button
-                    type="primary"
-                    :disabled="!canEditCurrentSession || savingObjects"
-                    :loading="savingObjects"
-                    @click="saveObjects"
-                  >
-                    保存对象
-                  </el-button>
-                  <el-button
-                    :disabled="!canEditCurrentSession || resettingObjects"
-                    :loading="resettingObjects"
-                    @click="resetObjects"
-                  >
-                    重置为默认</el-button>
-                </div>
-              </div>
               <el-table v-loading="loadingObjects" :data="objectDrafts" border>
                 <el-table-column prop="id" label="ID" width="70" />
                 <el-table-column label="类型" width="88">
@@ -1659,12 +1644,23 @@ onBeforeUnmount(() => {
 
 .header-actions {
   display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
   gap: 8px;
+  overflow-x: auto;
+}
+
+.header-actions :deep(.el-button) {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .tool-row {
   display: flex;
   justify-content: flex-end;
+  width: 100%;
   margin-bottom: 8px;
 }
 
@@ -1684,10 +1680,6 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
-}
-
-.section-foot {
-  margin-top: 10px;
 }
 
 .binding-section {
