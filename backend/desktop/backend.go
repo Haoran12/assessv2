@@ -24,6 +24,64 @@ import (
 
 const preferredDataYearFileName = ".assessment_year"
 
+func detectDesktopFirstUse() (bool, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return false, fmt.Errorf("resolve executable path: %w", err)
+	}
+	dataRoot := filepath.Join(filepath.Dir(exePath), "data")
+	return isDesktopDataRootFresh(dataRoot)
+}
+
+func isDesktopDataRootFresh(dataRoot string) (bool, error) {
+	info, err := os.Stat(dataRoot)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return true, nil
+		}
+		return false, fmt.Errorf("check data root status: %w", err)
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+
+	hasExistingData, err := hasExistingDesktopData(dataRoot)
+	if err != nil {
+		return false, err
+	}
+	return !hasExistingData, nil
+}
+
+func hasExistingDesktopData(dataRoot string) (bool, error) {
+	if fileExists(filepath.Join(dataRoot, "accounts", "accounts.db")) {
+		return true, nil
+	}
+	if fileExists(filepath.Join(dataRoot, "accounts.db")) {
+		return true, nil
+	}
+	if fileExists(filepath.Join(dataRoot, "assess.db")) {
+		return true, nil
+	}
+
+	entries, err := os.ReadDir(dataRoot)
+	if err != nil {
+		return false, fmt.Errorf("read data root: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, ok := parseAssessmentYear(entry.Name()); !ok {
+			continue
+		}
+		if fileExists(filepath.Join(dataRoot, entry.Name(), "assess.db")) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func bootstrapBackend() (config.Config, []*sql.DB, *gin.Engine, error) {
 	if err := prepareDesktopEnv(); err != nil {
 		return config.Config{}, nil, nil, err

@@ -12,6 +12,14 @@
         :closable="false"
         style="margin-bottom: 12px"
       />
+      <el-alert
+        v-if="firstUseDefaultPassword"
+        title="首次在本机使用"
+        :description="`初始密码：${firstUseDefaultPassword}`"
+        type="info"
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
 
       <el-form :model="form" label-position="top" @submit.prevent>
         <el-form-item label="用户名">
@@ -43,7 +51,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { AxiosError } from "axios";
 import { useAppStore } from "@/stores/app";
-import { SwitchToEnglishInputMethod } from "../../wailsjs/go/main/App";
+import { GetDesktopBootstrapInfo, SwitchToEnglishInputMethod } from "../../wailsjs/go/main/App";
 
 const SESSION_EXPIRED_KEY = "assessv2_session_expired";
 const isDesktopRuntime = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("wails");
@@ -54,6 +62,7 @@ const appStore = useAppStore();
 
 const loading = ref(false);
 const sessionExpired = ref(sessionStorage.getItem(SESSION_EXPIRED_KEY) === "1");
+const firstUseDefaultPassword = ref("");
 const form = reactive({
   username: "",
   password: "",
@@ -64,8 +73,23 @@ if (sessionExpired.value) {
 }
 
 onMounted(() => {
+  void initDesktopBootstrapInfo();
   void switchDesktopImeToEnglish();
 });
+
+async function initDesktopBootstrapInfo(): Promise<void> {
+  if (!isDesktopRuntime) {
+    return;
+  }
+  try {
+    const info = await GetDesktopBootstrapInfo();
+    if (info.isFirstUse && info.defaultPassword) {
+      firstUseDefaultPassword.value = info.defaultPassword;
+    }
+  } catch {
+    // No-op: web environment or unsupported platform.
+  }
+}
 
 async function switchDesktopImeToEnglish(): Promise<void> {
   if (!isDesktopRuntime) {
