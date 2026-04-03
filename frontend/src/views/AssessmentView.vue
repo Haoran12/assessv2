@@ -191,7 +191,11 @@
                 </el-table-column>
                 <el-table-column label="编码" width="150">
                   <template #default="{ row }">
-                    <el-input v-model="row.groupCode" />
+                    <el-input
+                      v-model="row.groupCode"
+                      :readonly="row.groupCodeLocked"
+                      :placeholder="row.groupCodeLocked ? '已存在分组编码不可修改' : '请输入分组编码'"
+                    />
                   </template>
                 </el-table-column>
                 <el-table-column label="名称" min-width="160">
@@ -435,7 +439,14 @@ const assessmentViewRef = ref<HTMLElement>();
 
 const periodDrafts = ref<Array<{ periodCode: string; periodName: string; ruleBindingKey: string }>>([]);
 const ruleBindingGroups = ref<Array<{ id: string; periodCodes: string[] }>>([]);
-const groupDrafts = ref<Array<{ objectType: "team" | "individual"; groupCode: string; groupName: string }>>([]);
+type GroupDraft = {
+  objectType: "team" | "individual";
+  groupCode: string;
+  groupName: string;
+  groupCodeLocked: boolean;
+};
+
+const groupDrafts = ref<GroupDraft[]>([]);
 const objects = ref<AssessmentSessionObjectItem[]>([]);
 const objectDrafts = ref<AssessmentSessionObjectItem[]>([]);
 
@@ -533,7 +544,7 @@ const selectedCandidate = computed(() =>
 const candidateGroupOptions = computed(() => {
   const selected = selectedCandidate.value;
   if (!selected) {
-    return [] as Array<{ objectType: "team" | "individual"; groupCode: string; groupName: string }>;
+    return [] as GroupDraft[];
   }
   const objectType = selected.recommendedObjectType;
   return groupDrafts.value.filter((item) => item.objectType === objectType);
@@ -1054,7 +1065,7 @@ function ensurePeriodBindingKeys(): void {
 }
 
 function addGroup(): void {
-  groupDrafts.value.push({ objectType: "team", groupCode: "", groupName: "" });
+  groupDrafts.value.push({ objectType: "team", groupCode: "", groupName: "", groupCodeLocked: false });
 }
 
 async function removeGroup(index: number): Promise<void> {
@@ -1195,6 +1206,7 @@ async function selectSession(sessionId: number): Promise<void> {
       objectType: item.objectType,
       groupCode: item.groupCode,
       groupName: item.groupName,
+      groupCodeLocked: true,
     }));
     await loadObjects(sessionId);
     if (contextStore.sessionId !== sessionId) {
