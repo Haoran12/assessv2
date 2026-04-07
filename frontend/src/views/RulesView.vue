@@ -415,12 +415,12 @@
         <template v-else-if="moduleDetailTarget.calculationMethod === 'vote'">
           <div class="field-label">投票挡位与分值</div>
             <el-table :data="moduleVoteGradeRows" border class="rules-table vote-grade-table">
-            <el-table-column label="挡位名称" min-width="180">
+            <el-table-column label="挡位名称" min-width="160">
               <template #default="{ row }">
                 <el-input v-model="row.label" :disabled="!canEditRule" placeholder="例如：优秀" />
               </template>
             </el-table-column>
-            <el-table-column label="分值" width="130">
+            <el-table-column label="分值" min-width="160">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.score"
@@ -452,12 +452,12 @@
 
           <div class="field-label">投票主体与权重</div>
           <el-table :data="moduleVoteSubjectRows" border class="rules-table vote-subject-table">
-            <el-table-column label="主体名称" min-width="180">
+            <el-table-column label="主体名称" min-width="160">
               <template #default="{ row }">
                 <el-input v-model="row.label" :disabled="!canEditRule" placeholder="例如：干部评议组" />
               </template>
             </el-table-column>
-            <el-table-column label="权重" width="130">
+            <el-table-column label="权重" min-width="160">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.weight"
