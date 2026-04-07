@@ -389,6 +389,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useRoute } from "vue-router";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
@@ -418,6 +419,7 @@ import type { OrganizationItem } from "@/types/org";
 const appStore = useAppStore();
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
+const route = useRoute();
 const canEdit = computed(() => appStore.hasPermission("assessment:update"));
 const selectedSessionStatus = computed<AssessmentSessionStatus>(() =>
   (selectedDetail.value?.session.status || "preparing") as AssessmentSessionStatus,
@@ -434,7 +436,8 @@ const selectedDetail = ref<AssessmentSessionDetail | null>(null);
 const loadingSessions = ref(false);
 const loadingDetail = ref(false);
 const loadingObjects = ref(false);
-const activeTab = ref<"sessions" | "period" | "groups" | "objects">("sessions");
+type AssessmentManagementTab = "sessions" | "period" | "groups" | "objects";
+const activeTab = ref<AssessmentManagementTab>("sessions");
 const assessmentViewRef = ref<HTMLElement>();
 
 const periodDrafts = ref<Array<{ periodCode: string; periodName: string; ruleBindingKey: string }>>([]);
@@ -1561,6 +1564,26 @@ async function resetObjects(): Promise<void> {
     resettingObjects.value = false;
   }
 }
+
+function parseRouteTab(rawTab: unknown): AssessmentManagementTab | null {
+  const value = Array.isArray(rawTab) ? rawTab[0] : rawTab;
+  if (value === "sessions" || value === "period" || value === "groups" || value === "objects") {
+    return value;
+  }
+  return null;
+}
+
+watch(
+  () => route.query.tab,
+  (tabFromRoute) => {
+    const nextTab = parseRouteTab(tabFromRoute);
+    if (!nextTab || activeTab.value === nextTab) {
+      return;
+    }
+    activeTab.value = nextTab;
+  },
+  { immediate: true },
+);
 
 watch(
   () => [createVisible.value, createForm.year, createForm.organizationId],
