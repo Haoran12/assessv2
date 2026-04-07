@@ -136,7 +136,7 @@
                   <strong>等第划分规则</strong>
                 </div>
                 <el-table :data="activeScopedRule.grades" class="rules-table">
-                  <el-table-column label="等第标题" min-width="138">
+                  <el-table-column label="等第标题" min-width="120">
                     <template #default="{ row }">
                       <el-input v-model="row.title" :disabled="!canEditRule" />
                     </template>
@@ -3023,7 +3023,7 @@ onBeforeUnmount(() => {
 }
 
 .rules-table :deep(.grade-ratio-mode-select) {
-  width: 96px;
+  width: 88px;
 }
 
 .rules-table :deep(.grade-operator-select) {
