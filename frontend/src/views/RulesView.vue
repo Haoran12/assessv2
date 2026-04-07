@@ -367,15 +367,15 @@
               <div class="script-picker-field">
                 <div class="script-picker-label">2. 考核对象</div>
                 <el-select
-                  v-model="moduleInsertPicker.objectId"
+                  v-model="moduleInsertPicker.objectRef"
                   class="script-picker-select"
                   placeholder="请选择考核对象"
                 >
                   <el-option
-                    v-for="item in expressionObjects"
-                    :key="`module-insert-object-${item.objectId}`"
-                    :label="formatExpressionObjectOption(item)"
-                    :value="item.objectId"
+                    v-for="item in expressionInsertObjectOptions"
+                    :key="`module-insert-object-${item.value}`"
+                    :label="item.label"
+                    :value="item.value"
                   />
                 </el-select>
               </div>
@@ -387,7 +387,7 @@
                   placeholder="请选择可调用数据"
                 >
                   <el-option
-                    v-for="item in expressionDataOptions"
+                    v-for="item in moduleExpressionDataOptions"
                     :key="`module-insert-data-${item.value}`"
                     :label="item.label"
                     :value="item.value"
@@ -541,18 +541,18 @@
                 />
               </el-select>
             </div>
-            <div class="script-picker-field">
-              <div class="script-picker-label">2. 考核对象</div>
+              <div class="script-picker-field">
+                <div class="script-picker-label">2. 考核对象</div>
               <el-select
-                v-model="gradeInsertPicker.objectId"
+                v-model="gradeInsertPicker.objectRef"
                 class="script-picker-select"
                 placeholder="请选择考核对象"
               >
                 <el-option
-                  v-for="item in expressionObjects"
-                  :key="`grade-insert-object-${item.objectId}`"
-                  :label="formatExpressionObjectOption(item)"
-                  :value="item.objectId"
+                  v-for="item in expressionInsertObjectOptions"
+                  :key="`grade-insert-object-${item.value}`"
+                  :label="item.label"
+                  :value="item.value"
                 />
               </el-select>
             </div>
@@ -564,7 +564,7 @@
                 placeholder="请选择可调用数据"
               >
                 <el-option
-                  v-for="item in expressionDataOptions"
+                  v-for="item in gradeExpressionDataOptions"
                   :key="`grade-insert-data-${item.value}`"
                   :label="item.label"
                   :value="item.value"
@@ -697,9 +697,15 @@ interface ExpressionInsertDataOption {
   label: string;
 }
 
+interface ExpressionInsertObjectOption {
+  value: string;
+  label: string;
+  rawObject?: RuleExpressionObjectOption;
+}
+
 interface ExpressionInsertPicker {
   periodCode: string;
-  objectId: number | undefined;
+  objectRef: string;
   dataKey: string;
 }
 
@@ -773,12 +779,12 @@ const expressionContextLoading = ref(false);
 const expressionContext = ref<RuleExpressionContext | null>(null);
 const moduleInsertPicker = reactive<ExpressionInsertPicker>({
   periodCode: "",
-  objectId: undefined,
+  objectRef: "",
   dataKey: "",
 });
 const gradeInsertPicker = reactive<ExpressionInsertPicker>({
   periodCode: "",
-  objectId: undefined,
+  objectRef: "",
   dataKey: "",
 });
 
@@ -800,6 +806,23 @@ const totalWeight = computed(() =>
 const structuredJsonPreview = computed(() => JSON.stringify(normalizeRuleContent(cloneDeep(ruleContent)), null, 2));
 const expressionPeriods = computed<string[]>(() => expressionContext.value?.periods || []);
 const expressionObjects = computed<RuleExpressionObjectOption[]>(() => expressionContext.value?.objects || []);
+const EXPRESSION_OBJECT_SELF = "__self__";
+const EXPRESSION_OBJECT_PARENT = "__parent__";
+const EXPRESSION_OBJECT_STATIC_PREFIX = "object:";
+const expressionInsertObjectOptions = computed<ExpressionInsertObjectOption[]>(() => {
+  const options: ExpressionInsertObjectOption[] = [
+    { value: EXPRESSION_OBJECT_SELF, label: "对象自己（当前 objectId）" },
+    { value: EXPRESSION_OBJECT_PARENT, label: "对象所属部门/组织（当前 parentObjectId）" },
+  ];
+  for (const item of expressionObjects.value) {
+    options.push({
+      value: `${EXPRESSION_OBJECT_STATIC_PREFIX}${item.objectId}`,
+      label: formatExpressionObjectOption(item),
+      rawObject: item,
+    });
+  }
+  return options;
+});
 const expressionModuleKeys = computed<string[]>(() => {
   const keys: string[] = [];
   const seen = new Set<string>();
@@ -861,17 +884,23 @@ const expressionDataOptions = computed<ExpressionInsertDataOption[]>(() => {
   }
   return options;
 });
+const moduleExpressionDataOptions = computed<ExpressionInsertDataOption[]>(() =>
+  filterExpressionDataOptionsByObjectRef(moduleInsertPicker.objectRef),
+);
+const gradeExpressionDataOptions = computed<ExpressionInsertDataOption[]>(() =>
+  filterExpressionDataOptionsByObjectRef(gradeInsertPicker.objectRef),
+);
 const moduleInsertCodePreview = computed(() =>
   buildExpressionInsertCode(
     moduleInsertPicker.periodCode,
-    moduleInsertPicker.objectId,
+    moduleInsertPicker.objectRef,
     moduleInsertPicker.dataKey,
   ),
 );
 const gradeInsertCodePreview = computed(() =>
   buildExpressionInsertCode(
     gradeInsertPicker.periodCode,
-    gradeInsertPicker.objectId,
+    gradeInsertPicker.objectRef,
     gradeInsertPicker.dataKey,
   ),
 );
@@ -1025,12 +1054,17 @@ function formatExpressionObjectOption(item: RuleExpressionObjectOption): string 
   return objectName;
 }
 
-function resolveExpressionObject(objectId: number | undefined): RuleExpressionObjectOption | null {
-  if (!objectId) {
+function resolveExpressionObject(objectRef: string): RuleExpressionObjectOption | null {
+  const normalizedRef = String(objectRef || "").trim();
+  if (!normalizedRef.startsWith(EXPRESSION_OBJECT_STATIC_PREFIX)) {
+    return null;
+  }
+  const objectID = Number(normalizedRef.slice(EXPRESSION_OBJECT_STATIC_PREFIX.length));
+  if (!Number.isFinite(objectID) || objectID <= 0) {
     return null;
   }
   for (const item of expressionObjects.value) {
-    if (item.objectId === objectId) {
+    if (item.objectId === objectID) {
       return item;
     }
   }
@@ -1039,17 +1073,28 @@ function resolveExpressionObject(objectId: number | undefined): RuleExpressionOb
 
 function buildExpressionInsertCode(
   periodCode: string,
-  objectId: number | undefined,
+  objectRef: string,
   dataKey: string,
 ): string {
   const normalizedPeriod = String(periodCode || "").trim();
-  const object = resolveExpressionObject(objectId);
+  const normalizedObjectRef = String(objectRef || "").trim();
+  const object = resolveExpressionObject(normalizedObjectRef);
   const normalizedDataKey = String(dataKey || "").trim();
-  if (!normalizedPeriod || !object || !normalizedDataKey) {
+  if (!normalizedPeriod || !normalizedObjectRef || !normalizedDataKey) {
     return "";
   }
+  const isSelf = normalizedObjectRef === EXPRESSION_OBJECT_SELF;
+  const isParent = normalizedObjectRef === EXPRESSION_OBJECT_PARENT;
+  if (!isSelf && !isParent && !object) {
+    return "";
+  }
+
+  const runtimeObjectLiteral = isSelf ? "objectId" : isParent ? "parentObjectId" : "";
   const periodLiteral = JSON.stringify(normalizedPeriod);
-  const objectLiteral = String(object.objectId);
+  const objectLiteral = runtimeObjectLiteral || String(object?.objectId || "");
+  if (!objectLiteral) {
+    return "";
+  }
   if (normalizedDataKey === "score") {
     return `score(${periodLiteral}, ${objectLiteral})`;
   }
@@ -1063,6 +1108,15 @@ function buildExpressionInsertCode(
     return `hasScore(${periodLiteral}, ${objectLiteral})`;
   }
   if (normalizedDataKey === "target_score") {
+    if (isSelf) {
+      return `targetScore(${periodLiteral}, targetType, targetId)`;
+    }
+    if (isParent) {
+      return "";
+    }
+    if (!object) {
+      return "";
+    }
     const targetType = JSON.stringify(String(object.targetType || "").trim());
     return `targetScore(${periodLiteral}, ${targetType}, ${object.targetId})`;
   }
@@ -1084,23 +1138,29 @@ function defaultExpressionPeriodCode(): string {
   return expressionPeriods.value[0] || "";
 }
 
-function defaultExpressionObjectID(): number | undefined {
-  return expressionObjects.value[0]?.objectId;
+function defaultExpressionObjectRef(): string {
+  return expressionInsertObjectOptions.value[0]?.value || "";
+}
+
+function filterExpressionDataOptionsByObjectRef(objectRef: string): ExpressionInsertDataOption[] {
+  if (String(objectRef || "").trim() === EXPRESSION_OBJECT_PARENT) {
+    return expressionDataOptions.value.filter((item) => item.value !== "target_score");
+  }
+  return expressionDataOptions.value;
 }
 
 function ensureExpressionPickerState(picker: ExpressionInsertPicker): void {
   if (!expressionPeriods.value.includes(picker.periodCode)) {
     picker.periodCode = defaultExpressionPeriodCode();
   }
-  const objectExists = picker.objectId
-    ? expressionObjects.value.some((item) => item.objectId === picker.objectId)
-    : false;
+  const objectExists = !!picker.objectRef && expressionInsertObjectOptions.value.some((item) => item.value === picker.objectRef);
   if (!objectExists) {
-    picker.objectId = defaultExpressionObjectID();
+    picker.objectRef = defaultExpressionObjectRef();
   }
-  const dataExists = expressionDataOptions.value.some((item) => item.value === picker.dataKey);
+  const availableDataOptions = filterExpressionDataOptionsByObjectRef(picker.objectRef);
+  const dataExists = availableDataOptions.some((item) => item.value === picker.dataKey);
   if (!dataExists) {
-    picker.dataKey = expressionDataOptions.value[0]?.value || "";
+    picker.dataKey = availableDataOptions[0]?.value || "";
   }
 }
 
@@ -1759,10 +1819,10 @@ async function loadExpressionContext(): Promise<void> {
   if (!contextStore.sessionId) {
     expressionContext.value = null;
     moduleInsertPicker.periodCode = "";
-    moduleInsertPicker.objectId = undefined;
+    moduleInsertPicker.objectRef = "";
     moduleInsertPicker.dataKey = "";
     gradeInsertPicker.periodCode = "";
-    gradeInsertPicker.objectId = undefined;
+    gradeInsertPicker.objectRef = "";
     gradeInsertPicker.dataKey = "";
     return;
   }
@@ -1778,10 +1838,10 @@ async function loadExpressionContext(): Promise<void> {
   } catch {
     expressionContext.value = null;
     moduleInsertPicker.periodCode = "";
-    moduleInsertPicker.objectId = undefined;
+    moduleInsertPicker.objectRef = "";
     moduleInsertPicker.dataKey = "";
     gradeInsertPicker.periodCode = "";
-    gradeInsertPicker.objectId = undefined;
+    gradeInsertPicker.objectRef = "";
     gradeInsertPicker.dataKey = "";
   } finally {
     expressionContextLoading.value = false;
@@ -2616,7 +2676,7 @@ watch(
 watch(
   () => [
     expressionPeriods.value.join("|"),
-    expressionObjects.value.map((item) => item.objectId).join("|"),
+    expressionInsertObjectOptions.value.map((item) => item.value).join("|"),
     expressionDataOptions.value.map((item) => item.value).join("|"),
   ],
   () => {

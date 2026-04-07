@@ -360,6 +360,8 @@ const voteDialog = ref<{
 });
 let fetchSequence = 0;
 let tableLayoutTimer: ReturnType<typeof window.setTimeout> | null = null;
+let tableLayoutFrame: number | null = null;
+let overviewResizeObserver: ResizeObserver | null = null;
 
 const hasAccessibleSession = computed(() => {
   const sessionID = contextStore.sessionId;
@@ -1158,12 +1160,25 @@ function scheduleTableLayout(): void {
   if (tableLayoutTimer !== null) {
     window.clearTimeout(tableLayoutTimer);
   }
+  if (tableLayoutFrame !== null) {
+    window.cancelAnimationFrame(tableLayoutFrame);
+    tableLayoutFrame = null;
+  }
   tableLayoutTimer = window.setTimeout(() => {
     tableLayoutTimer = null;
     void nextTick(() => {
-      summaryTableRef.value?.doLayout();
-      entryTableRef.value?.doLayout();
-      voteMatrixTableRef.value?.doLayout();
+      tableLayoutFrame = window.requestAnimationFrame(() => {
+        tableLayoutFrame = null;
+        if (activeTab.value === "summary") {
+          summaryTableRef.value?.doLayout();
+        }
+        if (activeTab.value === "entry") {
+          entryTableRef.value?.doLayout();
+        }
+        if (voteDialogVisible.value) {
+          voteMatrixTableRef.value?.doLayout();
+        }
+      });
     });
   }, 0);
 }
@@ -1241,6 +1256,14 @@ async function loadAssessmentTableData(): Promise<void> {
 onMounted(async () => {
   window.addEventListener("keydown", handleOverviewKeydown);
   window.addEventListener("resize", handleOverviewResize);
+  if (typeof ResizeObserver !== "undefined") {
+    overviewResizeObserver = new ResizeObserver(() => {
+      scheduleTableLayout();
+    });
+    if (overviewViewRef.value) {
+      overviewResizeObserver.observe(overviewViewRef.value);
+    }
+  }
   try {
     await contextStore.ensureInitialized();
   } catch (error) {
@@ -1254,9 +1277,17 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleOverviewKeydown);
   window.removeEventListener("resize", handleOverviewResize);
+  if (overviewResizeObserver) {
+    overviewResizeObserver.disconnect();
+    overviewResizeObserver = null;
+  }
   if (tableLayoutTimer !== null) {
     window.clearTimeout(tableLayoutTimer);
     tableLayoutTimer = null;
+  }
+  if (tableLayoutFrame !== null) {
+    window.cancelAnimationFrame(tableLayoutFrame);
+    tableLayoutFrame = null;
   }
 });
 
@@ -1281,6 +1312,16 @@ watch(
 .overview-view {
   display: grid;
   gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.overview-view :deep(.el-tabs),
+.overview-view :deep(.el-tabs__content),
+.overview-view :deep(.el-tab-pane),
+.overview-view :deep(.el-card),
+.overview-view :deep(.el-card__body) {
+  min-width: 0;
 }
 
 .card-header {
