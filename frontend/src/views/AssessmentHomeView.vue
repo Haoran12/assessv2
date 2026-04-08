@@ -1,12 +1,12 @@
 ﻿<template>
   <div ref="overviewViewRef" class="overview-view">
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="考核主页" name="summary">
+      <el-tab-pane label="结果概览" name="summary">
         <el-card>
           <template #header>
             <div class="card-header">
               <div class="header-left">
-                <strong>考核主页</strong>
+                <strong>结果概览</strong>
                 <span class="context-text">{{ contextSummaryText }}</span>
               </div>
               <div class="header-actions">
@@ -34,19 +34,40 @@
           <template v-else>
             <el-table ref="summaryTableRef" :data="assessmentRows" border stripe v-loading="loadingTable">
               <el-table-column prop="rank" label="排名" width="72" />
-              <el-table-column prop="objectName" label="考核对象名称" min-width="190" />
-              <el-table-column label="总分" width="96">
+              <el-table-column prop="objectName" min-width="190">
+                <template #header>
+                  <button type="button" class="summary-header-link" @click="jumpToAssessmentObjects">
+                    考核对象名称
+                  </button>
+                </template>
+              </el-table-column>
+              <el-table-column width="96">
+                <template #header>
+                  <button type="button" class="summary-header-link" @click="jumpToRuleModules">
+                    总分
+                  </button>
+                </template>
                 <template #default="{ row }">
                   {{ formatScore(row.totalScore) }}
                 </template>
               </el-table-column>
-              <el-table-column prop="grade" label="等第" width="88" />
+              <el-table-column prop="grade" width="88">
+                <template #header>
+                  <button type="button" class="summary-header-link" @click="jumpToRuleGrades">
+                    等第
+                  </button>
+                </template>
+              </el-table-column>
               <el-table-column
                 v-for="module in moduleColumns"
                 :key="module.moduleKey"
-                :label="module.moduleName"
                 min-width="120"
               >
+                <template #header>
+                  <button type="button" class="summary-header-link" @click="jumpToRuleModules">
+                    {{ module.moduleName }}
+                  </button>
+                </template>
                 <template #default="{ row }">
                   {{ formatScore(row.moduleScores[module.moduleKey]) }}
                 </template>
@@ -234,6 +255,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { TableInstance } from "element-plus";
+import { useRouter } from "vue-router";
 import { listCalculatedAssessmentSessionObjects, upsertAssessmentModuleScores } from "@/api/assessment";
 import { listRuleFiles } from "@/api/rules";
 import { useAppStore } from "@/stores/app";
@@ -305,6 +327,7 @@ interface PendingScoreItem {
 
 const contextStore = useContextStore();
 const appStore = useAppStore();
+const router = useRouter();
 const overviewViewRef = ref<HTMLElement>();
 const summaryTableRef = ref<TableInstance>();
 const entryTableRef = ref<TableInstance>();
@@ -337,6 +360,8 @@ const voteDialog = ref<{
 });
 let fetchSequence = 0;
 let tableLayoutTimer: ReturnType<typeof window.setTimeout> | null = null;
+let tableLayoutFrame: number | null = null;
+let overviewResizeObserver: ResizeObserver | null = null;
 
 const hasAccessibleSession = computed(() => {
   const sessionID = contextStore.sessionId;
@@ -414,6 +439,21 @@ function formatScore(value: number | null): string {
 function formatScoreAction(value: number | null): string {
   const text = formatScore(value);
   return text === "-" ? "点击录入" : text;
+}
+
+function jumpToRuleGrades(): void {
+  activeTab.value = "rule-grades";
+}
+
+function jumpToRuleModules(): void {
+  activeTab.value = "rule-modules";
+}
+
+async function jumpToAssessmentObjects(): Promise<void> {
+  await router.push({
+    name: "assessment-management",
+    query: { tab: "objects" },
+  });
 }
 
 function toVoteCount(value: unknown): number {
@@ -1120,12 +1160,25 @@ function scheduleTableLayout(): void {
   if (tableLayoutTimer !== null) {
     window.clearTimeout(tableLayoutTimer);
   }
+  if (tableLayoutFrame !== null) {
+    window.cancelAnimationFrame(tableLayoutFrame);
+    tableLayoutFrame = null;
+  }
   tableLayoutTimer = window.setTimeout(() => {
     tableLayoutTimer = null;
     void nextTick(() => {
-      summaryTableRef.value?.doLayout();
-      entryTableRef.value?.doLayout();
-      voteMatrixTableRef.value?.doLayout();
+      tableLayoutFrame = window.requestAnimationFrame(() => {
+        tableLayoutFrame = null;
+        if (activeTab.value === "summary") {
+          summaryTableRef.value?.doLayout();
+        }
+        if (activeTab.value === "entry") {
+          entryTableRef.value?.doLayout();
+        }
+        if (voteDialogVisible.value) {
+          voteMatrixTableRef.value?.doLayout();
+        }
+      });
     });
   }, 0);
 }
@@ -1203,6 +1256,14 @@ async function loadAssessmentTableData(): Promise<void> {
 onMounted(async () => {
   window.addEventListener("keydown", handleOverviewKeydown);
   window.addEventListener("resize", handleOverviewResize);
+  if (typeof ResizeObserver !== "undefined") {
+    overviewResizeObserver = new ResizeObserver(() => {
+      scheduleTableLayout();
+    });
+    if (overviewViewRef.value) {
+      overviewResizeObserver.observe(overviewViewRef.value);
+    }
+  }
   try {
     await contextStore.ensureInitialized();
   } catch (error) {
@@ -1216,9 +1277,17 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleOverviewKeydown);
   window.removeEventListener("resize", handleOverviewResize);
+  if (overviewResizeObserver) {
+    overviewResizeObserver.disconnect();
+    overviewResizeObserver = null;
+  }
   if (tableLayoutTimer !== null) {
     window.clearTimeout(tableLayoutTimer);
     tableLayoutTimer = null;
+  }
+  if (tableLayoutFrame !== null) {
+    window.cancelAnimationFrame(tableLayoutFrame);
+    tableLayoutFrame = null;
   }
 });
 
@@ -1243,6 +1312,16 @@ watch(
 .overview-view {
   display: grid;
   gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.overview-view :deep(.el-tabs),
+.overview-view :deep(.el-tabs__content),
+.overview-view :deep(.el-tab-pane),
+.overview-view :deep(.el-card),
+.overview-view :deep(.el-card__body) {
+  min-width: 0;
 }
 
 .card-header {
@@ -1267,6 +1346,20 @@ watch(
 .context-text {
   color: #909399;
   font-size: 13px;
+}
+
+.summary-header-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: #409eff;
+  cursor: pointer;
+}
+
+.summary-header-link:hover {
+  color: #66b1ff;
 }
 
 .entry-readonly-alert {

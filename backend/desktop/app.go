@@ -21,10 +21,12 @@ type App struct {
 
 	mu sync.RWMutex
 
-	api                http.Handler
-	sqlDBs             []*sql.DB
-	closeGuardEnabled  bool
-	skipCloseGuardOnce bool
+	api                    http.Handler
+	sqlDBs                 []*sql.DB
+	closeGuardEnabled      bool
+	skipCloseGuardOnce     bool
+	desktopFirstUse        bool
+	desktopInitialPassword string
 }
 
 func NewApp() *App {
@@ -36,7 +38,14 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.closeGuardEnabled = false
 	a.skipCloseGuardOnce = false
+	a.desktopFirstUse = false
+	a.desktopInitialPassword = ""
 	a.mu.Unlock()
+
+	firstUse, firstUseErr := detectDesktopFirstUse()
+	if firstUseErr != nil {
+		log.Printf("detect desktop first-use state failed: %v", firstUseErr)
+	}
 
 	cfg, sqlDBs, engine, err := bootstrapBackend()
 	if err != nil {
@@ -62,6 +71,12 @@ func (a *App) startup(ctx context.Context) {
 	a.mu.Lock()
 	a.api = engine
 	a.sqlDBs = sqlDBs
+	a.desktopFirstUse = firstUse && firstUseErr == nil
+	if a.desktopFirstUse {
+		a.desktopInitialPassword = cfg.DefaultPassword
+	} else {
+		a.desktopInitialPassword = ""
+	}
 	a.mu.Unlock()
 
 	log.Printf("desktop backend ready at %s", cfg.Server.Address())
@@ -161,6 +176,21 @@ func (a *App) SetCloseGuard(enabled bool) {
 
 func (a *App) SetPreferredDataYear(year int) error {
 	return fmt.Errorf("preferred data year is deprecated in session-based mode")
+}
+
+type DesktopBootstrapInfo struct {
+	IsFirstUse      bool   `json:"isFirstUse"`
+	DefaultPassword string `json:"defaultPassword"`
+}
+
+func (a *App) GetDesktopBootstrapInfo() DesktopBootstrapInfo {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	return DesktopBootstrapInfo{
+		IsFirstUse:      a.desktopFirstUse,
+		DefaultPassword: a.desktopInitialPassword,
+	}
 }
 
 func (a *App) SwitchToEnglishInputMethod() error {

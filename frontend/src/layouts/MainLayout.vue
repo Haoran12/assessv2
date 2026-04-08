@@ -83,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
@@ -148,6 +148,45 @@ const contextObjectGroupCode = computed({
   set: (value: string) => contextStore.setObjectGroupCode(value),
 });
 
+function isSystemWindowActive(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
+function switchObjectGroupByDirection(direction: 1 | -1): void {
+  const options = contextStore.objectGroupOptions;
+  if (!contextStore.sessionId || options.length <= 1 || contextStore.loadingDetail) {
+    return;
+  }
+  const currentValue = String(contextStore.objectGroupCode || "").trim();
+  const currentIndex = options.findIndex((item) => item.value === currentValue);
+  const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+  let nextIndex = baseIndex + direction;
+  if (nextIndex < 0) {
+    nextIndex = options.length - 1;
+  } else if (nextIndex >= options.length) {
+    nextIndex = 0;
+  }
+  const nextValue = options[nextIndex]?.value;
+  if (!nextValue || nextValue === currentValue) {
+    return;
+  }
+  contextStore.setObjectGroupCode(nextValue);
+}
+
+function handleGlobalObjectGroupWheel(event: WheelEvent): void {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+    return;
+  }
+  if (!isSystemWindowActive()) {
+    return;
+  }
+  if (Math.abs(event.deltaY) < Number.EPSILON) {
+    return;
+  }
+  event.preventDefault();
+  switchObjectGroupByDirection(event.deltaY > 0 ? 1 : -1);
+}
+
 watch(
   () => appStore.isAuthed,
   async (authed) => {
@@ -162,6 +201,14 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  window.addEventListener("wheel", handleGlobalObjectGroupWheel, { passive: false });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("wheel", handleGlobalObjectGroupWheel);
+});
 
 async function handleLogout(): Promise<void> {
   const canLeave = await resolveUnsavedBeforeLeave();

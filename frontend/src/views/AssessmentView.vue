@@ -191,7 +191,11 @@
                 </el-table-column>
                 <el-table-column label="编码" width="150">
                   <template #default="{ row }">
-                    <el-input v-model="row.groupCode" />
+                    <el-input
+                      v-model="row.groupCode"
+                      :readonly="row.groupCodeLocked"
+                      :placeholder="row.groupCodeLocked ? '已存在分组编码不可修改' : '请输入分组编码'"
+                    />
                   </template>
                 </el-table-column>
                 <el-table-column label="名称" min-width="160">
@@ -385,6 +389,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useRoute } from "vue-router";
 import { useAppStore } from "@/stores/app";
 import { useContextStore } from "@/stores/context";
 import { useUnsavedStore } from "@/stores/unsaved";
@@ -414,6 +419,7 @@ import type { OrganizationItem } from "@/types/org";
 const appStore = useAppStore();
 const contextStore = useContextStore();
 const unsavedStore = useUnsavedStore();
+const route = useRoute();
 const canEdit = computed(() => appStore.hasPermission("assessment:update"));
 const selectedSessionStatus = computed<AssessmentSessionStatus>(() =>
   (selectedDetail.value?.session.status || "preparing") as AssessmentSessionStatus,
@@ -430,12 +436,20 @@ const selectedDetail = ref<AssessmentSessionDetail | null>(null);
 const loadingSessions = ref(false);
 const loadingDetail = ref(false);
 const loadingObjects = ref(false);
-const activeTab = ref<"sessions" | "period" | "groups" | "objects">("sessions");
+type AssessmentManagementTab = "sessions" | "period" | "groups" | "objects";
+const activeTab = ref<AssessmentManagementTab>("sessions");
 const assessmentViewRef = ref<HTMLElement>();
 
 const periodDrafts = ref<Array<{ periodCode: string; periodName: string; ruleBindingKey: string }>>([]);
 const ruleBindingGroups = ref<Array<{ id: string; periodCodes: string[] }>>([]);
-const groupDrafts = ref<Array<{ objectType: "team" | "individual"; groupCode: string; groupName: string }>>([]);
+type GroupDraft = {
+  objectType: "team" | "individual";
+  groupCode: string;
+  groupName: string;
+  groupCodeLocked: boolean;
+};
+
+const groupDrafts = ref<GroupDraft[]>([]);
 const objects = ref<AssessmentSessionObjectItem[]>([]);
 const objectDrafts = ref<AssessmentSessionObjectItem[]>([]);
 
@@ -533,7 +547,7 @@ const selectedCandidate = computed(() =>
 const candidateGroupOptions = computed(() => {
   const selected = selectedCandidate.value;
   if (!selected) {
-    return [] as Array<{ objectType: "team" | "individual"; groupCode: string; groupName: string }>;
+    return [] as GroupDraft[];
   }
   const objectType = selected.recommendedObjectType;
   return groupDrafts.value.filter((item) => item.objectType === objectType);
@@ -1054,7 +1068,7 @@ function ensurePeriodBindingKeys(): void {
 }
 
 function addGroup(): void {
-  groupDrafts.value.push({ objectType: "team", groupCode: "", groupName: "" });
+  groupDrafts.value.push({ objectType: "team", groupCode: "", groupName: "", groupCodeLocked: false });
 }
 
 async function removeGroup(index: number): Promise<void> {
@@ -1195,6 +1209,7 @@ async function selectSession(sessionId: number): Promise<void> {
       objectType: item.objectType,
       groupCode: item.groupCode,
       groupName: item.groupName,
+      groupCodeLocked: true,
     }));
     await loadObjects(sessionId);
     if (contextStore.sessionId !== sessionId) {
@@ -1549,6 +1564,26 @@ async function resetObjects(): Promise<void> {
     resettingObjects.value = false;
   }
 }
+
+function parseRouteTab(rawTab: unknown): AssessmentManagementTab | null {
+  const value = Array.isArray(rawTab) ? rawTab[0] : rawTab;
+  if (value === "sessions" || value === "period" || value === "groups" || value === "objects") {
+    return value;
+  }
+  return null;
+}
+
+watch(
+  () => route.query.tab,
+  (tabFromRoute) => {
+    const nextTab = parseRouteTab(tabFromRoute);
+    if (!nextTab || activeTab.value === nextTab) {
+      return;
+    }
+    activeTab.value = nextTab;
+  },
+  { immediate: true },
+);
 
 watch(
   () => [createVisible.value, createForm.year, createForm.organizationId],
