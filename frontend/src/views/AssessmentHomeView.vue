@@ -187,8 +187,14 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="voteDialogVisible" title="线下票决结果录入" width="620px" destroy-on-close>
-      <el-form label-width="96px">
+    <el-dialog
+      v-model="voteDialogVisible"
+      title="线下票决结果录入"
+      width="980px"
+      class="vote-entry-dialog"
+      destroy-on-close
+    >
+      <el-form label-width="84px">
         <el-form-item label="考核对象">
           <span>{{ voteDialog.objectName }}</span>
         </el-form-item>
@@ -1398,6 +1404,10 @@ watch(
   min-height: 32px;
   color: #606266;
   font-size: 13px;
+}
+
+.overview-view :deep(.vote-entry-dialog) {
+  max-width: 96vw;
 }
 
 @media (max-width: 1280px) {

@@ -1402,7 +1402,8 @@ func calculateVoteModuleScore(
 		inputBySubject[subjectLabel] = gradeCountMap
 	}
 
-	totalScore := 0.0
+	totalWeightedScore := 0.0
+	totalSubjectWeight := 0.0
 	hasAnyVote := false
 	subjectDetails := make([]map[string]any, 0, len(config.VoterSubjects))
 	for _, subject := range config.VoterSubjects {
@@ -1410,12 +1411,13 @@ func calculateVoteModuleScore(
 		if subjectLabel == "" {
 			continue
 		}
+		totalSubjectWeight += subject.Weight
 		countMap := inputBySubject[subjectLabel]
 		subjectTotal := 0.0
 		for _, grade := range config.GradeScores {
 			subjectTotal += countMap[strings.TrimSpace(grade.Label)]
 		}
-		subjectContribution := 0.0
+		subjectScore := 0.0
 		if subjectTotal > 0 {
 			hasAnyVote = true
 			for _, grade := range config.GradeScores {
@@ -1425,20 +1427,26 @@ func calculateVoteModuleScore(
 					continue
 				}
 				rate := count / subjectTotal
-				subjectContribution += grade.Score * subject.Weight * rate
+				subjectScore += grade.Score * rate
 			}
 		}
-		totalScore += subjectContribution
+		subjectContribution := subjectScore * subject.Weight
+		totalWeightedScore += subjectContribution
 		subjectDetails = append(subjectDetails, map[string]any{
 			"subjectLabel":      subjectLabel,
 			"subjectWeight":     subject.Weight,
 			"subjectTotalVotes": subjectTotal,
+			"subjectScore":      subjectScore,
 			"scoreContribution": subjectContribution,
 		})
 	}
 	if !hasAnyVote {
 		return 0, nil, errors.New("vote input has no positive vote counts")
 	}
+	if totalSubjectWeight <= 0 {
+		return 0, nil, errors.New("sum of subject weights must be positive")
+	}
+	totalScore := totalWeightedScore / totalSubjectWeight
 
 	configDetailGrades := make([]map[string]any, 0, len(config.GradeScores))
 	for _, grade := range config.GradeScores {
@@ -1458,6 +1466,8 @@ func calculateVoteModuleScore(
 	detail := map[string]any{
 		"type":            "vote_weighted_rate_sum",
 		"calculatedScore": totalScore,
+		"weightedScoreSum": totalWeightedScore,
+		"totalSubjectWeight": totalSubjectWeight,
 		"voteConfig": map[string]any{
 			"gradeScores":   configDetailGrades,
 			"voterSubjects": configDetailSubjects,

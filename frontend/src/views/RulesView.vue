@@ -482,6 +482,12 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="formula-text">
+            民主评议分 = Σ(主体得分 * 主体权重 / 主体权重和)
+          </div>
+          <div class="formula-text">
+            主体权重和：{{ moduleVoteSubjectWeightSum.toFixed(4) }}
+          </div>
           <div v-if="canEditRule" class="table-footer-actions">
             <el-button type="primary" plain @click="addVoteSubjectRow">新增主体</el-button>
           </div>
@@ -760,6 +766,9 @@ const moduleDetailDraft = reactive({
 const moduleVoteGradeRows = ref<VoteGradeRow[]>([]);
 const moduleVoteSubjectRows = ref<VoteSubjectRow[]>([]);
 const moduleVoteConfigExtras = ref<Record<string, unknown>>({});
+const moduleVoteSubjectWeightSum = computed(() =>
+  moduleVoteSubjectRows.value.reduce((sum, item) => sum + asNumber(item.weight, 0), 0),
+);
 const gradeDetailVisible = ref(false);
 const gradeDetailTargetId = ref("");
 const gradeDetailDraft = reactive({

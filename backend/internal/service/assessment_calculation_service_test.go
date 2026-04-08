@@ -407,6 +407,48 @@ func TestUpsertModuleScores_VoteModuleCalculatedByBackend(t *testing.T) {
 	}
 }
 
+func TestCalculateVoteModuleScore_NormalizesBySubjectWeightSum(t *testing.T) {
+	score, _, err := calculateVoteModuleScore(
+		voteModuleConfig{
+			GradeScores: []voteGradeScoreConfig{
+				{Label: "优秀", Score: 100},
+				{Label: "良好", Score: 85},
+				{Label: "一般", Score: 70},
+				{Label: "较差", Score: 60},
+			},
+			VoterSubjects: []voteSubjectWeightConfig{
+				{Label: "主体A", Weight: 6},
+				{Label: "主体B", Weight: 4},
+			},
+		},
+		&SessionVoteInputPayload{
+			SubjectVotes: []SessionVoteSubjectInput{
+				{
+					SubjectLabel: "主体A",
+					GradeVotes: []SessionVoteGradeInput{
+						{GradeLabel: "优秀", Count: 30},
+						{GradeLabel: "良好", Count: 10},
+					},
+				},
+				{
+					SubjectLabel: "主体B",
+					GradeVotes: []SessionVoteGradeInput{
+						{GradeLabel: "一般", Count: 20},
+						{GradeLabel: "较差", Count: 20},
+					},
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("calculate vote module score failed: %v", err)
+	}
+	expected := 83.75
+	if !almostEqual(score, expected) {
+		t.Fatalf("unexpected score, got=%v want=%v", score, expected)
+	}
+}
+
 func TestUpsertModuleScores_VoteModuleRequiresVoteInput(t *testing.T) {
 	fixture := setupCalculationFixture(t)
 	replaceCalculationFixtureRuleContent(t, fixture, buildRuleContentJSONWithVoteModule(t))
