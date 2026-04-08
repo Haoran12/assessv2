@@ -360,7 +360,13 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="所属部门">
-              <el-select v-model="employeeForm.departmentId" clearable filterable style="width: 100%">
+              <el-select
+                v-model="employeeForm.departmentId"
+                clearable
+                filterable
+                style="width: 100%"
+                @change="onEmployeeFormDepartmentChange"
+              >
                 <el-option
                   v-for="dept in departmentOptionsByOrg(employeeForm.organizationId)"
                   :key="dept.id"
@@ -379,7 +385,7 @@
                 <el-option
                   v-for="level in activePositionLevels"
                   :key="level.id"
-                  :label="`${level.levelName} (${level.levelCode})`"
+                  :label="positionLevelOptionLabel(level)"
                   :value="level.id"
                 />
               </el-select>
@@ -455,7 +461,7 @@
             <el-option
               v-for="level in activePositionLevels"
               :key="level.id"
-              :label="`${level.levelName} (${level.levelCode})`"
+              :label="positionLevelOptionLabel(level)"
               :value="level.id"
             />
           </el-select>
@@ -988,6 +994,33 @@ function positionLevelName(levelId?: number): string {
 
 const activePositionLevels = computed(() => positionLevels.value.filter((item) => item.status === "active"));
 
+function positionLevelOptionLabel(level: PositionLevelItem): string {
+  const labelMap: Record<string, string> = {
+    leadership_main: "领导班子正职",
+    leadership_deputy: "领导班子副职",
+    department_main: "部门正职",
+    department_deputy: "部门副职",
+    general_management_personnel: "一般人员",
+  };
+  return labelMap[level.levelCode] ?? level.levelName;
+}
+
+function positionLevelIdByCode(levelCode: string): number | undefined {
+  return activePositionLevels.value.find((item) => item.levelCode === levelCode)?.id;
+}
+
+function resolveEmployeeDefaultPositionLevelId(departmentId?: number): number | undefined {
+  const preferredLevelCode = departmentId ? "department_main" : "leadership_main";
+  return positionLevelIdByCode(preferredLevelCode) ?? activePositionLevels.value[0]?.id;
+}
+
+function applyEmployeeDefaultPositionLevel(): void {
+  if (employeeForm.id) {
+    return;
+  }
+  employeeForm.positionLevelId = resolveEmployeeDefaultPositionLevelId(employeeForm.departmentId);
+}
+
 function departmentOptionsByOrg(organizationId?: number): DepartmentItem[] {
   if (!organizationId) {
     return departments.value;
@@ -1343,7 +1376,7 @@ function openEmployeeDialog(item?: EmployeeItem): void {
       empName: "",
       organizationId: seed.organizationId,
       departmentId: seed.departmentId,
-      positionLevelId: activePositionLevels.value[0]?.id,
+      positionLevelId: resolveEmployeeDefaultPositionLevelId(seed.departmentId),
       positionTitle: "",
       hireDate: "",
       status: "active",
@@ -1355,6 +1388,7 @@ function openEmployeeDialog(item?: EmployeeItem): void {
 function onEmployeeFormOrgChange(): void {
   if (!employeeForm.organizationId) {
     employeeForm.departmentId = undefined;
+    applyEmployeeDefaultPositionLevel();
     return;
   }
   const belongs = departmentOptionsByOrg(employeeForm.organizationId).some(
@@ -1363,6 +1397,11 @@ function onEmployeeFormOrgChange(): void {
   if (!belongs) {
     employeeForm.departmentId = undefined;
   }
+  applyEmployeeDefaultPositionLevel();
+}
+
+function onEmployeeFormDepartmentChange(): void {
+  applyEmployeeDefaultPositionLevel();
 }
 
 async function submitEmployee(): Promise<void> {
