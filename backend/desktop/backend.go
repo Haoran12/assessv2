@@ -254,7 +254,7 @@ func prepareDesktopEnv() error {
 	}
 
 	if os.Getenv("ASSESS_BUSINESS_MIGRATIONS_DIR") == "" || os.Getenv("ASSESS_ACCOUNTS_MIGRATIONS_DIR") == "" {
-		migrationsRoot, err := ensureEmbeddedMigrationsDir()
+		migrationsRoot, err := ensureEmbeddedMigrationsDir(dataRoot)
 		if err != nil {
 			// Development fallback when embedded runtime assets are unavailable.
 			migrationsRoot, err = resolveMigrationsRoot()
@@ -558,19 +558,18 @@ func persistPreferredDataYear(_ int) error {
 	return fmt.Errorf("preferred data year is deprecated in session-based mode")
 }
 
-func ensureEmbeddedMigrationsDir() (string, error) {
-	configRoot, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user config dir: %w", err)
+func ensureEmbeddedMigrationsDir(dataRoot string) (string, error) {
+	root := strings.TrimSpace(dataRoot)
+	if root == "" {
+		return "", fmt.Errorf("empty data root for embedded migrations")
 	}
-
-	targetDir := filepath.Join(configRoot, "AssessV2", "runtime", "migrations")
+	targetDir := filepath.Join(root, "runtime", "migrations")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return "", fmt.Errorf("create migration runtime dir: %w", err)
 	}
 
 	sqlCount := 0
-	err = fs.WalkDir(embeddedRuntimeAssets, "runtime/migrations", func(assetPath string, d fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(embeddedRuntimeAssets, "runtime/migrations", func(assetPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

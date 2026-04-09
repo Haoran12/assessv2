@@ -69,6 +69,29 @@ function Resolve-WailsCommand {
     throw "Missing required command: wails (or `%GOPATH%\\bin\\wails.exe`)"
 }
 
+function Resolve-DesktopOutputFilename {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WailsConfigPath
+    )
+
+    if (-not (Test-FilePath $WailsConfigPath)) {
+        throw "Missing Wails config: $WailsConfigPath"
+    }
+
+    $raw = Get-Content -Path $WailsConfigPath -Raw
+    $config = $raw | ConvertFrom-Json
+    $output = ""
+    if ($config -and $null -ne $config.outputfilename) {
+        $output = [string]$config.outputfilename
+    }
+    $output = $output.Trim()
+    if ([string]::IsNullOrWhiteSpace($output)) {
+        throw "Invalid wails outputfilename in: $WailsConfigPath"
+    }
+    return "$output.exe"
+}
+
 function Generate-DesktopIcons {
     param(
         [Parameter(Mandatory = $true)]
@@ -225,8 +248,13 @@ function Stop-RunningExeAtPath {
         return
     }
 
+    $exeName = [System.IO.Path]::GetFileName($ExePath)
+    if ([string]::IsNullOrWhiteSpace($exeName)) {
+        return
+    }
+    $escapedExeName = $exeName.Replace("'", "''")
     $normalizedTarget = ([System.IO.Path]::GetFullPath($ExePath)).ToLowerInvariant()
-    $targets = Get-CimInstance Win32_Process -Filter "Name='assessv2-desktop.exe'" |
+    $targets = Get-CimInstance Win32_Process -Filter ("Name='{0}'" -f $escapedExeName) |
         Where-Object { $_.ExecutablePath } |
         Where-Object {
             try {
@@ -250,7 +278,8 @@ $projectRoot = $PSScriptRoot
 $frontendDir = Join-Path $projectRoot "frontend"
 $backendDir = Join-Path $projectRoot "backend"
 $desktopDir = Join-Path $projectRoot "backend/desktop"
-$rootExe = Join-Path $projectRoot "assessv2-desktop.exe"
+$desktopExeName = Resolve-DesktopOutputFilename -WailsConfigPath (Join-Path $desktopDir "wails.json")
+$rootExe = Join-Path $projectRoot $desktopExeName
 
 Write-Step "Checking build toolchain"
 Require-Command "go"
@@ -284,7 +313,7 @@ if (-not $SkipFrontendBuild) {
     Write-Step "Building frontend"
     Push-Location $frontendDir
     try {
-        if ((-not $SkipNpmInstall) -and (-not (Test-Path "node_modules"))) {
+        if (-not $SkipNpmInstall) {
             Invoke-External $npmCommand "ci"
         }
         if (-not $SkipTests) {
@@ -311,7 +340,7 @@ try {
 }
 
 Write-Step "Publishing executable to project root"
-$desktopExe = Join-Path $desktopDir "build/bin/assessv2-desktop.exe"
+$desktopExe = Join-Path $desktopDir ("build/bin/{0}" -f $desktopExeName)
 if (-not (Test-Path $desktopExe)) {
     throw "Desktop executable not found: $desktopExe"
 }
